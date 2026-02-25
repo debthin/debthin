@@ -4,10 +4,6 @@ dist_output/
 # Populated by curate.py, committed only when changed
 curated/all.txt
 
-# GPG artifacts
-*.gpg
-*.asc
-
 # Temp files
 /tmp/
 *.gz
