@@ -367,14 +367,25 @@
 
     <p>Add the public key, then configure sources and apt.</p>
 
+    <p style="font-size:0.85rem;color:#888;margin-bottom:0.25rem;">If <code>gpg</code> is available:</p>
     <div class="code-block">
       <div class="code-header">
-        <span class="code-filename">install key</span>
+        <span class="code-filename">install key (armored)</span>
         <button class="copy-btn" onclick="copyCode(this)">copy</button>
       </div>
-      <pre><span class="cv">curl -fsSL https://debthin.org/debthin-keyring.gpg \
+      <pre><span class="cv">curl -fsSL http://debthin.org/debthin-keyring.gpg \
   | gpg --dearmor \
   | tee /etc/apt/trusted.gpg.d/debthin.gpg > /dev/null</span></pre>
+    </div>
+
+    <p style="font-size:0.85rem;color:#888;margin-bottom:0.25rem;">Without <code>gpg</code> (binary key, works on bare containers):</p>
+    <div class="code-block">
+      <div class="code-header">
+        <span class="code-filename">install key (binary)</span>
+        <button class="copy-btn" onclick="copyCode(this)">copy</button>
+      </div>
+      <pre><span class="cv">curl -fsSL http://debthin.org/debthin-keyring-binary.gpg \
+  -o /etc/apt/trusted.gpg.d/debthin.gpg</span></pre>
     </div>
 
     <div class="code-block">
@@ -383,7 +394,7 @@
         <button class="copy-btn" onclick="copyCode(this)">copy</button>
       </div>
       <pre><span class="ck">Types:</span> <span class="cv">deb</span>
-<span class="ck">URIs:</span> <span class="cs">https://debthin.org</span>
+<span class="ck">URIs:</span> <span class="cs">http://debthin.org</span>
 <span class="ck">Suites:</span> <span class="cv">trixie</span>
 <span class="ck">Components:</span> <span class="cv">main</span>
 <span class="ck">Signed-By:</span> <span class="cs">/etc/apt/trusted.gpg.d/debthin.gpg</span>
@@ -394,6 +405,16 @@
 <span class="ck">Suites:</span> <span class="cv">trixie-security</span>
 <span class="ck">Components:</span> <span class="cv">main</span>
 <span class="ck">Signed-By:</span> <span class="cs">/usr/share/keyrings/debian-archive-keyring.gpg</span></pre>
+    </div>
+
+    <p style="margin-top:1rem;font-size:0.85rem;color:#888;">Or classic sources.list format:</p>
+    <div class="code-block">
+      <div class="code-header">
+        <span class="code-filename">/etc/apt/sources.list</span>
+        <button class="copy-btn" onclick="copyCode(this)">copy</button>
+      </div>
+      <pre>deb [signed-by=/etc/apt/trusted.gpg.d/debthin.gpg] http://debthin.org trixie main
+deb [signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] https://security.debian.org/debian-security trixie-security main</pre>
     </div>
 
     <div class="code-block">

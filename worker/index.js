@@ -20,6 +20,7 @@ const SUITE_ALIASES = {
 const KV_PATTERNS = [
   /^index\.html$/,
   /^debthin-keyring\.gpg$/,
+  /^debthin-keyring-binary\.gpg$/,
   /^dists\/[^/]+\/InRelease$/,
   /^dists\/[^/]+\/Release$/,
   /^dists\/[^/]+\/Release\.gpg$/,

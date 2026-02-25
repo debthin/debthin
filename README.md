@@ -45,17 +45,26 @@ Aliases are resolved in the worker - `sources.list` can use either form.
 
 ### Install key
 
+If `gpg` is available:
+
 ```bash
-curl -fsSL https://debthin.org/debthin-keyring.gpg \
+curl -fsSL http://debthin.org/debthin-keyring.gpg \
   | gpg --dearmor \
   | tee /etc/apt/trusted.gpg.d/debthin.gpg > /dev/null
+```
+
+Without `gpg` (binary key, works on bare containers):
+
+```bash
+curl -fsSL http://debthin.org/debthin-keyring-binary.gpg \
+  -o /etc/apt/trusted.gpg.d/debthin.gpg
 ```
 
 ### /etc/apt/sources.list.d/debthin.sources
 
 ```
 Types: deb
-URIs: https://debthin.org
+URIs: http://debthin.org
 Suites: trixie
 Components: main
 Signed-By: /etc/apt/trusted.gpg.d/debthin.gpg
@@ -66,6 +75,13 @@ URIs: https://security.debian.org/debian-security
 Suites: trixie-security
 Components: main
 Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
+```
+
+Or classic sources.list format:
+
+```
+deb [signed-by=/etc/apt/trusted.gpg.d/debthin.gpg] http://debthin.org trixie main
+deb [signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] https://security.debian.org/debian-security trixie-security main
 ```
 
 ### /etc/apt/apt.conf.d/99thin
