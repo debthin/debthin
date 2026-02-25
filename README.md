@@ -56,15 +56,16 @@ curl -fsSL https://debthin.org/debthin-keyring.gpg \
 ```
 Types: deb
 URIs: https://debthin.org
-Suites: stable stable-updates
+Suites: trixie
 Components: main
 Signed-By: /etc/apt/trusted.gpg.d/debthin.gpg
 
 # Security goes direct - keep it independent
 Types: deb
 URIs: https://security.debian.org/debian-security
-Suites: stable-security
+Suites: trixie-security
 Components: main
+Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
 ```
 
 ### /etc/apt/apt.conf.d/99thin
