@@ -1,119 +1,117 @@
 # debthin
 
-Curated Debian package index mirror. Serves slim `Packages.gz` indexes from
-Cloudflare KV. All actual `.deb` fetches redirect 301 to `deb.debian.org`.
+Lean Debian package indexes at [debthin.org](https://debthin.org).
 
-**Result:** apt index files ~95% smaller. Package downloads unaffected.
+A minimal Debian container image is around 90MB. The first thing you do is
+`apt update` - and apt downloads another 90MB of index files describing 68,000
+packages, the overwhelming majority of which will never be installed on a
+headless server. They sit in `/var/lib/apt/lists`, consuming space and bandwidth
+on every container, on every host, on every update cycle, indefinitely.
+
+debthin serves curated `Packages.gz` indexes filtered to ~6,700 server-relevant
+packages - admin, database, devel, networking, interpreters, libs, web, video
+and related sections. Desktop, GUI, games, fonts and hardware-specific packages
+are excluded. The result is an index around 90% smaller than upstream.
+Everything else - the actual `.deb` files - redirects transparently to
+`deb.debian.org`. Nothing is rehosted.
+
+The list is rebuilt daily from Debian's own Packages files, ranked by
+[popcon](https://popcon.debian.org) install counts with a minimum threshold of
+2,500 reported installations. Obscure but legitimate packages can be added via
+pull request.
 
 ## Architecture
 
 ```
 apt client
   │
-  ├── GET dists/trixie/InRelease          → Cloudflare KV (slim, signed)
-  ├── GET dists/trixie/main/binary-amd64/Packages.gz  → Cloudflare KV (~5k pkgs)
-  └── GET pool/main/a/apt/apt_2.x_amd64.deb  → 301 → deb.debian.org
+  ├── GET dists/trixie/InRelease                      → Cloudflare KV (signed)
+  ├── GET dists/trixie/main/binary-amd64/Packages.gz → Cloudflare KV (~6700 pkgs)
+  └── GET pool/main/a/apt/apt_2.x_amd64.deb          → 301 → deb.debian.org
 ```
 
-## Suites
+## Suites & Architectures
 
-| Alias        | Codename  |
-|--------------|-----------|
-| testing      | forky     |
-| stable       | trixie    |
-| oldstable    | bookworm  |
-| oldoldstable | bullseye  |
+| Alias        | Codename | Architectures                  |
+|--------------|----------|--------------------------------|
+| testing      | forky    | amd64 arm64 armhf i386 riscv64 |
+| stable       | trixie   | amd64 arm64 armhf i386 riscv64 |
+| oldstable    | bookworm | amd64 arm64 armhf i386         |
+| oldoldstable | bullseye | amd64 arm64 armhf i386         |
 
 Aliases are resolved in the worker - `sources.list` can use either form.
 
-## Architectures
-
-`amd64`, `arm64`, `armhf`, `i386`, `riscv64`  
-Note: `riscv64` only available for trixie and forky.
-
 ## Setup
 
-### 1. Cloudflare
+### Install key
 
 ```bash
-npm install -g wrangler
-wrangler login
-
-# Create KV namespace
-wrangler kv:namespace create MIRROR_KV
-wrangler kv:namespace create MIRROR_KV --preview
-# Paste the IDs into wrangler.toml
-
-# Deploy worker
-wrangler deploy
+curl -fsSL https://debthin.org/debthin-keyring.gpg \
+  | gpg --dearmor \
+  | tee /etc/apt/trusted.gpg.d/debthin.gpg > /dev/null
 ```
 
-### 2. GPG signing key
-
-Generate a dedicated signing key (no expiry, no passphrase for CI use):
-
-```bash
-gpg --batch --gen-key <<EOF
-Key-Type: RSA
-Key-Length: 4096
-Subkey-Type: RSA
-Subkey-Length: 4096
-Name-Real: Debian Slim Mirror
-Name-Email: mirror@example.com
-Expire-Date: 0
-%no-protection
-EOF
-
-gpg --list-keys mirror@example.com
-# Note the fingerprint
-
-# Export for GitHub secret
-gpg --armor --export-secret-keys FINGERPRINT
-```
-
-Add to GitHub secrets:
-- `GPG_PRIVATE_KEY` - output of above
-- `GPG_KEY_ID` - fingerprint
-- `CF_ACCOUNT_ID` - Cloudflare account ID
-- `CF_API_TOKEN` - CF API token with KV write permission
-- `CF_KV_NAMESPACE_ID` - from wrangler output above
-
-### 3. Distribute public key to containers
-
-```bash
-gpg --armor --export FINGERPRINT > mirror-keyring.gpg
-# Add to container images or LXC template:
-cp mirror-keyring.gpg /etc/apt/trusted.gpg.d/slim-mirror.gpg
-```
-
-### 4. sources.list
+### /etc/apt/sources.list.d/debthin.sources
 
 ```
-deb [signed-by=/etc/apt/trusted.gpg.d/slim-mirror.gpg] https://YOUR_WORKER.workers.dev/ stable main
-deb [signed-by=/etc/apt/trusted.gpg.d/slim-mirror.gpg] https://YOUR_WORKER.workers.dev/ stable-updates main
-deb [signed-by=/etc/apt/trusted.gpg.d/slim-mirror.gpg] https://security.debian.org/debian-security stable-security main
+Types: deb
+URIs: https://debthin.org
+Suites: stable stable-updates
+Components: main
+Signed-By: /etc/apt/trusted.gpg.d/debthin.gpg
+
+# Security goes direct - keep it independent
+Types: deb
+URIs: https://security.debian.org/debian-security
+Suites: stable-security
+Components: main
 ```
 
-Note: security.debian.org goes direct - its package set is small and
-index filtering is less valuable there.
+### /etc/apt/apt.conf.d/99thin
+
+```
+// Strip translation files and use compressed indexes
+Acquire::Languages "none";
+Acquire::GzipIndexes "true";
+Acquire::CompressionTypes::Order:: "gz";
+```
 
 ## Curation
 
-`curated/packages.txt` - ~4000 server-relevant packages  
-`curated/deps.txt` - ~1000 dependency packages  
-`curated/all.txt` - combined, used by filter.py  
+`curated/packages.txt` - ~6,000 primary server packages (popcon ≥ 2,500)  
+`curated/deps.txt` - ~700 dependency packages  
+`curated/all.txt` - combined, generated by pipeline, not committed
 
-To add packages: edit `packages.txt`, commit, push. Next pipeline run picks it up.
+To add packages: edit `curated/packages.txt`, commit, push.
 
 To rebuild from popcon:
 ```bash
 python3 scripts/curate.py --suite trixie --arch amd64
 ```
 
-Or trigger manually via GitHub Actions with `force_recurate: true`.
+Or trigger via GitHub Actions with `force_recurate: true`.
 
 ## Pipeline
 
-Runs daily at 04:00 UTC. Re-curates from popcon weekly (Sundays).
+Runs daily at 04:00 UTC. Re-curates from popcon on Sundays.
 
-Secrets required in GitHub repository settings - see Setup above.
+GitHub secrets required:
+
+| Secret | Value |
+|--------|-------|
+| `GPG_PRIVATE_KEY` | `gpg --armor --export-secret-keys mirror@debthin.org` |
+| `GPG_KEY_ID` | key fingerprint |
+| `CF_ACCOUNT_ID` | Cloudflare account ID |
+| `CF_API_TOKEN` | CF API token with KV write permission |
+| `CF_KV_NAMESPACE_ID` | from `wrangler kv:namespace create MIRROR_KV` |
+
+## Trademark notice
+
+Debian is a registered trademark of
+[Software in the Public Interest, Inc](https://www.spi-inc.org/).
+debthin is an independent project and is not affiliated with, endorsed by,
+or sponsored by the Debian Project. Use of the name "deb" in "debthin" refers
+to the `.deb` package format and Debian ecosystem, consistent with
+[Debian's trademark policy](https://www.debian.org/trademark) for software
+that works with Debian systems. debthin does not redistribute Debian packages -
+all package files are served directly from official Debian mirrors.
