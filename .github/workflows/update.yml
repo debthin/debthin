@@ -1,0 +1,140 @@
+name: Update Slim Mirror
+
+on:
+  schedule:
+    # Daily at 04:00 UTC - after Debian mirror sync completes
+    - cron: "0 4 * * *"
+  workflow_dispatch:
+    inputs:
+      force_recurate:
+        description: "Re-run curation (rebuilds packages.txt from popcon)"
+        type: boolean
+        default: false
+
+concurrency:
+  group: update-mirror
+  cancel-in-progress: false
+
+env:
+  UPSTREAM: https://deb.debian.org/debian
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      # ------------------------------------------------------------------ #
+      # Optional: re-curate from popcon + Packages index
+      # Runs on schedule weekly (Sunday) or manual trigger
+      # ------------------------------------------------------------------ #
+      - name: Re-curate package list
+        if: >
+          github.event.inputs.force_recurate == 'true' ||
+          github.event_name == 'schedule' && 
+          format('{0}', github.run_number) % 7 == '0'
+        run: |
+          python3 scripts/curate.py \
+            --suite trixie \
+            --arch amd64 \
+            --output curated/packages.txt \
+            --deps-output curated/deps.txt
+
+      - name: Combine package lists
+        run: |
+          sort -u curated/packages.txt curated/deps.txt > curated/all.txt
+          echo "Total packages in list: $(wc -l < curated/all.txt)"
+
+      # ------------------------------------------------------------------ #
+      # Fetch and filter for all suite/arch combinations
+      # ------------------------------------------------------------------ #
+      - name: Fetch and filter indexes
+        run: |
+          mkdir -p dist_output
+
+          SUITES=(forky trixie bookworm bullseye)
+          ARCHES=(amd64 arm64 i386 armhf riscv64)
+
+          # riscv64 only available from trixie onwards
+          RISCV_SUITES=(forky trixie)
+
+          for suite in "${SUITES[@]}"; do
+            for arch in "${ARCHES[@]}"; do
+              # Skip riscv64 for older suites
+              if [[ "$arch" == "riscv64" ]]; then
+                if [[ ! " ${RISCV_SUITES[*]} " =~ " $suite " ]]; then
+                  echo "Skipping $suite/$arch (not available)"
+                  continue
+                fi
+              fi
+
+              url="$UPSTREAM/dists/$suite/main/binary-$arch/Packages.gz"
+              outdir="dist_output/dists/$suite/main/binary-$arch"
+              mkdir -p "$outdir"
+
+              echo "Processing $suite/$arch..."
+
+              # Fetch with retry
+              if curl -sf --retry 3 --retry-delay 5 \
+                  -o /tmp/Packages.gz "$url"; then
+                python3 scripts/filter.py \
+                  --input /tmp/Packages.gz \
+                  --allowed curated/all.txt \
+                  --output "$outdir/Packages.gz" \
+                  --stats
+              else
+                echo "WARNING: Could not fetch $suite/$arch - skipping" >&2
+              fi
+            done
+
+            # Generate Release + InRelease for suite
+            bash scripts/sign.sh "dist_output/dists/$suite"
+          done
+
+      # ------------------------------------------------------------------ #
+      # Import GPG signing key from secret
+      # ------------------------------------------------------------------ #
+      - name: Import GPG key
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_KEY_ID: ${{ secrets.GPG_KEY_ID }}
+        run: |
+          echo "$GPG_PRIVATE_KEY" | gpg --batch --import
+          echo "$GPG_KEY_ID:6:" | gpg --import-ownertrust
+
+      # ------------------------------------------------------------------ #
+      # Push to Cloudflare KV
+      # ------------------------------------------------------------------ #
+      - name: Upload indexes to Cloudflare KV
+        env:
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CF_KV_NAMESPACE_ID: ${{ secrets.CF_KV_NAMESPACE_ID }}
+        run: |
+          python3 scripts/kv_upload.py \
+            --dir dist_output \
+            --account "$CF_ACCOUNT_ID" \
+            --namespace "$CF_KV_NAMESPACE_ID" \
+            --token "$CF_API_TOKEN"
+
+      # ------------------------------------------------------------------ #
+      # Commit updated curated list if it changed
+      # ------------------------------------------------------------------ #
+      - name: Commit updated package list
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add curated/
+          if git diff --staged --quiet; then
+            echo "No changes to curated list"
+          else
+            git commit -m "chore: update curated package list [skip ci]"
+            git push
+          fi

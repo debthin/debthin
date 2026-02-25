@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>debthin - lean Debian package indexes</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --red:     #c0392b;
+      --red-dim: #7a1f15;
+      --bg:      #0e0e0e;
+      --bg2:     #161616;
+      --bg3:     #1e1e1e;
+      --border:  #2a2a2a;
+      --muted:   #555;
+      --text:    #d4d4d4;
+      --bright:  #f0f0f0;
+      --mono:    'IBM Plex Mono', monospace;
+      --sans:    'IBM Plex Sans', sans-serif;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--sans);
+      font-size: 15px;
+      line-height: 1.7;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ── Layout ── */
+    .wrap {
+      max-width: 760px;
+      margin: 0 auto;
+      padding: 0 2rem;
+    }
+
+    /* ── Header ── */
+    header {
+      border-bottom: 1px solid var(--border);
+      padding: 3.5rem 0 3rem;
+      position: relative;
+      overflow: hidden;
+    }
+
+    header::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 3px;
+      background: var(--red);
+    }
+
+    .logo {
+      font-family: var(--mono);
+      font-size: 2.2rem;
+      font-weight: 600;
+      color: var(--bright);
+      letter-spacing: -0.03em;
+      display: flex;
+      align-items: baseline;
+      gap: 0;
+    }
+
+    .logo-deb { color: var(--red); }
+
+    .tagline {
+      font-family: var(--mono);
+      font-size: 0.8rem;
+      color: var(--muted);
+      margin-top: 0.4rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    /* ── Sections ── */
+    section {
+      padding: 2.8rem 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    section:last-child { border-bottom: none; }
+
+    h2 {
+      font-family: var(--mono);
+      font-size: 0.7rem;
+      font-weight: 500;
+      color: var(--red);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      margin-bottom: 1.2rem;
+    }
+
+    p {
+      color: var(--text);
+      font-weight: 300;
+      max-width: 62ch;
+    }
+
+    p + p { margin-top: 0.9rem; }
+
+    /* ── Stats bar ── */
+    .stats {
+      display: flex;
+      gap: 0;
+      margin: 2rem 0 0;
+      border: 1px solid var(--border);
+    }
+
+    .stat {
+      flex: 1;
+      padding: 1rem 1.4rem;
+      border-right: 1px solid var(--border);
+    }
+
+    .stat:last-child { border-right: none; }
+
+    .stat-val {
+      font-family: var(--mono);
+      font-size: 1.5rem;
+      font-weight: 600;
+      color: var(--bright);
+      display: block;
+      line-height: 1.2;
+    }
+
+    .stat-label {
+      font-family: var(--mono);
+      font-size: 0.68rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    /* ── Code blocks ── */
+    .code-block {
+      margin-top: 1.4rem;
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--red);
+    }
+
+    .code-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.55rem 1rem;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg3);
+    }
+
+    .code-filename {
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      color: var(--muted);
+      letter-spacing: 0.04em;
+    }
+
+    .copy-btn {
+      font-family: var(--mono);
+      font-size: 0.65rem;
+      color: var(--muted);
+      background: none;
+      border: 1px solid var(--border);
+      padding: 0.2rem 0.6rem;
+      cursor: pointer;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      transition: color 0.15s, border-color 0.15s;
+    }
+
+    .copy-btn:hover { color: var(--bright); border-color: var(--muted); }
+    .copy-btn.copied { color: #4caf50; border-color: #4caf50; }
+
+    pre {
+      font-family: var(--mono);
+      font-size: 0.82rem;
+      line-height: 1.65;
+      color: var(--text);
+      padding: 1.1rem 1rem;
+      overflow-x: auto;
+      white-space: pre;
+    }
+
+    .cm  { color: var(--muted); }        /* comment */
+    .ck  { color: #7eb8d4; }             /* keyword / directive */
+    .cv  { color: #b5c9a0; }             /* value */
+    .cs  { color: #c9956e; }             /* string / url */
+    .ca  { color: #e0a88a; }             /* arch tag */
+
+    /* ── Trademark notice ── */
+    .notice {
+      margin-top: 1.4rem;
+      padding: 1rem 1.2rem;
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      font-size: 0.82rem;
+      color: var(--muted);
+      line-height: 1.6;
+    }
+
+    .notice a {
+      color: #7eb8d4;
+      text-decoration: none;
+    }
+
+    .notice a:hover { text-decoration: underline; }
+
+    /* ── Suite table ── */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 1.4rem;
+      font-family: var(--mono);
+      font-size: 0.82rem;
+    }
+
+    th {
+      text-align: left;
+      font-weight: 500;
+      color: var(--muted);
+      font-size: 0.68rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      padding: 0.5rem 1rem 0.5rem 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    td {
+      padding: 0.55rem 1rem 0.55rem 0;
+      border-bottom: 1px solid var(--border);
+      color: var(--text);
+    }
+
+    td:first-child { color: var(--bright); }
+    tr:last-child td { border-bottom: none; }
+
+    .badge {
+      display: inline-block;
+      font-size: 0.62rem;
+      padding: 0.1rem 0.4rem;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      vertical-align: middle;
+      margin-left: 0.4rem;
+    }
+
+    /* ── Footer ── */
+    footer {
+      padding: 2rem 0;
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      color: var(--muted);
+    }
+
+    /* ── Animations ── */
+    @keyframes fadein {
+      from { opacity: 0; transform: translateY(6px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    header, section {
+      animation: fadein 0.4s ease both;
+    }
+
+    section:nth-child(2) { animation-delay: 0.05s; }
+    section:nth-child(3) { animation-delay: 0.10s; }
+    section:nth-child(4) { animation-delay: 0.15s; }
+    section:nth-child(5) { animation-delay: 0.20s; }
+  </style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="logo"><span class="logo-deb">deb</span>thin</div>
+    <div class="tagline">lean debian package indexes &middot; debthin.org</div>
+  </header>
+
+  <section>
+    <h2>What</h2>
+    <p>
+      A minimal Debian container image is around 90MB. The first thing you do
+      is <code>apt update</code> - and apt downloads another 90MB of index files
+      describing 68,000 packages, the overwhelming majority of which will never
+      be installed on a headless server. They sit in
+      <code>/var/lib/apt/lists</code>, consuming space and bandwidth on every
+      container, on every host, on every update cycle, indefinitely.
+    </p>
+    <p>
+      debthin serves curated <code>Packages.gz</code> indexes filtered to
+      ~6,700 server-relevant packages - admin, database, devel, networking,
+      interpreters, libs, web, video and related sections. Desktop, GUI,
+      games, fonts and hardware-specific packages are excluded.
+      The result is an index around 90% smaller than upstream.
+      Everything else - the actual <code>.deb</code> files - redirects
+      transparently to <code>deb.debian.org</code>. Nothing is rehosted.
+    </p>
+    <p>
+      The list is rebuilt daily from Debian's own Packages files, ranked by
+      <a href="https://popcon.debian.org" style="color:#7eb8d4;text-decoration:none">popcon</a>
+      install counts with a minimum threshold of 2,500 reported installations.
+      Obscure but legitimate packages can be added via pull request.
+    </p>
+
+    <div class="stats">
+      <div class="stat">
+        <span class="stat-val">~6,700</span>
+        <span class="stat-label">packages indexed</span>
+      </div>
+      <div class="stat">
+        <span class="stat-val">90%</span>
+        <span class="stat-label">index size reduction</span>
+      </div>
+      <div class="stat">
+        <span class="stat-val">5</span>
+        <span class="stat-label">architectures</span>
+      </div>
+      <div class="stat">
+        <span class="stat-val">4</span>
+        <span class="stat-label">suites</span>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Suites &amp; Architectures</h2>
+    <table>
+      <thead>
+        <tr><th>Alias</th><th>Codename</th><th>Architectures</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>testing</td>
+          <td>forky</td>
+          <td>amd64 arm64 armhf i386 riscv64</td>
+        </tr>
+        <tr>
+          <td>stable</td>
+          <td>trixie</td>
+          <td>amd64 arm64 armhf i386 riscv64</td>
+        </tr>
+        <tr>
+          <td>oldstable</td>
+          <td>bookworm</td>
+          <td>amd64 arm64 armhf i386</td>
+        </tr>
+        <tr>
+          <td>oldoldstable</td>
+          <td>bullseye</td>
+          <td>amd64 arm64 armhf i386</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Setup</h2>
+
+    <p>Add the public key, then configure sources and apt.</p>
+
+    <div class="code-block">
+      <div class="code-header">
+        <span class="code-filename">install key</span>
+        <button class="copy-btn" onclick="copyCode(this)">copy</button>
+      </div>
+      <pre><span class="cv">curl -fsSL https://debthin.org/debthin-keyring.gpg \
+  | gpg --dearmor \
+  | tee /etc/apt/trusted.gpg.d/debthin.gpg > /dev/null</span></pre>
+    </div>
+
+    <div class="code-block">
+      <div class="code-header">
+        <span class="code-filename">/etc/apt/sources.list.d/debthin.sources</span>
+        <button class="copy-btn" onclick="copyCode(this)">copy</button>
+      </div>
+      <pre><span class="ck">Types:</span> <span class="cv">deb</span>
+<span class="ck">URIs:</span> <span class="cs">https://debthin.org</span>
+<span class="ck">Suites:</span> <span class="cv">stable stable-updates</span>
+<span class="ck">Components:</span> <span class="cv">main</span>
+<span class="ck">Signed-By:</span> <span class="cs">/etc/apt/trusted.gpg.d/debthin.gpg</span>
+
+<span class="cm"># Security goes direct - keep it independent</span>
+<span class="ck">Types:</span> <span class="cv">deb</span>
+<span class="ck">URIs:</span> <span class="cs">https://security.debian.org/debian-security</span>
+<span class="ck">Suites:</span> <span class="cv">stable-security</span>
+<span class="ck">Components:</span> <span class="cv">main</span></pre>
+    </div>
+
+    <div class="code-block">
+      <div class="code-header">
+        <span class="code-filename">/etc/apt/apt.conf.d/99thin</span>
+        <button class="copy-btn" onclick="copyCode(this)">copy</button>
+      </div>
+      <pre><span class="cm">// Strip translation files and use compressed indexes</span>
+<span class="ck">Acquire::Languages</span> <span class="cs">"none"</span><span class="cv">;</span>
+<span class="ck">Acquire::GzipIndexes</span> <span class="cs">"true"</span><span class="cv">;</span>
+<span class="ck">Acquire::CompressionTypes::Order::</span> <span class="cs">"gz"</span><span class="cv">;</span></pre>
+    </div>
+  </section>
+
+  <section>
+    <h2>Trademark notice</h2>
+    <div class="notice">
+      Debian is a registered trademark of
+      <a href="https://www.spi-inc.org/">Software in the Public Interest, Inc</a>.
+      debthin is an independent project and is not affiliated with,
+      endorsed by, or sponsored by the Debian Project.
+      Use of the name "deb" in "debthin" refers to the
+      <code>.deb</code> package format and Debian ecosystem,
+      consistent with
+      <a href="https://www.debian.org/trademark">Debian's trademark policy</a>
+      for software that works with Debian systems.
+      debthin does not redistribute Debian packages -
+      all package files are served directly from official Debian mirrors.
+    </div>
+  </section>
+
+  <section>
+    <h2>Source</h2>
+    <p>
+      Pipeline, worker and curation scripts are open source.<br>
+      <a href="https://github.com/debthin/debthin" style="font-family:var(--mono);font-size:0.85rem;color:#7eb8d4;text-decoration:none">
+        github.com/debthin/debthin
+      </a>
+    </p>
+  </section>
+
+  <footer>
+    debthin.org &mdash; rebuilt daily &mdash; no cookies, no tracking, no ads
+  </footer>
+
+</div>
+
+<script>
+  function copyCode(btn) {
+    const pre = btn.closest('.code-block').querySelector('pre');
+    const text = pre.innerText;
+    navigator.clipboard.writeText(text).then(() => {
+      btn.textContent = 'copied';
+      btn.classList.add('copied');
+      setTimeout(() => {
+        btn.textContent = 'copy';
+        btn.classList.remove('copied');
+      }, 1800);
+    });
+  }
+</script>
+</body>
+</html>
