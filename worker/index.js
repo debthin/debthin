@@ -11,12 +11,13 @@
 const UPSTREAM_BASE = "https://deb.debian.org/debian";
 
 const SUITE_ALIASES = {
-  stable:              "trixie",
-  oldstable:           "bookworm",
-  oldoldstable:        "bullseye",
-  testing:             "forky",
-  "stable-updates":    "trixie-updates",
-  "oldstable-updates": "bookworm-updates",
+  stable:                   "trixie",
+  oldstable:                "bookworm",
+  oldoldstable:             "bullseye",
+  testing:                  "forky",
+  "stable-updates":         "trixie-updates",
+  "oldstable-updates":      "bookworm-updates",
+  "oldoldstable-updates":   "bullseye-updates",
 };
 
 const KV_PATTERNS = [
