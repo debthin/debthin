@@ -2,7 +2,8 @@ name: Update debthin indexes
 
 on:
   schedule:
-    - cron: "0 4 * * *"
+    - cron: "0 4 * * *"   # daily index update
+    - cron: "0 3 * * 0"   # weekly re-curation on Sundays
   workflow_dispatch:
     inputs:
       force_recurate:
@@ -36,8 +37,7 @@ jobs:
       - name: Re-curate package list
         if: >
           github.event.inputs.force_recurate == 'true' ||
-          github.event_name == 'schedule' &&
-          format('{0}', github.run_number) % 7 == '0'
+          (github.event_name == 'schedule' && github.event.schedule == '0 3 * * 0')
         run: |
           python3 scripts/curate.py \
             --suite trixie \
