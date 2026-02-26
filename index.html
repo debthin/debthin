@@ -97,6 +97,15 @@
       margin-bottom: 1.2rem;
     }
 
+    h3 {
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      font-weight: 500;
+      color: var(--bright);
+      letter-spacing: 0.06em;
+      margin: 2rem 0 0.6rem;
+    }
+
     p {
       color: var(--text);
       font-weight: 300;
@@ -188,11 +197,18 @@
       white-space: pre;
     }
 
-    .cm  { color: var(--muted); }        /* comment */
-    .ck  { color: #7eb8d4; }             /* keyword / directive */
-    .cv  { color: #b5c9a0; }             /* value */
-    .cs  { color: #c9956e; }             /* string / url */
-    .ca  { color: #e0a88a; }             /* arch tag */
+    .cm  { color: var(--muted); }
+    .ck  { color: #7eb8d4; }
+    .cv  { color: #b5c9a0; }
+    .cs  { color: #c9956e; }
+    .ca  { color: #e0a88a; }
+
+    /* ── Hint text ── */
+    .hint {
+      font-size: 0.82rem;
+      color: var(--muted);
+      margin-top: 1rem;
+    }
 
     /* ── Trademark notice ── */
     .notice {
@@ -275,6 +291,9 @@
     section:nth-child(3) { animation-delay: 0.10s; }
     section:nth-child(4) { animation-delay: 0.15s; }
     section:nth-child(5) { animation-delay: 0.20s; }
+    section:nth-child(6) { animation-delay: 0.25s; }
+    section:nth-child(7) { animation-delay: 0.30s; }
+    section:nth-child(8) { animation-delay: 0.35s; }
   </style>
 </head>
 <body>
@@ -285,6 +304,7 @@
     <div class="tagline">lean debian package indexes &middot; debthin.org</div>
   </header>
 
+  <!-- ── What ── -->
   <section>
     <h2>What</h2>
     <p>
@@ -298,7 +318,7 @@
     <p>
       debthin serves curated <code>Packages.gz</code> indexes filtered to
       ~6,700 server-relevant packages - admin, database, devel, networking,
-      interpreters, libs, web, video and related sections. Desktop, GUI,
+      interpreters, libs, web, and related sections. Desktop, GUI,
       games, fonts and hardware-specific packages are excluded.
       The result is an index around 90% smaller than upstream.
       Everything else - the actual <code>.deb</code> files - redirects
@@ -308,7 +328,8 @@
       The list is rebuilt daily from Debian's own Packages files, ranked by
       <a href="https://popcon.debian.org" style="color:#7eb8d4;text-decoration:none">popcon</a>
       install counts with a minimum threshold of 2,500 reported installations.
-      Obscure but legitimate packages can be added via pull request.
+      Packages not in the index are still installable - add them to
+      <code>packages.txt</code> via pull request.
     </p>
 
     <div class="stats">
@@ -325,12 +346,35 @@
         <span class="stat-label">architectures</span>
       </div>
       <div class="stat">
-        <span class="stat-val">4</span>
+        <span class="stat-val">7</span>
         <span class="stat-label">suites</span>
       </div>
     </div>
   </section>
 
+  <!-- ── TL;DR ── -->
+  <section>
+    <h2>TL;DR</h2>
+    <p>Install the key, point apt at debthin, done. On a bare container with only <code>curl</code>:</p>
+
+    <div class="code-block">
+      <div class="code-header">
+        <span class="code-filename">bootstrap</span>
+        <button class="copy-btn" onclick="copyCode(this)">copy</button>
+      </div>
+      <pre><span class="cv">curl -fsSL http://debthin.org/debthin-keyring-binary.gpg \
+  -o /etc/apt/trusted.gpg.d/debthin.gpg
+
+printf "deb http://deb.debthin.org/debian trixie main\ndeb http://deb.debthin.org/debian trixie-updates main\ndeb http://security.debian.org/debian-security trixie-security main\n" \
+  > /etc/apt/sources.list
+
+apt-get update</span></pre>
+    </div>
+
+    <p class="hint">No <code>gpg</code>, no <code>apt-transport-https</code>, no <code>ca-certificates</code> required. The GPG signature on the index provides integrity.</p>
+  </section>
+
+  <!-- ── Suites & Architectures ── -->
   <section>
     <h2>Suites &amp; Architectures</h2>
     <table>
@@ -377,15 +421,26 @@
     </table>
   </section>
 
+  <!-- ── Configuration ── -->
   <section>
-    <h2>Setup</h2>
+    <h2>Configuration</h2>
 
-    <p>Add the public key, then configure sources and apt.</p>
+    <h3>Install the key</h3>
 
-    <p style="font-size:0.85rem;color:#888;margin-bottom:0.25rem;">If <code>gpg</code> is available:</p>
+    <p class="hint" style="margin-top:0;">Without <code>gpg</code> - works on bare containers:</p>
     <div class="code-block">
       <div class="code-header">
-        <span class="code-filename">install key (armored)</span>
+        <span class="code-filename">binary key (recommended)</span>
+        <button class="copy-btn" onclick="copyCode(this)">copy</button>
+      </div>
+      <pre><span class="cv">curl -fsSL http://debthin.org/debthin-keyring-binary.gpg \
+  -o /etc/apt/trusted.gpg.d/debthin.gpg</span></pre>
+    </div>
+
+    <p class="hint">With <code>gpg</code>:</p>
+    <div class="code-block">
+      <div class="code-header">
+        <span class="code-filename">armored key</span>
         <button class="copy-btn" onclick="copyCode(this)">copy</button>
       </div>
       <pre><span class="cv">curl -fsSL http://debthin.org/debthin-keyring.gpg \
@@ -393,16 +448,9 @@
   | tee /etc/apt/trusted.gpg.d/debthin.gpg > /dev/null</span></pre>
     </div>
 
-    <p style="font-size:0.85rem;color:#888;margin-bottom:0.25rem;">Without <code>gpg</code> (binary key, works on bare containers):</p>
-    <div class="code-block">
-      <div class="code-header">
-        <span class="code-filename">install key (binary)</span>
-        <button class="copy-btn" onclick="copyCode(this)">copy</button>
-      </div>
-      <pre><span class="cv">curl -fsSL http://debthin.org/debthin-keyring-binary.gpg \
-  -o /etc/apt/trusted.gpg.d/debthin.gpg</span></pre>
-    </div>
+    <h3>Sources</h3>
 
+    <p class="hint" style="margin-top:0;">DEB822 format:</p>
     <div class="code-block">
       <div class="code-header">
         <span class="code-filename">/etc/apt/sources.list.d/debthin.sources</span>
@@ -410,54 +458,139 @@
       </div>
       <pre><span class="ck">Types:</span> <span class="cv">deb</span>
 <span class="ck">URIs:</span> <span class="cs">http://debthin.org</span>
-<span class="ck">Suites:</span> <span class="cv">trixie</span>
+<span class="ck">Suites:</span> <span class="cv">trixie trixie-updates</span>
 <span class="ck">Components:</span> <span class="cv">main</span>
 <span class="ck">Signed-By:</span> <span class="cs">/etc/apt/trusted.gpg.d/debthin.gpg</span>
-
 <span class="cm"># Security goes direct - keep it independent</span>
 <span class="ck">Types:</span> <span class="cv">deb</span>
-<span class="ck">URIs:</span> <span class="cs">https://security.debian.org/debian-security</span>
+<span class="ck">URIs:</span> <span class="cs">http://security.debian.org/debian-security</span>
 <span class="ck">Suites:</span> <span class="cv">trixie-security</span>
 <span class="ck">Components:</span> <span class="cv">main</span>
-<span class="ck">Signed-By:</span> <span class="cs">/usr/share/keyrings/debian-archive-keyring.gpg</span></pre>
+</pre>
     </div>
 
-    <p style="margin-top:1rem;font-size:0.85rem;color:#888;">Or classic sources.list format:</p>
+    <p class="hint">Classic sources.list format:</p>
     <div class="code-block">
       <div class="code-header">
         <span class="code-filename">/etc/apt/sources.list</span>
         <button class="copy-btn" onclick="copyCode(this)">copy</button>
       </div>
       <pre>deb http://debthin.org trixie main
-deb [signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] https://security.debian.org/debian-security trixie-security main</pre>
+deb http://debthin.org trixie-updates main
+deb http://security.debian.org/debian-security trixie-security main</pre>
     </div>
 
-    <p style="margin-top:1rem;font-size:0.85rem;color:#888;">Once the key is in <code>/etc/apt/trusted.gpg.d/</code> this also works - no <code>signed-by</code> needed:</p>
-    <div class="code-block">
-      <div class="code-header">
-        <span class="code-filename">/etc/apt/sources.list</span>
-        <button class="copy-btn" onclick="copyCode(this)">copy</button>
-      </div>
-      <pre>deb http://deb.debthin.org/debian trixie main</pre>
-    </div>
+    <h3>apt optimisation</h3>
 
-    <p style="margin-top:1.5rem;">apt fetches package indexes uncompressed by default. Adding this config tells apt to request
-    <code>.gz</code> indexes and store them compressed on disk - cutting index storage from ~80MB to ~20MB
-    with no other changes. Translation files add another ~30MB for languages you'll never use on a
-    headless server; stripping those is an easy win too.</p>
+    <p>apt fetches package indexes uncompressed by default. This config tells apt to request
+    <code>.gz</code> indexes and keep them compressed on disk - cutting index storage from ~80MB to ~20MB.
+    Translation files add another ~30MB for languages you'll never need on a headless server.
+    This works independently of debthin and is a worthwhile change on any server.</p>
 
     <div class="code-block">
       <div class="code-header">
         <span class="code-filename">/etc/apt/apt.conf.d/99thin</span>
         <button class="copy-btn" onclick="copyCode(this)">copy</button>
       </div>
-      <pre><span class="cm">// Strip translation files and use compressed indexes</span>
+      <pre><span class="cm">// Strip translation files and keep indexes compressed</span>
 <span class="ck">Acquire::Languages</span> <span class="cs">"none"</span><span class="cv">;</span>
 <span class="ck">Acquire::GzipIndexes</span> <span class="cs">"true"</span><span class="cv">;</span>
 <span class="ck">Acquire::CompressionTypes::Order::</span> <span class="cs">"gz"</span><span class="cv">;</span></pre>
     </div>
   </section>
 
+  <!-- ── Usage Examples ── -->
+  <section>
+    <h2>Usage Examples</h2>
+
+    <h3>Dockerfile</h3>
+    <div class="code-block">
+      <div class="code-header">
+        <span class="code-filename">Dockerfile</span>
+        <button class="copy-btn" onclick="copyCode(this)">copy</button>
+      </div>
+      <pre><span class="ck">FROM</span> <span class="cv">debian:trixie-slim</span>
+
+<span class="ck">RUN</span> <span class="cv">curl -fsSL http://debthin.org/debthin-keyring-binary.gpg \
+      -o /etc/apt/trusted.gpg.d/debthin.gpg \
+ && echo "deb http://deb.debthin.org/debian trixie main\n\
+deb http://deb.debthin.org/debian trixie-updates main\n\
+deb http://security.debian.org/debian-security trixie-security main" \
+      > /etc/apt/sources.list \
+ && apt-get update \
+ && apt-get install -y --no-install-recommends \
+      your-package-here \
+ && rm -rf /var/lib/apt/lists/*</span></pre>
+    </div>
+
+    <h3>distrobuilder</h3>
+    <p class="hint" style="margin-top:0;">In your <code>.yaml</code> image definition:</p>
+    <div class="code-block">
+      <div class="code-header">
+        <span class="code-filename">image.yaml (distrobuilder)</span>
+        <button class="copy-btn" onclick="copyCode(this)">copy</button>
+      </div>
+      <pre><span class="ck">files:</span>
+  <span class="cv">- path: /etc/apt/trusted.gpg.d/debthin.gpg
+    generator: download
+    url: http://debthin.org/debthin-keyring-binary.gpg</span>
+
+<span class="ck">packages:</span>
+  <span class="ck">repositories:</span>
+    <span class="cv">- name: debthin
+      url: http://deb.debthin.org/debian
+      suite: trixie
+      components:
+        - main
+    - name: trixie-updates
+      url: http://deb.debthin.org/debian
+      suite: trixie-updates
+      components:
+        - main
+    - name: security
+      url: http://security.debian.org/debian-security
+      suite: trixie-security
+      components:
+        - main</span></pre>
+    </div>
+
+    <h3>LXC / Incus (cloud-init)</h3>
+    <div class="code-block">
+      <div class="code-header">
+        <span class="code-filename">user-data</span>
+        <button class="copy-btn" onclick="copyCode(this)">copy</button>
+      </div>
+      <pre><span class="ck">apt:</span>
+  <span class="ck">sources_list:</span> <span class="cv">|
+    deb http://deb.debthin.org/debian trixie main
+    deb http://deb.debthin.org/debian trixie-updates main
+    deb http://security.debian.org/debian-security trixie-security main</span>
+
+<span class="ck">runcmd:</span>
+  <span class="cv">- curl -fsSL http://debthin.org/debthin-keyring-binary.gpg
+      -o /etc/apt/trusted.gpg.d/debthin.gpg
+  - apt-get update</span></pre>
+    </div>
+  </section>
+
+  <!-- ── Adding packages ── -->
+  <section>
+    <h2>Adding Packages</h2>
+    <p>
+      Packages not in the curated index are still installable - apt will resolve
+      and fetch them from <code>deb.debian.org</code> transparently via the 301
+      redirect for any unknown path. The index just won't list them for
+      <code>apt search</code> or <code>apt-cache</code>.
+    </p>
+    <p>
+      To add a package to the index permanently, open a pull request against
+      <a href="https://github.com/debthin/debthin" style="color:#7eb8d4;text-decoration:none">github.com/debthin/debthin</a>
+      and add the package name to <code>curated/packages.txt</code>.
+      The index rebuilds daily; merged additions appear within 24 hours.
+    </p>
+  </section>
+
+  <!-- ── Trademark ── -->
   <section>
     <h2>Trademark notice</h2>
     <div class="notice">
@@ -475,6 +608,7 @@ deb [signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] https://security.
     </div>
   </section>
 
+  <!-- ── Source ── -->
   <section>
     <h2>Source</h2>
     <p>
