@@ -127,7 +127,8 @@ function archReleaseBody(path) {
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-    const path = resolveAliases(url.pathname.replace(/^\//, ""));
+    const rawPath = url.pathname.replace(/^\//, "").replace(/^debian\//, "");
+    const path = resolveAliases(rawPath);
 
     // Root request
     if (path === "") {
