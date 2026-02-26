@@ -20,8 +20,8 @@ fi
 SUITE=$(basename "$DIST_DIR")
 
 echo "Fetching upstream InRelease for $SUITE..." >&2
-UPSTREAM_INRELEASE=$(curl -sf --retry 3 --max-time 10 \
-    "https://deb.debian.org/debian/dists/$SUITE/InRelease" 2>/dev/null) || UPSTREAM_INRELEASE=""
+UPSTREAM_INRELEASE=$(curl -sf --retry 3 \
+    "https://deb.debian.org/debian/dists/$SUITE/InRelease" 2>/dev/null || true)
 
 extract_field() {
     echo "$UPSTREAM_INRELEASE" | grep -m1 "^$1:" | sed "s/^$1: *//" || true
@@ -57,6 +57,15 @@ while IFS= read -r -d '' f; do
     echo " $(sha256sum "$f" | cut -d' ' -f1) $size $rel" >> "$SHA256_FILE"
 done < <(find "$DIST_DIR" -type f -name "Packages.gz" -print0 | sort -z)
 
+# By-hash entries for Packages.gz - same content, hash-addressed path
+while IFS= read -r -d '' f; do
+    rel="${f#$DIST_DIR/}"
+    size=$(stat -c%s "$f")
+    sha256=$(sha256sum "$f" | cut -d' ' -f1)
+    reldir=$(dirname "$rel")
+    echo " $sha256 $size $reldir/by-hash/SHA256/$sha256" >> "$SHA256_FILE"
+done < <(find "$DIST_DIR" -type f -name "Packages.gz" -print0 | sort -z)
+
 # Uncompressed Packages - computed on the fly, not stored
 while IFS= read -r -d '' f; do
     rel="${f#$DIST_DIR/}"
@@ -86,8 +95,12 @@ echo "$SUITE_LINE"
 echo "Codename: $SUITE"
 [[ -n "$CHANGELOGS_LINE" ]] && echo "$CHANGELOGS_LINE"
 echo "Date: $DATE"
-echo "Acquire-By-Hash: no"
-echo "Architectures: all amd64 arm64 armhf i386 riscv64"
+echo "Acquire-By-Hash: yes"
+if [[ "$SUITE" == "forky" || "$SUITE" == "trixie" || "$SUITE" == "trixie-updates" ]]; then
+    echo "Architectures: all amd64 arm64 armhf i386 riscv64"
+else
+    echo "Architectures: all amd64 arm64 armhf i386"
+fi
 echo "Components: main"
 echo "Description: $DESCRIPTION"
 echo "SHA256:"

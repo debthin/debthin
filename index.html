@@ -349,13 +349,28 @@
           <td>amd64 arm64 armhf i386 riscv64</td>
         </tr>
         <tr>
+          <td>stable-updates</td>
+          <td>trixie-updates</td>
+          <td>amd64 arm64 armhf i386 riscv64</td>
+        </tr>
+        <tr>
           <td>oldstable</td>
           <td>bookworm</td>
           <td>amd64 arm64 armhf i386</td>
         </tr>
         <tr>
+          <td>oldstable-updates</td>
+          <td>bookworm-updates</td>
+          <td>amd64 arm64 armhf i386</td>
+        </tr>
+        <tr>
           <td>oldoldstable</td>
           <td>bullseye</td>
+          <td>amd64 arm64 armhf i386</td>
+        </tr>
+        <tr>
+          <td>oldoldstable-updates</td>
+          <td>bullseye-updates</td>
           <td>amd64 arm64 armhf i386</td>
         </tr>
       </tbody>
@@ -413,9 +428,23 @@
         <span class="code-filename">/etc/apt/sources.list</span>
         <button class="copy-btn" onclick="copyCode(this)">copy</button>
       </div>
-      <pre>deb [signed-by=/etc/apt/trusted.gpg.d/debthin.gpg] http://debthin.org trixie main
+      <pre>deb http://debthin.org trixie main
 deb [signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] https://security.debian.org/debian-security trixie-security main</pre>
     </div>
+
+    <p style="margin-top:1rem;font-size:0.85rem;color:#888;">Once the key is in <code>/etc/apt/trusted.gpg.d/</code> this also works - no <code>signed-by</code> needed:</p>
+    <div class="code-block">
+      <div class="code-header">
+        <span class="code-filename">/etc/apt/sources.list</span>
+        <button class="copy-btn" onclick="copyCode(this)">copy</button>
+      </div>
+      <pre>deb http://deb.debthin.org/debian trixie main</pre>
+    </div>
+
+    <p style="margin-top:1.5rem;">apt fetches package indexes uncompressed by default. Adding this config tells apt to request
+    <code>.gz</code> indexes and store them compressed on disk - cutting index storage from ~80MB to ~20MB
+    with no other changes. Translation files add another ~30MB for languages you'll never use on a
+    headless server; stripping those is an easy win too.</p>
 
     <div class="code-block">
       <div class="code-header">

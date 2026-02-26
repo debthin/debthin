@@ -32,12 +32,15 @@ apt client
 
 ## Suites & Architectures
 
-| Alias        | Codename | Architectures                  |
-|--------------|----------|--------------------------------|
-| testing      | forky    | amd64 arm64 armhf i386 riscv64 |
-| stable       | trixie   | amd64 arm64 armhf i386 riscv64 |
-| oldstable    | bookworm | amd64 arm64 armhf i386         |
-| oldoldstable | bullseye | amd64 arm64 armhf i386         |
+| Alias                | Codename         | Architectures                  |
+|----------------------|------------------|--------------------------------|
+| testing              | forky            | amd64 arm64 armhf i386 riscv64 |
+| stable               | trixie           | amd64 arm64 armhf i386 riscv64 |
+| stable-updates       | trixie-updates   | amd64 arm64 armhf i386 riscv64 |
+| oldstable            | bookworm         | amd64 arm64 armhf i386         |
+| oldstable-updates    | bookworm-updates | amd64 arm64 armhf i386         |
+| oldoldstable         | bullseye         | amd64 arm64 armhf i386         |
+| oldoldstable-updates | bullseye-updates | amd64 arm64 armhf i386         |
 
 Aliases are resolved in the worker - `sources.list` can use either form.
 
@@ -80,11 +83,19 @@ Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
 Or classic sources.list format:
 
 ```
-deb [signed-by=/etc/apt/trusted.gpg.d/debthin.gpg] http://debthin.org trixie main
+deb http://debthin.org trixie main
 deb [signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] https://security.debian.org/debian-security trixie-security main
 ```
 
+Once the key is in `/etc/apt/trusted.gpg.d/`, this is all you need:
+
+```
+deb http://deb.debthin.org/debian trixie main
+```
+
 ### /etc/apt/apt.conf.d/99thin
+
+apt fetches package indexes uncompressed by default. This config tells apt to request `.gz` indexes and store them compressed on disk - cutting index storage from ~80MB to ~20MB. Translation files add another ~30MB for languages you'll never use on a headless server; stripping those is free.
 
 ```
 // Strip translation files and use compressed indexes

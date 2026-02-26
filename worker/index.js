@@ -11,10 +11,12 @@
 const UPSTREAM_BASE = "https://deb.debian.org/debian";
 
 const SUITE_ALIASES = {
-  stable:       "trixie",
-  oldstable:    "bookworm",
-  oldoldstable: "bullseye",
-  testing:      "forky",
+  stable:              "trixie",
+  oldstable:           "bookworm",
+  oldoldstable:        "bullseye",
+  testing:             "forky",
+  "stable-updates":    "trixie-updates",
+  "oldstable-updates": "bookworm-updates",
 };
 
 const KV_PATTERNS = [
@@ -24,6 +26,7 @@ const KV_PATTERNS = [
   /^dists\/[^/]+\/InRelease$/,
   /^dists\/[^/]+\/Release$/,
   /^dists\/[^/]+\/Release\.gpg$/,
+  /^dists\/[^/]+\/main\/binary-(all|amd64|arm64|armhf|i386|riscv64)\/by-hash\/SHA256\/[0-9a-f]{64}$/,
   /^dists\/[^/]+\/main\/binary-(all|amd64|arm64|armhf|i386|riscv64)\/Packages(\.gz|\.lz4|\.xz)?$/,
   /^dists\/[^/]+\/main\/binary-(all|amd64|arm64|armhf|i386|riscv64)\/Packages$/,
   /^dists\/[^/]+\/main\/binary-(all|amd64|arm64|armhf|i386|riscv64)\/Release$/,

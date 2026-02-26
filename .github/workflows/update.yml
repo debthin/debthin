@@ -56,45 +56,51 @@ jobs:
         run: |
           mkdir -p dist_output
 
-          SUITES=(forky trixie bookworm bullseye)
+          SUITES=(forky trixie trixie-updates bookworm bookworm-updates bullseye bullseye-updates)
           ARCHES=(amd64 arm64 armhf i386 riscv64)
-          RISCV_SUITES=(forky trixie)
+          RISCV_SUITES=(forky trixie trixie-updates)
 
-          for suite in "${SUITES[@]}"; do
-            # binary-all applies to all suites
-            outdir="dist_output/dists/$suite/main/binary-all"
+          process_arch() {
+            local suite=$1
+            local arch=$2
+            local outdir="dist_output/dists/$suite/main/binary-$arch"
             mkdir -p "$outdir"
-            echo "Processing $suite/all..."
-            if curl -sf --retry 3 --retry-delay 5 -o /tmp/Packages.gz \
-                "https://deb.debian.org/debian/dists/$suite/main/binary-all/Packages.gz"; then
+            echo "Processing $suite/$arch..."
+
+            local tmpfile
+            tmpfile=$(mktemp /tmp/packages-XXXXXX)
+            local fetched=0
+            if curl -sf --retry 3 --retry-delay 5 -o "${tmpfile}.gz" \
+                "https://deb.debian.org/debian/dists/$suite/main/binary-$arch/Packages.gz"; then
+              mv "${tmpfile}.gz" "$tmpfile"
+              fetched=1
+            elif curl -sf --retry 3 --retry-delay 5 -o "${tmpfile}.xz" \
+                "https://deb.debian.org/debian/dists/$suite/main/binary-$arch/Packages.xz"; then
+              mv "${tmpfile}.xz" "$tmpfile"
+              fetched=1
+            fi
+            if [[ $fetched -eq 1 ]]; then
               python3 scripts/filter.py \
-                --input /tmp/Packages.gz \
+                --input "$tmpfile" \
                 --allowed curated/all.txt \
                 --output "$outdir/Packages.gz" \
                 --stats
             else
-              echo "WARNING: Could not fetch $suite/all - skipping" >&2
+              echo "WARNING: Could not fetch $suite/$arch - skipping" >&2
             fi
+            rm -f "$tmpfile"
+          }
+
+          for suite in "${SUITES[@]}"; do
+            # binary-all
+            process_arch "$suite" "all"
 
             for arch in "${ARCHES[@]}"; do
               if [[ "$arch" == "riscv64" && ! " ${RISCV_SUITES[*]} " =~ " $suite " ]]; then
                 echo "Skipping $suite/$arch (riscv64 not available)"
                 continue
               fi
-
-              outdir="dist_output/dists/$suite/main/binary-$arch"
-              mkdir -p "$outdir"
-              echo "Processing $suite/$arch..."
-              if curl -sf --retry 3 --retry-delay 5 -o /tmp/Packages.gz \
-                  "https://deb.debian.org/debian/dists/$suite/main/binary-$arch/Packages.gz"; then
-                python3 scripts/filter.py \
-                  --input /tmp/Packages.gz \
-                  --allowed curated/all.txt \
-                  --output "$outdir/Packages.gz" \
-                  --stats
-              else
-                echo "WARNING: Could not fetch $suite/$arch - skipping" >&2
-              fi
+              process_arch "$suite" "$arch"
             done
 
             bash scripts/sign.sh "dist_output/dists/$suite"
