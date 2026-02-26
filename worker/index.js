@@ -65,6 +65,16 @@ async function decodeKVValue(entry) {
   return { body, meta };
 }
 
+function inReleaseToRelease(inRelease) {
+  // Strip PGP clearsign wrapper to produce plain Release
+  const lines = new TextDecoder().decode(inRelease).split("\n");
+  const start = lines.findIndex(l => l.startsWith("Origin:"));
+  const end = lines.findIndex(l => l.startsWith("-----BEGIN PGP SIGNATURE-----"));
+  if (start === -1) return inRelease;
+  const plain = lines.slice(start, end === -1 ? undefined : end).join("\n").trimEnd() + "\n";
+  return new TextEncoder().encode(plain).buffer;
+}
+
 async function serveFromKV(env, kvKey, responsePath) {
   const entry = await env.MIRROR_KV.getWithMetadata(kvKey, "arrayBuffer");
   if (entry.value === null) return null;
@@ -122,6 +132,24 @@ export default {
     // Root request
     if (path === "") {
       return serveFromKV(env, "index.html", "index.html");
+    }
+
+    // Suite-level Release - strip PGP wrapper from InRelease
+    if (/^dists\/[^/]+\/Release$/.test(path)) {
+      const kvKey = path.replace(/\/Release$/, "/InRelease");
+      const entry = await env.MIRROR_KV.getWithMetadata(kvKey, "arrayBuffer");
+      if (entry.value !== null) {
+        const { body } = await decodeKVValue(entry);
+        return new Response(inReleaseToRelease(body), {
+          status: 200,
+          headers: {
+            "Content-Type": "text/plain; charset=utf-8",
+            "Cache-Control": "public, max-age=3600",
+            "X-Debthin": "hit-derived",
+          },
+        });
+      }
+      return new Response("Not found", { status: 404 });
     }
 
     // Per-arch Release - generate on the fly, no KV needed

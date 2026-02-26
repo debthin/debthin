@@ -18,9 +18,34 @@ if [[ -z "${GPG_KEY_ID:-}" ]]; then
 fi
 
 SUITE=$(basename "$DIST_DIR")
-DATE=$(date -u +"%a, %d %b %Y %H:%M:%S UTC")
 
-echo "Building Release for $SUITE..." >&2
+echo "Fetching upstream InRelease for $SUITE..." >&2
+UPSTREAM_INRELEASE=$(curl -sf --retry 3 --max-time 10 \
+    "https://deb.debian.org/debian/dists/$SUITE/InRelease" 2>/dev/null) || UPSTREAM_INRELEASE=""
+
+extract_field() {
+    echo "$UPSTREAM_INRELEASE" | grep -m1 "^$1:" | sed "s/^$1: *//" || true
+}
+
+UPSTREAM_SUITE=$(extract_field "Suite")
+UPSTREAM_VERSION=$(extract_field "Version")
+UPSTREAM_DATE=$(extract_field "Date")
+UPSTREAM_CHANGELOGS=$(extract_field "Changelogs")
+
+DATE="${UPSTREAM_DATE:-$(date -u +"%a, %d %b %Y %H:%M:%S UTC")}"
+SUITE_LINE="Suite: ${UPSTREAM_SUITE:-$SUITE}"
+VERSION_LINE=""
+[[ -n "$UPSTREAM_VERSION" ]] && VERSION_LINE="Version: $UPSTREAM_VERSION"
+CHANGELOGS_LINE=""
+[[ -n "$UPSTREAM_CHANGELOGS" ]] && CHANGELOGS_LINE="Changelogs: $UPSTREAM_CHANGELOGS"
+
+if [[ -n "$UPSTREAM_VERSION" ]]; then
+    DESCRIPTION="Curated server package index for Debian $UPSTREAM_VERSION (${SUITE}) - debthin.org"
+else
+    DESCRIPTION="Curated server package index for Debian ${SUITE} - debthin.org"
+fi
+
+echo "Building Release for $SUITE (Date: $DATE)..." >&2
 
 SHA256_FILE=$(mktemp)
 trap "rm -f $SHA256_FILE" EXIT
@@ -41,7 +66,7 @@ while IFS= read -r -d '' f; do
     echo " $sha256 $size $relbase" >> "$SHA256_FILE"
 done < <(find "$DIST_DIR" -type f -name "Packages.gz" -print0 | sort -z)
 
-# Per-arch Release files - generated on the fly by worker, but checksums needed
+# Per-arch Release files - generated on the fly by worker
 while IFS= read -r -d '' f; do
     arch=$(basename "$(dirname "$f")" | sed 's/binary-//')
     content="Archive: $SUITE"$'\n'"Component: main"$'\n'"Architecture: $arch"$'\n'
@@ -52,19 +77,22 @@ while IFS= read -r -d '' f; do
     echo " $sha256 $size $reldir/Release" >> "$SHA256_FILE"
 done < <(find "$DIST_DIR" -type f -name "Packages.gz" -print0 | sort -z)
 
-cat > "$DIST_DIR/Release" <<RELEASE
-Origin: debthin
-Label: debthin
-Suite: $SUITE
-Codename: $SUITE
-Date: $DATE
-Acquire-By-Hash: no
-Architectures: all amd64 arm64 armhf i386 riscv64
-Components: main
-Description: Curated Debian server package index - debthin.org
-SHA256:
-$(cat "$SHA256_FILE")
-RELEASE
+# Build Release - omit empty optional fields
+{
+echo "Origin: debthin"
+echo "Label: debthin"
+echo "$SUITE_LINE"
+[[ -n "$VERSION_LINE" ]] && echo "$VERSION_LINE"
+echo "Codename: $SUITE"
+[[ -n "$CHANGELOGS_LINE" ]] && echo "$CHANGELOGS_LINE"
+echo "Date: $DATE"
+echo "Acquire-By-Hash: no"
+echo "Architectures: all amd64 arm64 armhf i386 riscv64"
+echo "Components: main"
+echo "Description: $DESCRIPTION"
+echo "SHA256:"
+cat "$SHA256_FILE"
+} > "$DIST_DIR/Release"
 
 echo "Signing $SUITE/InRelease..." >&2
 
