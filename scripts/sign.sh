@@ -1,14 +1,19 @@
 #!/usr/bin/env bash
 # sign.sh - Generate Release file and sign as InRelease
 #
-# Usage: GPG_KEY_ID=<fingerprint> bash sign.sh <dists/SUITE>
+# Usage: GPG_KEY_ID=<fingerprint> bash sign.sh <dist_output/DISTRO/dists/SUITE> <upstream_base>
+#
+# Example:
+#   GPG_KEY_ID=... bash sign.sh dist_output/debian/dists/trixie https://deb.debian.org/debian
+#   GPG_KEY_ID=... bash sign.sh dist_output/ubuntu/dists/noble  https://archive.ubuntu.com/ubuntu
 
 set -euo pipefail
 
 DIST_DIR="${1:-}"
+UPSTREAM_BASE="${2:-https://deb.debian.org/debian}"
 
 if [[ -z "$DIST_DIR" ]]; then
-    echo "Usage: $0 <dists/SUITE>" >&2
+    echo "Usage: $0 <dist_output/DISTRO/dists/SUITE> [upstream_base]" >&2
     exit 1
 fi
 
@@ -19,9 +24,9 @@ fi
 
 SUITE=$(basename "$DIST_DIR")
 
-echo "Fetching upstream InRelease for $SUITE..." >&2
-UPSTREAM_INRELEASE=$(curl -sf --retry 3 \
-    "https://deb.debian.org/debian/dists/$SUITE/InRelease" 2>/dev/null || true)
+echo "Fetching upstream InRelease for $SUITE from $UPSTREAM_BASE..." >&2
+UPSTREAM_INRELEASE=$(curl -sf --retry 3 --max-time 15 \
+    "$UPSTREAM_BASE/dists/$SUITE/InRelease" 2>/dev/null) || UPSTREAM_INRELEASE=""
 
 extract_field() {
     echo "$UPSTREAM_INRELEASE" | grep -m1 "^$1:" | sed "s/^$1: *//" || true
@@ -39,10 +44,11 @@ VERSION_LINE=""
 CHANGELOGS_LINE=""
 [[ -n "$UPSTREAM_CHANGELOGS" ]] && CHANGELOGS_LINE="Changelogs: $UPSTREAM_CHANGELOGS"
 
+DISTRO=$(basename "$(dirname "$(dirname "$DIST_DIR")")")
 if [[ -n "$UPSTREAM_VERSION" ]]; then
-    DESCRIPTION="Curated server package index for Debian $UPSTREAM_VERSION (${SUITE}) - debthin.org"
+    DESCRIPTION="Curated server package index for ${DISTRO^} $UPSTREAM_VERSION (${SUITE}) - debthin.org"
 else
-    DESCRIPTION="Curated server package index for Debian ${SUITE} - debthin.org"
+    DESCRIPTION="Curated server package index for ${DISTRO^} ${SUITE} - debthin.org"
 fi
 
 echo "Building Release for $SUITE (Date: $DATE)..." >&2
@@ -57,7 +63,7 @@ while IFS= read -r -d '' f; do
     echo " $(sha256sum "$f" | cut -d' ' -f1) $size $rel" >> "$SHA256_FILE"
 done < <(find "$DIST_DIR" -type f -name "Packages.gz" -print0 | sort -z)
 
-# By-hash entries for Packages.gz - same content, hash-addressed path
+# By-hash entries for Packages.gz
 while IFS= read -r -d '' f; do
     rel="${f#$DIST_DIR/}"
     size=$(stat -c%s "$f")
@@ -86,7 +92,7 @@ while IFS= read -r -d '' f; do
     echo " $sha256 $size $reldir/Release" >> "$SHA256_FILE"
 done < <(find "$DIST_DIR" -type f -name "Packages.gz" -print0 | sort -z)
 
-# Build Release - omit empty optional fields
+# Build Release
 {
 echo "Origin: debthin"
 echo "Label: debthin"
@@ -96,7 +102,9 @@ echo "Codename: $SUITE"
 [[ -n "$CHANGELOGS_LINE" ]] && echo "$CHANGELOGS_LINE"
 echo "Date: $DATE"
 echo "Acquire-By-Hash: yes"
-if [[ "$SUITE" == "forky" || "$SUITE" == "trixie" || "$SUITE" == "trixie-updates" ]]; then
+if [[ "$DISTRO" == "ubuntu" ]]; then
+    echo "Architectures: amd64 arm64 i386 riscv64"
+elif [[ "$SUITE" == "forky" || "$SUITE" == "trixie" || "$SUITE" == "trixie-updates" ]]; then
     echo "Architectures: all amd64 arm64 armhf i386 riscv64"
 else
     echo "Architectures: all amd64 arm64 armhf i386"

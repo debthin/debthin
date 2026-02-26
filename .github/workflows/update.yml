@@ -18,13 +18,24 @@ concurrency:
 jobs:
   update:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 90
 
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
+      - name: Get week number (for cache key)
+        id: week
+        run: echo "week=$(date +%Y-%V)" >> $GITHUB_OUTPUT
+
+      - name: Restore package cache
+        uses: actions/cache@v4
+        with:
+          path: cached/
+          key: packages-${{ runner.os }}-${{ steps.week.outputs.week }}
+          restore-keys: packages-${{ runner.os }}-
 
       - name: Import GPG key
         env:
@@ -42,13 +53,16 @@ jobs:
           python3 scripts/curate.py \
             --suite trixie \
             --arch amd64 \
-            --output curated/packages.txt \
-            --deps-output curated/deps.txt
+            --output curated/debian/packages.txt \
+            --deps-output curated/debian/deps.txt
 
       - name: Combine package lists
         run: |
-          sort -u curated/packages.txt curated/deps.txt > curated/all.txt
-          echo "Total packages: $(wc -l < curated/all.txt)"
+          sort -u curated/debian/packages.txt curated/debian/deps.txt \
+            > curated/debian/all.txt
+          echo "Debian packages: $(wc -l < curated/debian/all.txt)"
+          cp curated/debian/all.txt curated/ubuntu/all.txt
+          echo "Ubuntu packages: $(wc -l < curated/ubuntu/all.txt)"
 
       - name: Fetch, filter and sign indexes
         env:
@@ -56,67 +70,114 @@ jobs:
         run: |
           mkdir -p dist_output
 
-          SUITES=(forky trixie trixie-updates bookworm bookworm-updates bullseye bullseye-updates)
-          ARCHES=(amd64 arm64 armhf i386 riscv64)
-          RISCV_SUITES=(forky trixie trixie-updates)
+          DEBIAN_SUITES=(forky trixie trixie-updates bookworm bookworm-updates bullseye bullseye-updates)
+          UBUNTU_SUITES=(
+              jammy jammy-updates jammy-backports
+              noble noble-updates noble-backports
+              plucky plucky-updates plucky-backports
+              questing questing-updates questing-backports
+          )
+          DEBIAN_ARCHES=(amd64 arm64 armhf i386 riscv64)
+          DEBIAN_RISCV_SUITES=(forky trixie trixie-updates)
+          DEBIAN_COMPONENTS=(main contrib non-free non-free-firmware)
+          UBUNTU_ARCHIVE_ARCHES=(amd64 i386)
+          UBUNTU_PORTS_ARCHES=(arm64 riscv64)
+          UBUNTU_COMPONENTS=(main restricted universe multiverse)
+          UBUNTU_ARCHIVE="https://archive.ubuntu.com/ubuntu"
+          UBUNTU_PORTS="https://ports.ubuntu.com/ubuntu-ports"
 
-          process_arch() {
-            local suite=$1
-            local arch=$2
-            local outdir="dist_output/dists/$suite/main/binary-$arch"
-            mkdir -p "$outdir"
-            echo "Processing $suite/$arch..."
+          fetch_and_filter() {
+            local distro=$1 suite=$2 component=$3 arch=$4 upstream_base=$5
+            local outdir="dist_output/$distro/dists/$suite/$component/binary-$arch"
+            local cachedir="cached/$distro/$suite/$component/binary-$arch"
+            local cachefile="$cachedir/Packages.gz"
+            mkdir -p "$outdir" "$cachedir"
+            echo "Processing $distro/$suite/$component/$arch..."
 
-            local tmpfile
-            tmpfile=$(mktemp /tmp/packages-XXXXXX)
             local fetched=0
-            if curl -sf --retry 3 --retry-delay 5 -o "${tmpfile}.gz" \
-                "https://deb.debian.org/debian/dists/$suite/main/binary-$arch/Packages.gz"; then
-              mv "${tmpfile}.gz" "$tmpfile"
+
+            if curl -sf --retry 3 --retry-delay 5 -z "$cachefile" -o "$cachefile" \
+                "$upstream_base/dists/$suite/$component/binary-$arch/Packages.gz"; then
               fetched=1
-            elif curl -sf --retry 3 --retry-delay 5 -o "${tmpfile}.xz" \
-                "https://deb.debian.org/debian/dists/$suite/main/binary-$arch/Packages.xz"; then
-              mv "${tmpfile}.xz" "$tmpfile"
+            elif [[ -s "$cachefile" ]]; then
+              fetched=1
+            elif curl -sf --retry 3 --retry-delay 5 -o "${cachefile}.xz" \
+                "$upstream_base/dists/$suite/$component/binary-$arch/Packages.xz"; then
+              xzcat "${cachefile}.xz" | gzip -9 > "$cachefile" && rm -f "${cachefile}.xz"
               fetched=1
             fi
+
             if [[ $fetched -eq 1 ]]; then
               python3 scripts/filter.py \
-                --input "$tmpfile" \
-                --allowed curated/all.txt \
+                --input "$cachefile" \
+                --allowed "curated/$distro/all.txt" \
                 --output "$outdir/Packages.gz" \
                 --stats
             else
-              echo "WARNING: Could not fetch $suite/$arch - skipping" >&2
+              echo "WARNING: $distro/$suite/$component/$arch not available" >&2
             fi
-            rm -f "$tmpfile"
           }
 
-          for suite in "${SUITES[@]}"; do
-            # binary-all
-            process_arch "$suite" "all"
+          # Debian
+          for suite in "${DEBIAN_SUITES[@]}"; do
+            if [[ "$suite" == "bullseye" || "$suite" == "bullseye-updates" ]]; then
+              components=(main contrib non-free)
+            else
+              components=("${DEBIAN_COMPONENTS[@]}")
+            fi
 
-            for arch in "${ARCHES[@]}"; do
-              if [[ "$arch" == "riscv64" && ! " ${RISCV_SUITES[*]} " =~ " $suite " ]]; then
-                echo "Skipping $suite/$arch (riscv64 not available)"
-                continue
-              fi
-              process_arch "$suite" "$arch"
+            for component in "${components[@]}"; do
+              fetch_and_filter debian "$suite" "$component" all \
+                "https://deb.debian.org/debian"
+              for arch in "${DEBIAN_ARCHES[@]}"; do
+                if [[ "$arch" == "riscv64" && ! " ${DEBIAN_RISCV_SUITES[*]} " =~ " $suite " ]]; then
+                  echo "Skipping debian/$suite/$component/riscv64"
+                  continue
+                fi
+                fetch_and_filter debian "$suite" "$component" "$arch" \
+                  "https://deb.debian.org/debian"
+              done
             done
-
-            bash scripts/sign.sh "dist_output/dists/$suite"
+            GPG_KEY_ID=$GPG_KEY_ID bash scripts/sign.sh \
+              "dist_output/debian/dists/$suite" "https://deb.debian.org/debian"
           done
 
-      - name: Upload to Cloudflare KV
-        env:
-          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
-          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
-          CF_KV_NAMESPACE_ID: ${{ secrets.CF_KV_NAMESPACE_ID }}
+          # Ubuntu - archive for amd64+i386, ports for arm64+riscv64, no binary-all
+          for suite in "${UBUNTU_SUITES[@]}"; do
+            for component in "${UBUNTU_COMPONENTS[@]}"; do
+              for arch in "${UBUNTU_ARCHIVE_ARCHES[@]}"; do
+                fetch_and_filter ubuntu "$suite" "$component" "$arch" "$UBUNTU_ARCHIVE"
+              done
+              for arch in "${UBUNTU_PORTS_ARCHES[@]}"; do
+                fetch_and_filter ubuntu "$suite" "$component" "$arch" "$UBUNTU_PORTS"
+              done
+            done
+            GPG_KEY_ID=$GPG_KEY_ID bash scripts/sign.sh \
+              "dist_output/ubuntu/dists/$suite" "$UBUNTU_ARCHIVE"
+          done
+
+      - name: Copy static files into dist_output
         run: |
-          python3 scripts/kv_upload.py \
+          cp index.html dist_output/
+          cp debthin-keyring.gpg dist_output/
+          cp debthin-keyring-binary.gpg dist_output/
+
+      - name: Install boto3
+        run: pip install boto3 --break-system-packages
+
+      - name: Upload to Cloudflare R2
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY: ${{ secrets.R2_ACCESS_KEY }}
+          R2_SECRET_KEY: ${{ secrets.R2_SECRET_KEY }}
+          R2_BUCKET:     ${{ secrets.R2_BUCKET }}
+        run: |
+          python3 scripts/r2_upload.py \
             --dir dist_output \
-            --account "$CF_ACCOUNT_ID" \
-            --namespace "$CF_KV_NAMESPACE_ID" \
-            --token "$CF_API_TOKEN"
+            --account "$R2_ACCOUNT_ID" \
+            --access-key "$R2_ACCESS_KEY" \
+            --secret-key "$R2_SECRET_KEY" \
+            --bucket "$R2_BUCKET"
 
       - name: Commit updated package list
         run: |

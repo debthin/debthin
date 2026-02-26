@@ -1,5 +1,6 @@
 # Generated at pipeline time, never committed
 dist_output/
+cached/
 
 # Populated by curate.py, committed only when changed
 curated/all.txt

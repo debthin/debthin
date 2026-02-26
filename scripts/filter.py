@@ -2,11 +2,13 @@
 """
 filter.py - Filter a Debian Packages index to a curated set.
 
+If the input has fewer than 100 packages it is passed through unchanged -
+small indexes (backports, restricted, etc.) are not worth filtering.
+
 Usage:
     python3 filter.py --input Packages.gz --allowed curated/all.txt --output Packages.gz
     python3 filter.py --input Packages.xz --allowed curated/all.txt --output Packages.gz
     python3 filter.py --input Packages    --allowed curated/all.txt --output Packages.gz
-    curl .../Packages.gz | python3 filter.py --allowed curated/all.txt > Packages.gz
 """
 
 import argparse
@@ -15,9 +17,10 @@ import lzma
 import sys
 from pathlib import Path
 
+PASSTHROUGH_THRESHOLD = 100
+
 
 def decompress(data: bytes, filename: str = "") -> str:
-    """Decompress gzip, xz, or plain data."""
     if filename.endswith(".gz") or data[:2] == b"\x1f\x8b":
         return gzip.decompress(data).decode("utf-8", errors="replace")
     if filename.endswith(".xz") or data[:6] == b"\xfd7zXZ\x00":
@@ -25,10 +28,14 @@ def decompress(data: bytes, filename: str = "") -> str:
     return data.decode("utf-8", errors="replace")
 
 
-def filter_packages(text: str, allowed: set[str]) -> bytes:
+def count_packages(text: str) -> int:
+    return sum(1 for l in text.splitlines() if l.startswith("Package: "))
+
+
+def filter_packages(text: str, allowed: set) -> bytes:
     out_blocks = []
-    current_lines: list[str] = []
-    current_pkg: str | None = None
+    current_lines = []
+    current_pkg = None
 
     for line in text.splitlines(keepends=True):
         if line in ("\n", "\r\n"):
@@ -50,29 +57,33 @@ def filter_packages(text: str, allowed: set[str]) -> bytes:
 
 def main():
     parser = argparse.ArgumentParser(description="Filter Debian Packages index")
-    parser.add_argument("--input", "-i", help="Input Packages.gz/.xz/plain (default: stdin)")
-    parser.add_argument("--allowed", "-a", required=True, help="File with allowed package names, one per line")
-    parser.add_argument("--output", "-o", help="Output Packages.gz (default: stdout)")
-    parser.add_argument("--stats", action="store_true", help="Print stats to stderr")
+    parser.add_argument("--input",   "-i", help="Input Packages.gz/.xz/plain (default: stdin)")
+    parser.add_argument("--allowed", "-a", required=True, help="Allowed package names, one per line")
+    parser.add_argument("--output",  "-o", help="Output Packages.gz (default: stdout)")
+    parser.add_argument("--stats",   action="store_true", help="Print stats to stderr")
     args = parser.parse_args()
 
     allowed = {p for p in Path(args.allowed).read_text().splitlines() if p}
 
     input_data = Path(args.input).read_bytes() if args.input else sys.stdin.buffer.read()
-    filename = args.input or ""
-    text = decompress(input_data, filename)
+    text = decompress(input_data, args.input or "")
+
+    total_in = count_packages(text)
 
     if args.stats:
-        total_in = text.count("\nPackage: ") + 1
         print(f"Input packages:   {total_in}", file=sys.stderr)
         print(f"Allowed list:     {len(allowed)}", file=sys.stderr)
 
-    filtered = filter_packages(text, allowed)
-
-    if args.stats:
-        total_out = gzip.decompress(filtered).decode("utf-8", errors="replace").count("\nPackage: ") + 1
-        print(f"Output packages:  {total_out}", file=sys.stderr)
-        print(f"Reduction:        {(1 - total_out/total_in)*100:.1f}%", file=sys.stderr)
+    if total_in < PASSTHROUGH_THRESHOLD:
+        if args.stats:
+            print(f"Output packages:  {total_in} (passthrough)", file=sys.stderr)
+        filtered = gzip.compress(text.encode("utf-8"), compresslevel=9)
+    else:
+        filtered = filter_packages(text, allowed)
+        if args.stats:
+            total_out = count_packages(gzip.decompress(filtered).decode("utf-8", errors="replace"))
+            print(f"Output packages:  {total_out}", file=sys.stderr)
+            print(f"Reduction:        {(1 - total_out / total_in) * 100:.1f}%", file=sys.stderr)
 
     if args.output:
         Path(args.output).write_bytes(filtered)
