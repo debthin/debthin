@@ -68,9 +68,12 @@ gen_release() {
         reldir=$(dirname "$rel")
         size_gz=$(stat -c%s "$f")
         sha256_gz=$(sha256sum "$f" | cut -d' ' -f1)
-        raw=$(gunzip -c "$f")
-        sha256_raw=$(printf '%s' "$raw" | sha256sum | cut -d' ' -f1)
-        size_raw=$(printf '%s' "$raw" | wc -c | tr -d ' ')
+        local tmp_raw
+        tmp_raw=$(mktemp)
+        gunzip -c "$f" > "$tmp_raw"
+        sha256_raw=$(sha256sum "$tmp_raw" | cut -d' ' -f1)
+        size_raw=$(stat -c%s "$tmp_raw")
+        rm -f "$tmp_raw"
 
         printf " %s %s %s\n" "$sha256_gz"  "$size_gz"  "$rel"                              >> "$sha256_file"
         printf " %s %s %s\n" "$sha256_gz"  "$size_gz"  "$reldir/by-hash/SHA256/$sha256_gz" >> "$sha256_file"
