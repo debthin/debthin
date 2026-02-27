@@ -26,6 +26,7 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
+from concurrent.futures import ThreadPoolExecutor
 import boto3
 from botocore.exceptions import ClientError
 
@@ -83,22 +84,28 @@ def list_r2_keys(client, bucket: str) -> set:
     return keys
 
 
-def upload_file(client, bucket: str, key: str, data: bytes, dry_run: bool = False):
+UPLOAD_WORKERS = 16
+
+
+def _put_one(args):
+    client, bucket, key, data, dry_run = args
     ct = content_type_for(key)
     if dry_run:
-        print(f"  [dry-run] PUT {key} ({len(data)} bytes)")
-        return
-    client.put_object(
-        Bucket=bucket,
-        Key=key,
-        Body=data,
-        ContentType=ct,
-        CacheControl="public, max-age=3600",
-    )
+        return key, len(data), None
+    try:
+        client.put_object(
+            Bucket=bucket,
+            Key=key,
+            Body=data,
+            ContentType=ct,
+            CacheControl="public, max-age=3600",
+        )
+        return key, len(data), None
+    except Exception as e:
+        return key, len(data), str(e)
 
 
 def delete_keys(client, bucket: str, keys: list, dry_run: bool = False):
-    # S3 delete_objects supports up to 1000 keys per call
     for i in range(0, len(keys), 1000):
         batch = [{"Key": k} for k in keys[i:i + 1000]]
         if dry_run:
@@ -109,30 +116,41 @@ def delete_keys(client, bucket: str, keys: list, dry_run: bool = False):
 
 
 def sync(directory: Path, account_id: str, access_key: str,
-         secret_key: str, bucket: str, dry_run: bool = False):
+         secret_key: str, bucket: str, dry_run: bool = False,
+         workers: int = UPLOAD_WORKERS):
 
     client = make_client(account_id, access_key, secret_key)
 
-    # Collect files to upload
     uploads: dict[str, bytes] = {}
-
     for f in sorted(directory.rglob("*")):
         if not f.is_file():
             continue
         key = str(f.relative_to(directory))
         uploads[key] = f.read_bytes()
 
-    # Add by-hash indexes
     hash_indexes = build_hash_indexes(directory)
     for key, data in sorted(hash_indexes.items()):
         uploads[key] = data
         count = len(json.loads(data))
         print(f"  Hash index {key}: {count} entries", file=sys.stderr)
 
-    print(f"Uploading {len(uploads)} objects to R2 bucket '{bucket}'...", file=sys.stderr)
-    for key, data in sorted(uploads.items()):
-        print(f"  PUT {key} ({len(data):,} bytes)", file=sys.stderr)
-        upload_file(client, bucket, key, data, dry_run)
+    total = len(uploads)
+    print(f"Uploading {total} objects to R2 bucket '{bucket}' ({workers} workers)...", file=sys.stderr)
+
+    jobs = [(client, bucket, key, data, dry_run) for key, data in sorted(uploads.items())]
+    errors = []
+    done = 0
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        for key, size, err in pool.map(_put_one, jobs):
+            done += 1
+            if err:
+                errors.append(f"{key}: {err}")
+                print(f"  ERROR {key}: {err}", file=sys.stderr)
+            elif done % 50 == 0 or done == total:
+                print(f"  {done}/{total} uploaded", file=sys.stderr)
+
+    if errors:
+        raise RuntimeError(f"{len(errors)} upload(s) failed:\n" + "\n".join(errors))
 
     # Delete stale objects
     print("Checking for stale objects...", file=sys.stderr)
@@ -141,8 +159,6 @@ def sync(directory: Path, account_id: str, access_key: str,
 
     if stale:
         print(f"Deleting {len(stale)} stale objects...", file=sys.stderr)
-        for k in stale:
-            print(f"  DELETE {k}", file=sys.stderr)
         delete_keys(client, bucket, stale, dry_run)
     else:
         print("No stale objects.", file=sys.stderr)

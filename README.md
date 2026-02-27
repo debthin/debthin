@@ -1,52 +1,52 @@
 # debthin
 
-Lean Debian package indexes at [debthin.org](https://debthin.org).
+Lean Debian and Ubuntu package indexes at [debthin.org](https://debthin.org).
 
-A minimal Debian container image is around 90MB. The first thing you do is
-`apt update` - and apt downloads another 90MB of index files describing 68,000
-packages, the overwhelming majority of which will never be installed on a
-headless server. They sit in `/var/lib/apt/lists`, consuming space and bandwidth
-on every container, on every host, on every update cycle, indefinitely.
+A minimal container image is around 90MB. The first thing you do is `apt update` - and apt downloads another 90-210MB of index files describing 60,000-90,000 packages, the overwhelming majority of which will never be installed on a headless server. They sit in `/var/lib/apt/lists`, consuming space and bandwidth on every container, on every host, on every update cycle, indefinitely.
 
-debthin serves curated `Packages.gz` indexes filtered to ~6,700 server-relevant
-packages - admin, database, devel, networking, interpreters, libs, web, video
-and related sections. Desktop, GUI, games, fonts and hardware-specific packages
-are excluded. The result is an index around 90% smaller than upstream.
-Everything else - the actual `.deb` files - redirects transparently to
-`deb.debian.org`. Nothing is rehosted.
+debthin serves curated `Packages.gz` indexes filtered to ~6,700-7,500 server-relevant packages - admin, database, devel, networking, interpreters, libs, web and related sections. Desktop, GUI, games, fonts and hardware-specific packages are excluded. The result is an index 90-93% smaller than upstream. Everything else - the actual `.deb` files - redirects transparently to the official mirrors. Nothing is rehosted.
 
-The list is rebuilt daily from Debian's own Packages files, ranked by
-[popcon](https://popcon.debian.org) install counts with a minimum threshold of
-2,500 reported installations. Obscure but legitimate packages can be added via
-pull request.
+The list is rebuilt daily from upstream Packages files, ranked by popcon install counts with a minimum threshold of 2,500 reported installations. Obscure but legitimate packages can be added via pull request.
 
 ## Architecture
 
 ```
 apt client
   │
-  ├── GET dists/trixie/InRelease                      → Cloudflare KV (signed)
-  ├── GET dists/trixie/main/binary-amd64/Packages.gz → Cloudflare KV (~6700 pkgs)
+  ├── GET dists/trixie/InRelease                      → Cloudflare R2 (signed)
+  ├── GET dists/trixie/main/binary-amd64/Packages.gz → Cloudflare R2 (~6700 pkgs)
   └── GET pool/main/a/apt/apt_2.x_amd64.deb          → 301 → deb.debian.org
 ```
 
 ## Suites & Architectures
 
-| Alias                | Codename         | Architectures                  |
-|----------------------|------------------|--------------------------------|
-| testing              | forky            | amd64 arm64 armhf i386 riscv64 |
-| stable               | trixie           | amd64 arm64 armhf i386 riscv64 |
-| stable-updates       | trixie-updates   | amd64 arm64 armhf i386 riscv64 |
-| oldstable            | bookworm         | amd64 arm64 armhf i386         |
-| oldstable-updates    | bookworm-updates | amd64 arm64 armhf i386         |
-| oldoldstable         | bullseye         | amd64 arm64 armhf i386         |
-| oldoldstable-updates | bullseye-updates | amd64 arm64 armhf i386         |
+### Debian
 
-Aliases are resolved in the worker - `sources.list` can use either form.
+| Suite                | Architectures                  |
+|----------------------|--------------------------------|
+| forky                | amd64 arm64 armhf i386 riscv64 |
+| trixie, trixie-updates | amd64 arm64 armhf i386 riscv64 |
+| bookworm, bookworm-updates | amd64 arm64 armhf i386   |
+| bullseye, bullseye-updates | amd64 arm64 armhf i386   |
+
+Components: `main contrib non-free non-free-firmware` (bullseye: no `non-free-firmware`)
+
+### Ubuntu
+
+| Suite                          | Architectures         |
+|--------------------------------|-----------------------|
+| jammy (22.04 LTS), noble (24.04 LTS), plucky (25.04), questing (25.10) | amd64 i386 arm64 riscv64 |
+| \*-updates, \*-backports       | same as base suite    |
+
+Components: `main restricted universe multiverse`
+
+Security goes direct for both distros - keep it independent of debthin.
 
 ## Setup
 
 ### Install key
+
+The same GPG key covers both Debian and Ubuntu.
 
 If `gpg` is available:
 
@@ -63,16 +63,15 @@ curl -fsSL http://debthin.org/debthin-keyring-binary.gpg \
   -o /etc/apt/trusted.gpg.d/debthin.gpg
 ```
 
-### /etc/apt/sources.list.d/debthin.sources
+### Debian - /etc/apt/sources.list.d/debthin.sources
 
 ```
 Types: deb
 URIs: http://debthin.org
 Suites: trixie
-Components: main
+Components: main contrib non-free non-free-firmware
 Signed-By: /etc/apt/trusted.gpg.d/debthin.gpg
 
-# Security goes direct - keep it independent
 Types: deb
 URIs: https://security.debian.org/debian-security
 Suites: trixie-security
@@ -80,22 +79,25 @@ Components: main
 Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
 ```
 
-Or classic sources.list format:
+### Ubuntu - /etc/apt/sources.list.d/debthin.sources
 
 ```
-deb http://debthin.org trixie main
-deb [signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] https://security.debian.org/debian-security trixie-security main
-```
+Types: deb
+URIs: http://debthin.org
+Suites: noble
+Components: main restricted universe multiverse
+Signed-By: /etc/apt/trusted.gpg.d/debthin.gpg
 
-Once the key is in `/etc/apt/trusted.gpg.d/`, this is all you need:
-
-```
-deb http://deb.debthin.org/debian trixie main
+Types: deb
+URIs: https://security.ubuntu.com/ubuntu
+Suites: noble-security
+Components: main restricted universe multiverse
+Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
 ```
 
 ### /etc/apt/apt.conf.d/99thin
 
-apt fetches package indexes uncompressed by default. This config tells apt to request `.gz` indexes and store them compressed on disk - cutting index storage from ~80MB to ~20MB. Translation files add another ~30MB for languages you'll never use on a headless server; stripping those is free.
+apt fetches package indexes uncompressed by default. This config tells apt to request `.gz` indexes and store them compressed on disk - cutting index storage from ~80-210MB to ~5-15MB. Translation files add another ~30MB for languages you'll never use on a headless server; stripping those is free.
 
 ```
 // Strip translation files and use compressed indexes
@@ -106,11 +108,14 @@ Acquire::CompressionTypes::Order:: "gz";
 
 ## Curation
 
-`curated/packages.txt` - ~6,000 primary server packages (popcon ≥ 2,500)  
-`curated/deps.txt` - ~700 dependency packages  
-`curated/all.txt` - combined, generated by pipeline, not committed
+```
+curated/debian/packages.txt   ~6,000 primary server packages (popcon ≥ 2,500)
+curated/debian/deps.txt       ~700 dependency packages
+curated/debian/all.txt        combined, generated by pipeline, not committed
+curated/ubuntu/all.txt        currently mirrors debian/all.txt
+```
 
-To add packages: edit `curated/packages.txt`, commit, push.
+To add packages: edit `curated/debian/packages.txt`, commit, push.
 
 To rebuild from popcon:
 ```bash
@@ -118,6 +123,23 @@ python3 scripts/curate.py --suite trixie --arch amd64
 ```
 
 Or trigger via GitHub Actions with `force_recurate: true`.
+
+## Running locally
+
+```bash
+export GPG_KEY_ID=<fingerprint>
+export R2_ACCOUNT_ID=<id>
+export R2_ACCESS_KEY=<key>
+export R2_SECRET_KEY=<secret>
+export R2_BUCKET=debthin
+
+bash scripts/build.sh
+```
+
+To validate output without uploading:
+```bash
+bash scripts/validate.sh dist_output
+```
 
 ## Pipeline
 
@@ -129,17 +151,11 @@ GitHub secrets required:
 |--------|-------|
 | `GPG_PRIVATE_KEY` | `gpg --armor --export-secret-keys mirror@debthin.org` |
 | `GPG_KEY_ID` | key fingerprint |
-| `CF_ACCOUNT_ID` | Cloudflare account ID |
-| `CF_API_TOKEN` | CF API token with KV write permission |
-| `CF_KV_NAMESPACE_ID` | from `wrangler kv:namespace create MIRROR_KV` |
+| `R2_ACCOUNT_ID` | Cloudflare account ID |
+| `R2_ACCESS_KEY` | R2 access key ID |
+| `R2_SECRET_KEY` | R2 secret access key |
+| `R2_BUCKET` | R2 bucket name |
 
 ## Trademark notice
 
-Debian is a registered trademark of
-[Software in the Public Interest, Inc](https://www.spi-inc.org/).
-debthin is an independent project and is not affiliated with, endorsed by,
-or sponsored by the Debian Project. Use of the name "deb" in "debthin" refers
-to the `.deb` package format and Debian ecosystem, consistent with
-[Debian's trademark policy](https://www.debian.org/trademark) for software
-that works with Debian systems. debthin does not redistribute Debian packages -
-all package files are served directly from official Debian mirrors.
+Debian is a registered trademark of [Software in the Public Interest, Inc](https://www.spi-inc.org/). Ubuntu is a registered trademark of Canonical Ltd. debthin is an independent project and is not affiliated with, endorsed by, or sponsored by the Debian Project or Canonical. Use of the names "deb" and "ubuntu" refers to the respective package formats and ecosystems, consistent with their trademark policies for software that works with these systems. debthin does not redistribute packages - all package files are served directly from official mirrors.

@@ -86,80 +86,106 @@ jobs:
           UBUNTU_ARCHIVE="https://archive.ubuntu.com/ubuntu"
           UBUNTU_PORTS="https://ports.ubuntu.com/ubuntu-ports"
 
-          fetch_and_filter() {
-            local distro=$1 suite=$2 component=$3 arch=$4 upstream_base=$5
-            local outdir="dist_output/$distro/dists/$suite/$component/binary-$arch"
+          do_fetch() {
+            local distro=$1 upstream_base=$2 suite=$3 component=$4 arch=$5
             local cachedir="cached/$distro/$suite/$component/binary-$arch"
             local cachefile="$cachedir/Packages.gz"
-            mkdir -p "$outdir" "$cachedir"
-            echo "Processing $distro/$suite/$component/$arch..."
-
-            local fetched=0
+            mkdir -p "$cachedir"
 
             if curl -sf --retry 3 --retry-delay 5 -z "$cachefile" -o "$cachefile" \
-                "$upstream_base/dists/$suite/$component/binary-$arch/Packages.gz"; then
-              fetched=1
-            elif [[ -s "$cachefile" ]]; then
-              fetched=1
-            elif curl -sf --retry 3 --retry-delay 5 -o "${cachefile}.xz" \
-                "$upstream_base/dists/$suite/$component/binary-$arch/Packages.xz"; then
-              xzcat "${cachefile}.xz" | gzip -9 > "$cachefile" && rm -f "${cachefile}.xz"
-              fetched=1
-            fi
-
-            if [[ $fetched -eq 1 ]]; then
-              python3 scripts/filter.py \
-                --input "$cachefile" \
-                --allowed "curated/$distro/all.txt" \
-                --output "$outdir/Packages.gz" \
-                --stats
-            else
-              echo "WARNING: $distro/$suite/$component/$arch not available" >&2
+                "$upstream_base/dists/$suite/$component/binary-$arch/Packages.gz" 2>/dev/null; then
+              :
+            elif [[ ! -s "$cachefile" ]]; then
+              if curl -sf --retry 3 --retry-delay 5 -o "${cachefile}.xz" \
+                  "$upstream_base/dists/$suite/$component/binary-$arch/Packages.xz" 2>/dev/null; then
+                xzcat "${cachefile}.xz" | gzip -1 > "$cachefile" && rm -f "${cachefile}.xz"
+              else
+                echo "WARNING: $distro/$suite/$component/$arch not available" >&2
+              fi
             fi
           }
+          export -f do_fetch
 
-          # Debian
-          for suite in "${DEBIAN_SUITES[@]}"; do
-            if [[ "$suite" == "bullseye" || "$suite" == "bullseye-updates" ]]; then
-              components=(main contrib non-free)
-            else
-              components=("${DEBIAN_COMPONENTS[@]}")
-            fi
+          do_fetch_inrelease() {
+            local distro=$1 upstream_base=$2 suite=$3
+            local cachefile="cached/$distro/$suite/InRelease"
+            mkdir -p "cached/$distro/$suite"
+            curl -sf --retry 3 --retry-delay 5 -z "$cachefile" -o "$cachefile" \
+              "$upstream_base/dists/$suite/InRelease" 2>/dev/null || true
+          }
+          export -f do_fetch_inrelease
 
-            for component in "${components[@]}"; do
-              fetch_and_filter debian "$suite" "$component" all \
-                "https://deb.debian.org/debian"
-              for arch in "${DEBIAN_ARCHES[@]}"; do
-                if [[ "$arch" == "riscv64" && ! " ${DEBIAN_RISCV_SUITES[*]} " =~ " $suite " ]]; then
-                  echo "Skipping debian/$suite/$component/riscv64"
-                  continue
-                fi
-                fetch_and_filter debian "$suite" "$component" "$arch" \
-                  "https://deb.debian.org/debian"
+          # ── Phase 1: Fetch (parallel) ─────────────────────────────────────
+          echo "Phase 1: fetching upstream indexes (parallel=8)..." >&2
+
+          {
+            for suite in "${DEBIAN_SUITES[@]}"; do
+              if [[ "$suite" == "bullseye" || "$suite" == "bullseye-updates" ]]; then
+                components=(main contrib non-free)
+              else
+                components=("${DEBIAN_COMPONENTS[@]}")
+              fi
+              for component in "${components[@]}"; do
+                echo "debian https://deb.debian.org/debian $suite $component all"
+                for arch in "${DEBIAN_ARCHES[@]}"; do
+                  [[ "$arch" == "riscv64" && ! " ${DEBIAN_RISCV_SUITES[*]} " =~ " $suite " ]] && continue
+                  echo "debian https://deb.debian.org/debian $suite $component $arch"
+                done
               done
             done
-            GPG_KEY_ID=$GPG_KEY_ID bash scripts/sign.sh \
-              "dist_output/debian/dists/$suite" "https://deb.debian.org/debian" \
-              || { echo "ERROR: sign.sh failed for debian/$suite" >&2; exit 1; }
-          done
-
-          # Ubuntu - archive for amd64+i386, ports for arm64+riscv64, no binary-all
-          for suite in "${UBUNTU_SUITES[@]}"; do
-            for component in "${UBUNTU_COMPONENTS[@]}"; do
-              for arch in "${UBUNTU_ARCHIVE_ARCHES[@]}"; do
-                fetch_and_filter ubuntu "$suite" "$component" "$arch" "$UBUNTU_ARCHIVE"
-              done
-              for arch in "${UBUNTU_PORTS_ARCHES[@]}"; do
-                fetch_and_filter ubuntu "$suite" "$component" "$arch" "$UBUNTU_PORTS"
+            for suite in "${UBUNTU_SUITES[@]}"; do
+              for component in "${UBUNTU_COMPONENTS[@]}"; do
+                for arch in "${UBUNTU_ARCHIVE_ARCHES[@]}"; do
+                  echo "ubuntu $UBUNTU_ARCHIVE $suite $component $arch"
+                done
+                for arch in "${UBUNTU_PORTS_ARCHES[@]}"; do
+                  echo "ubuntu $UBUNTU_PORTS $suite $component $arch"
+                done
               done
             done
-            GPG_KEY_ID=$GPG_KEY_ID bash scripts/sign.sh \
-              "dist_output/ubuntu/dists/$suite" "$UBUNTU_ARCHIVE" \
-              || { echo "ERROR: sign.sh failed for ubuntu/$suite" >&2; exit 1; }
-          done
+          } | xargs -P 8 -L1 bash -c 'do_fetch $@' _
 
-      - name: Copy static files into dist_output
-        run: |
+          {
+            for suite in "${DEBIAN_SUITES[@]}"; do
+              echo "debian https://deb.debian.org/debian $suite"
+            done
+            for suite in "${UBUNTU_SUITES[@]}"; do
+              echo "ubuntu $UBUNTU_ARCHIVE $suite"
+            done
+          } | xargs -P 8 -L1 bash -c 'do_fetch_inrelease $@' _
+
+          # ── Phase 2: Batch filter ─────────────────────────────────────────
+          echo "Phase 2: filtering..." >&2
+
+          run_filter_batch() {
+            local distro=$1
+            local jobfile
+            jobfile=$(mktemp)
+            while IFS= read -r -d "" cachefile; do
+              local outfile="${cachefile/cached\/$distro\//dist_output\/$distro\/dists\/}"
+              mkdir -p "$(dirname "$outfile")"
+              printf "%s\t%s\n" "$cachefile" "$outfile"
+            done < <(find "cached/$distro" -name "Packages.gz" -print0 2>/dev/null | sort -z) > "$jobfile"
+            local n; n=$(wc -l < "$jobfile")
+            echo "  Filtering $distro: $n jobs..." >&2
+            python3 scripts/filter.py \
+              --allowed "curated/$distro/all.txt" \
+              --batch "$jobfile" \
+              --stats
+            rm -f "$jobfile"
+          }
+
+          run_filter_batch debian
+          run_filter_batch ubuntu
+
+          # ── Phase 3: Sign (all suites, one GPG session) ──────────────────
+          echo "Phase 3: signing..." >&2
+
+          GPG_KEY_ID=$GPG_KEY_ID bash scripts/sign_all.sh \
+            dist_output \
+            "https://deb.debian.org/debian" \
+            "$UBUNTU_ARCHIVE"
+
           cp index.html dist_output/
           cp debthin-keyring.gpg dist_output/
           cp debthin-keyring-binary.gpg dist_output/
@@ -167,12 +193,12 @@ jobs:
       - name: Install boto3
         run: pip install boto3 --break-system-packages
 
-      - name: Upload to Cloudflare R2
+      - name: Upload to R2
         env:
           R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY: ${{ secrets.R2_ACCESS_KEY }}
           R2_SECRET_KEY: ${{ secrets.R2_SECRET_KEY }}
-          R2_BUCKET:     ${{ secrets.R2_BUCKET }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
         run: |
           python3 scripts/r2_upload.py \
             --dir dist_output \
@@ -180,15 +206,3 @@ jobs:
             --access-key "$R2_ACCESS_KEY" \
             --secret-key "$R2_SECRET_KEY" \
             --bucket "$R2_BUCKET"
-
-      - name: Commit updated package list
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add curated/
-          if git diff --staged --quiet; then
-            echo "No changes to curated list"
-          else
-            git commit -m "chore: update curated package list [skip ci]"
-            git push
-          fi
