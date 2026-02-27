@@ -84,7 +84,8 @@ done < <(find "$DIST_DIR" -type f -name "Packages.gz" -print0 | sort -z)
 # Per-arch Release files - generated on the fly by worker
 while IFS= read -r -d '' f; do
     arch=$(basename "$(dirname "$f")" | sed 's/binary-//')
-    content="Archive: $SUITE"$'\n'"Component: main"$'\n'"Architecture: $arch"$'\n'
+    component=$(basename "$(dirname "$(dirname "$f")")")
+    content="Archive: $SUITE"$'\n'"Component: $component"$'\n'"Architecture: $arch"$'\n'
     rel="${f#$DIST_DIR/}"
     reldir=$(dirname "$rel")
     size=${#content}
@@ -127,5 +128,10 @@ GPG_ARGS=(--batch --yes --armor --clearsign --default-key "$GPG_KEY_ID")
 [[ -n "${GPG_HOMEDIR:-}" ]] && GPG_ARGS+=(--homedir "$GPG_HOMEDIR")
 
 gpg "${GPG_ARGS[@]}" --output "$DIST_DIR/InRelease" "$DIST_DIR/Release"
+
+if [[ ! -s "$DIST_DIR/InRelease" ]]; then
+    echo "ERROR: $DIST_DIR/InRelease was not produced or is empty" >&2
+    exit 1
+fi
 
 echo "Done: $DIST_DIR/InRelease" >&2

@@ -139,7 +139,8 @@ jobs:
               done
             done
             GPG_KEY_ID=$GPG_KEY_ID bash scripts/sign.sh \
-              "dist_output/debian/dists/$suite" "https://deb.debian.org/debian"
+              "dist_output/debian/dists/$suite" "https://deb.debian.org/debian" \
+              || { echo "ERROR: sign.sh failed for debian/$suite" >&2; exit 1; }
           done
 
           # Ubuntu - archive for amd64+i386, ports for arm64+riscv64, no binary-all
@@ -153,7 +154,8 @@ jobs:
               done
             done
             GPG_KEY_ID=$GPG_KEY_ID bash scripts/sign.sh \
-              "dist_output/ubuntu/dists/$suite" "$UBUNTU_ARCHIVE"
+              "dist_output/ubuntu/dists/$suite" "$UBUNTU_ARCHIVE" \
+              || { echo "ERROR: sign.sh failed for ubuntu/$suite" >&2; exit 1; }
           done
 
       - name: Copy static files into dist_output
