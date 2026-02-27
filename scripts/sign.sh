@@ -29,7 +29,7 @@ UPSTREAM_INRELEASE=$(curl -sf --retry 3 --max-time 15 \
     "$UPSTREAM_BASE/dists/$SUITE/InRelease" 2>/dev/null) || UPSTREAM_INRELEASE=""
 
 extract_field() {
-    echo "$UPSTREAM_INRELEASE" | grep -m1 "^$1:" | sed "s/^$1: *//" || true
+    grep -m1 "^$1:" <<< "$UPSTREAM_INRELEASE" | sed "s/^$1: *//" || true
 }
 
 UPSTREAM_SUITE=$(extract_field "Suite")
@@ -109,7 +109,13 @@ elif [[ "$SUITE" == "forky" || "$SUITE" == "trixie" || "$SUITE" == "trixie-updat
 else
     echo "Architectures: all amd64 arm64 armhf i386"
 fi
-echo "Components: main"
+if [[ "$DISTRO" == "ubuntu" ]]; then
+    echo "Components: main restricted universe multiverse"
+elif [[ "$SUITE" == "bullseye" || "$SUITE" == "bullseye-updates" ]]; then
+    echo "Components: main contrib non-free"
+else
+    echo "Components: main contrib non-free non-free-firmware"
+fi
 echo "Description: $DESCRIPTION"
 echo "SHA256:"
 cat "$SHA256_FILE"
