@@ -18,7 +18,7 @@ from pathlib import Path
 
 UPSTREAM = "https://deb.debian.org/debian"
 POPCON_URL = "https://popcon.debian.org/main/by_inst.gz"
-POPCON_URL = "file:///root/by_inst.gz"
+#POPCON_URL = "file:///root/by_inst.gz"
 
 # Sections that are relevant for server containers
 SERVER_SECTIONS = {
