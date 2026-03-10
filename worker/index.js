@@ -15,7 +15,7 @@
  * R2 bucket binding: DEBTHIN_BUCKET
  */
 
-import config from "./config.json";
+import config from "../config.json";
 
 const UPSTREAMS = {
   debian: config.debian.upstream.replace(/^https?:\/\//, ''),
