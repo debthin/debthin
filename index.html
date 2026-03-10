@@ -1,29 +1,40 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>debthin - lean Debian package indexes</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+  <link
+    href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500&display=swap"
+    rel="stylesheet">
   <style>
     :root {
-      --red:     #c0392b;
+      --red: #c0392b;
       --red-dim: #7a1f15;
-      --bg:      #0e0e0e;
-      --bg2:     #161616;
-      --bg3:     #1e1e1e;
-      --border:  #2a2a2a;
-      --muted:   #555;
-      --text:    #d4d4d4;
-      --bright:  #f0f0f0;
-      --mono:    'IBM Plex Mono', monospace;
-      --sans:    'IBM Plex Sans', sans-serif;
+      --bg: #0e0e0e;
+      --bg2: #161616;
+      --bg3: #1e1e1e;
+      --border: #2a2a2a;
+      --muted: #555;
+      --text: #d4d4d4;
+      --bright: #f0f0f0;
+      --mono: 'IBM Plex Mono', monospace;
+      --sans: 'IBM Plex Sans', sans-serif;
     }
 
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
 
-    html { scroll-behavior: smooth; }
+    html {
+      scroll-behavior: smooth;
+    }
 
     body {
       background: var(--bg);
@@ -52,7 +63,9 @@
     header::before {
       content: '';
       position: absolute;
-      top: 0; left: 0; right: 0;
+      top: 0;
+      left: 0;
+      right: 0;
       height: 3px;
       background: var(--red);
     }
@@ -68,7 +81,9 @@
       gap: 0;
     }
 
-    .logo-deb { color: var(--red); }
+    .logo-deb {
+      color: var(--red);
+    }
 
     .tagline {
       font-family: var(--mono);
@@ -85,7 +100,9 @@
       border-bottom: 1px solid var(--border);
     }
 
-    section:last-child { border-bottom: none; }
+    section:last-child {
+      border-bottom: none;
+    }
 
     h2 {
       font-family: var(--mono);
@@ -112,7 +129,9 @@
       max-width: 62ch;
     }
 
-    p + p { margin-top: 0.9rem; }
+    p+p {
+      margin-top: 0.9rem;
+    }
 
     /* ── Stats bar ── */
     .stats {
@@ -128,7 +147,9 @@
       border-right: 1px solid var(--border);
     }
 
-    .stat:last-child { border-right: none; }
+    .stat:last-child {
+      border-right: none;
+    }
 
     .stat-val {
       font-family: var(--mono);
@@ -184,8 +205,15 @@
       transition: color 0.15s, border-color 0.15s;
     }
 
-    .copy-btn:hover { color: var(--bright); border-color: var(--muted); }
-    .copy-btn.copied { color: #4caf50; border-color: #4caf50; }
+    .copy-btn:hover {
+      color: var(--bright);
+      border-color: var(--muted);
+    }
+
+    .copy-btn.copied {
+      color: #4caf50;
+      border-color: #4caf50;
+    }
 
     pre {
       font-family: var(--mono);
@@ -197,11 +225,25 @@
       white-space: pre;
     }
 
-    .cm  { color: var(--muted); }
-    .ck  { color: #7eb8d4; }
-    .cv  { color: #b5c9a0; }
-    .cs  { color: #c9956e; }
-    .ca  { color: #e0a88a; }
+    .cm {
+      color: var(--muted);
+    }
+
+    .ck {
+      color: #7eb8d4;
+    }
+
+    .cv {
+      color: #b5c9a0;
+    }
+
+    .cs {
+      color: #c9956e;
+    }
+
+    .ca {
+      color: #e0a88a;
+    }
 
     /* ── Hint text ── */
     .hint {
@@ -226,7 +268,9 @@
       text-decoration: none;
     }
 
-    .notice a:hover { text-decoration: underline; }
+    .notice a:hover {
+      text-decoration: underline;
+    }
 
     /* ── Suite table ── */
     table {
@@ -254,8 +298,13 @@
       color: var(--text);
     }
 
-    td:first-child { color: var(--bright); }
-    tr:last-child td { border-bottom: none; }
+    td:first-child {
+      color: var(--bright);
+    }
+
+    tr:last-child td {
+      border-bottom: none;
+    }
 
     .badge {
       display: inline-block;
@@ -279,150 +328,184 @@
 
     /* ── Animations ── */
     @keyframes fadein {
-      from { opacity: 0; transform: translateY(6px); }
-      to   { opacity: 1; transform: translateY(0); }
+      from {
+        opacity: 0;
+        transform: translateY(6px);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
     }
 
-    header, section {
+    header,
+    section {
       animation: fadein 0.4s ease both;
     }
 
-    section:nth-child(2) { animation-delay: 0.05s; }
-    section:nth-child(3) { animation-delay: 0.10s; }
-    section:nth-child(4) { animation-delay: 0.15s; }
-    section:nth-child(5) { animation-delay: 0.20s; }
-    section:nth-child(6) { animation-delay: 0.25s; }
-    section:nth-child(7) { animation-delay: 0.30s; }
-    section:nth-child(8) { animation-delay: 0.35s; }
+    section:nth-child(2) {
+      animation-delay: 0.05s;
+    }
+
+    section:nth-child(3) {
+      animation-delay: 0.10s;
+    }
+
+    section:nth-child(4) {
+      animation-delay: 0.15s;
+    }
+
+    section:nth-child(5) {
+      animation-delay: 0.20s;
+    }
+
+    section:nth-child(6) {
+      animation-delay: 0.25s;
+    }
+
+    section:nth-child(7) {
+      animation-delay: 0.30s;
+    }
+
+    section:nth-child(8) {
+      animation-delay: 0.35s;
+    }
   </style>
 </head>
+
 <body>
-<div class="wrap">
+  <div class="wrap">
 
-  <header>
-    <div class="logo"><span class="logo-deb">deb</span>thin</div>
-    <div class="tagline">lean debian package indexes &middot; debthin.org</div>
-  </header>
+    <header>
+      <div class="logo"><span class="logo-deb">deb</span>thin</div>
+      <div class="tagline">lean debian package indexes &middot; debthin.org</div>
+    </header>
 
-  <!-- ── What ── -->
-  <section>
-    <h2>What</h2>
-    <p>
-      A minimal Debian container image is around 90MB. The first thing you do
-      is <code>apt update</code> - and apt downloads another 90MB of index files
-      describing 68,000 packages, the overwhelming majority of which will never
-      be installed on a headless server. They sit in
-      <code>/var/lib/apt/lists</code>, consuming space and bandwidth on every
-      container, on every host, on every update cycle, indefinitely.
-    </p>
-    <p>
-      debthin serves curated <code>Packages.gz</code> indexes filtered to
-      ~6,700 server-relevant packages - admin, database, devel, networking,
-      interpreters, libs, web, and related sections. Desktop, GUI,
-      games, fonts and hardware-specific packages are excluded.
-      The result is an index around 90% smaller than upstream.
-      Everything else - the actual <code>.deb</code> files - redirects
-      transparently to <code>deb.debian.org</code>. Nothing is rehosted.
-    </p>
-    <p>
-      The list is rebuilt daily from Debian's own Packages files, ranked by
-      <a href="https://popcon.debian.org" style="color:#7eb8d4;text-decoration:none">popcon</a>
-      install counts with a minimum threshold of 2,500 reported installations.
-      Packages not in the index are still installable - add them to
-      <code>packages.txt</code> via pull request.
-    </p>
+    <!-- ── What ── -->
+    <section>
+      <h2>What</h2>
+      <p>
+        A minimal Debian container image is around 90MB. The first thing you do
+        is <code>apt update</code> - and apt downloads another 90MB of index files
+        describing 68,000 packages, the overwhelming majority of which will never
+        be installed on a headless server. They sit in
+        <code>/var/lib/apt/lists</code>, consuming space and bandwidth on every
+        container, on every host, on every update cycle, indefinitely.
+      </p>
+      <p>
+        debthin serves curated <code>Packages.gz</code> indexes filtered to
+        ~6,700 server-relevant packages - admin, database, devel, networking,
+        interpreters, libs, web, and related sections. Desktop, GUI,
+        games, fonts and hardware-specific packages are excluded.
+        The result is an index around 90% smaller than upstream.
+        Everything else - the actual <code>.deb</code> files - redirects
+        transparently to <code>deb.debian.org</code>. Nothing is rehosted.
+      </p>
+      <p>
+        The list is rebuilt daily from Debian's own Packages files, ranked by
+        <a href="https://popcon.debian.org" style="color:#7eb8d4;text-decoration:none">popcon</a>
+        install counts with a minimum threshold of 2,500 reported installations.
+        Packages not in the index are still installable - add them to
+        <code>packages.txt</code> via pull request.
+      </p>
 
-    <div class="stats">
-      <div class="stat">
-        <span class="stat-val">~6,700</span>
-        <span class="stat-label">packages indexed</span>
+      <div class="stats">
+        <div class="stat">
+          <span class="stat-val">~6,700</span>
+          <span class="stat-label">packages indexed</span>
+        </div>
+        <div class="stat">
+          <span class="stat-val">90%</span>
+          <span class="stat-label">index size reduction</span>
+        </div>
+        <div class="stat">
+          <span class="stat-val">5</span>
+          <span class="stat-label">architectures</span>
+        </div>
+        <div class="stat">
+          <span class="stat-val">7</span>
+          <span class="stat-label">suites</span>
+        </div>
       </div>
-      <div class="stat">
-        <span class="stat-val">90%</span>
-        <span class="stat-label">index size reduction</span>
-      </div>
-      <div class="stat">
-        <span class="stat-val">5</span>
-        <span class="stat-label">architectures</span>
-      </div>
-      <div class="stat">
-        <span class="stat-val">7</span>
-        <span class="stat-label">suites</span>
-      </div>
-    </div>
-  </section>
+    </section>
 
-  <!-- ── TL;DR ── -->
-  <section>
-    <h2>TL;DR</h2>
-    <p>Install the key, point apt at debthin, done. On a bare container with only <code>curl</code>:</p>
+    <!-- ── TL;DR ── -->
+    <section>
+      <h2>TL;DR</h2>
+      <p>Install the key, point apt at debthin, done. On a bare container with only <code>curl</code>:</p>
 
-    <div class="code-block">
-      <div class="code-header">
-        <span class="code-filename">bootstrap</span>
-        <button class="copy-btn" onclick="copyCode(this)">copy</button>
-      </div>
-      <pre><span class="cv">curl -fsSL http://debthin.org/debthin-keyring-binary.gpg \
+      <div class="code-block">
+        <div class="code-header">
+          <span class="code-filename">bootstrap</span>
+          <button class="copy-btn" onclick="copyCode(this)">copy</button>
+        </div>
+        <pre><span class="cv">curl -fsSL http://debthin.org/debthin-keyring-binary.gpg \
   -o /etc/apt/trusted.gpg.d/debthin.gpg
 
 printf "deb http://deb.debthin.org/debian trixie main\ndeb http://deb.debthin.org/debian trixie-updates main\ndeb http://security.debian.org/debian-security trixie-security main\n" \
   > /etc/apt/sources.list
 
 apt-get update</span></pre>
-    </div>
-
-    <p class="hint">No <code>gpg</code>, no <code>apt-transport-https</code>, no <code>ca-certificates</code> required. The GPG signature on the index provides integrity.</p>
-  </section>
-
-  <!-- ── Suites & Architectures ── -->
-  <section>
-    <h2>Suites &amp; Architectures</h2>
-    <table>
-      <thead>
-        <tr><th>Alias</th><th>Codename</th><th>Architectures</th></tr>
-      </thead>
-      <tbody id="suite-table-body">
-         <!-- Populated via config.json -->
-      </tbody>
-    </table>
-  </section>
-
-  <!-- ── Configuration ── -->
-  <section>
-    <h2>Configuration</h2>
-
-    <h3>Install the key</h3>
-
-    <p class="hint" style="margin-top:0;">Without <code>gpg</code> - works on bare containers:</p>
-    <div class="code-block">
-      <div class="code-header">
-        <span class="code-filename">binary key (recommended)</span>
-        <button class="copy-btn" onclick="copyCode(this)">copy</button>
       </div>
-      <pre><span class="cv">curl -fsSL http://debthin.org/debthin-keyring-binary.gpg \
+
+      <p class="hint">No <code>gpg</code>, no <code>apt-transport-https</code>, no <code>ca-certificates</code>
+        required. The GPG signature on the index provides integrity.</p>
+    </section>
+
+    <!-- ── Suites & Architectures ── -->
+    <section>
+      <h2>Suites &amp; Architectures</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Alias</th>
+            <th>Codename</th>
+            <th>Architectures</th>
+          </tr>
+        </thead>
+        <tbody id="suite-table-body">
+          <!-- Populated via config.json -->
+        </tbody>
+      </table>
+    </section>
+
+    <!-- ── Configuration ── -->
+    <section>
+      <h2>Configuration</h2>
+
+      <h3>Install the key</h3>
+
+      <p class="hint" style="margin-top:0;">Without <code>gpg</code> - works on bare containers:</p>
+      <div class="code-block">
+        <div class="code-header">
+          <span class="code-filename">binary key (recommended)</span>
+          <button class="copy-btn" onclick="copyCode(this)">copy</button>
+        </div>
+        <pre><span class="cv">curl -fsSL http://debthin.org/debthin-keyring-binary.gpg \
   -o /etc/apt/trusted.gpg.d/debthin.gpg</span></pre>
-    </div>
-
-    <p class="hint">With <code>gpg</code>:</p>
-    <div class="code-block">
-      <div class="code-header">
-        <span class="code-filename">armored key</span>
-        <button class="copy-btn" onclick="copyCode(this)">copy</button>
       </div>
-      <pre><span class="cv">curl -fsSL http://debthin.org/debthin-keyring.gpg \
+
+      <p class="hint">With <code>gpg</code>:</p>
+      <div class="code-block">
+        <div class="code-header">
+          <span class="code-filename">armored key</span>
+          <button class="copy-btn" onclick="copyCode(this)">copy</button>
+        </div>
+        <pre><span class="cv">curl -fsSL http://debthin.org/debthin-keyring.gpg \
   | gpg --dearmor \
   | tee /etc/apt/trusted.gpg.d/debthin.gpg > /dev/null</span></pre>
-    </div>
-
-    <h3>Sources</h3>
-
-    <p class="hint" style="margin-top:0;">DEB822 format:</p>
-    <div class="code-block">
-      <div class="code-header">
-        <span class="code-filename">/etc/apt/sources.list.d/debthin.sources</span>
-        <button class="copy-btn" onclick="copyCode(this)">copy</button>
       </div>
-      <pre><span class="ck">Types:</span> <span class="cv">deb</span>
+
+      <h3>Sources</h3>
+
+      <p class="hint" style="margin-top:0;">DEB822 format:</p>
+      <div class="code-block">
+        <div class="code-header">
+          <span class="code-filename">/etc/apt/sources.list.d/debthin.sources</span>
+          <button class="copy-btn" onclick="copyCode(this)">copy</button>
+        </div>
+        <pre><span class="ck">Types:</span> <span class="cv">deb</span>
 <span class="ck">URIs:</span> <span class="cs">http://debthin.org</span>
 <span class="ck">Suites:</span> <span class="cv">trixie trixie-updates</span>
 <span class="ck">Components:</span> <span class="cv">main</span>
@@ -433,49 +516,50 @@ apt-get update</span></pre>
 <span class="ck">Suites:</span> <span class="cv">trixie-security</span>
 <span class="ck">Components:</span> <span class="cv">main</span>
 </pre>
-    </div>
-
-    <p class="hint">Classic sources.list format:</p>
-    <div class="code-block">
-      <div class="code-header">
-        <span class="code-filename">/etc/apt/sources.list</span>
-        <button class="copy-btn" onclick="copyCode(this)">copy</button>
       </div>
-      <pre>deb http://debthin.org trixie main
+
+      <p class="hint">Classic sources.list format:</p>
+      <div class="code-block">
+        <div class="code-header">
+          <span class="code-filename">/etc/apt/sources.list</span>
+          <button class="copy-btn" onclick="copyCode(this)">copy</button>
+        </div>
+        <pre>deb http://debthin.org trixie main
 deb http://debthin.org trixie-updates main
 deb http://security.debian.org/debian-security trixie-security main</pre>
-    </div>
-
-    <h3>apt optimisation</h3>
-
-    <p>apt fetches package indexes uncompressed by default. This config tells apt to request
-    <code>.gz</code> indexes and keep them compressed on disk - cutting index storage from ~80MB to ~20MB.
-    Translation files add another ~30MB for languages you'll never need on a headless server.
-    This works independently of debthin and is a worthwhile change on any server.</p>
-
-    <div class="code-block">
-      <div class="code-header">
-        <span class="code-filename">/etc/apt/apt.conf.d/99thin</span>
-        <button class="copy-btn" onclick="copyCode(this)">copy</button>
       </div>
-      <pre><span class="cm">// Strip translation files and keep indexes compressed</span>
+
+      <h3>apt optimisation</h3>
+
+      <p>apt fetches package indexes uncompressed by default. This config tells apt to request
+        <code>.gz</code> indexes and keep them compressed on disk - cutting index storage from ~80MB to ~20MB.
+        Translation files add another ~30MB for languages you'll never need on a headless server.
+        This works independently of debthin and is a worthwhile change on any server.
+      </p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="code-filename">/etc/apt/apt.conf.d/99thin</span>
+          <button class="copy-btn" onclick="copyCode(this)">copy</button>
+        </div>
+        <pre><span class="cm">// Strip translation files and keep indexes compressed</span>
 <span class="ck">Acquire::Languages</span> <span class="cs">"none"</span><span class="cv">;</span>
 <span class="ck">Acquire::GzipIndexes</span> <span class="cs">"true"</span><span class="cv">;</span>
 <span class="ck">Acquire::CompressionTypes::Order::</span> <span class="cs">"gz"</span><span class="cv">;</span></pre>
-    </div>
-  </section>
-
-  <!-- ── Usage Examples ── -->
-  <section>
-    <h2>Usage Examples</h2>
-
-    <h3>Dockerfile</h3>
-    <div class="code-block">
-      <div class="code-header">
-        <span class="code-filename">Dockerfile</span>
-        <button class="copy-btn" onclick="copyCode(this)">copy</button>
       </div>
-      <pre><span class="ck">FROM</span> <span class="cv">debian:trixie-slim</span>
+    </section>
+
+    <!-- ── Usage Examples ── -->
+    <section>
+      <h2>Usage Examples</h2>
+
+      <h3>Dockerfile</h3>
+      <div class="code-block">
+        <div class="code-header">
+          <span class="code-filename">Dockerfile</span>
+          <button class="copy-btn" onclick="copyCode(this)">copy</button>
+        </div>
+        <pre><span class="ck">FROM</span> <span class="cv">debian:trixie-slim</span>
 
 <span class="ck">RUN</span> <span class="cv">curl -fsSL http://debthin.org/debthin-keyring-binary.gpg \
       -o /etc/apt/trusted.gpg.d/debthin.gpg \
@@ -487,16 +571,16 @@ deb http://security.debian.org/debian-security trixie-security main" \
  && apt-get install -y --no-install-recommends \
       your-package-here \
  && rm -rf /var/lib/apt/lists/*</span></pre>
-    </div>
-
-    <h3>distrobuilder</h3>
-    <p class="hint" style="margin-top:0;">In your <code>.yaml</code> image definition:</p>
-    <div class="code-block">
-      <div class="code-header">
-        <span class="code-filename">image.yaml (distrobuilder)</span>
-        <button class="copy-btn" onclick="copyCode(this)">copy</button>
       </div>
-      <pre><span class="ck">files:</span>
+
+      <h3>distrobuilder</h3>
+      <p class="hint" style="margin-top:0;">In your <code>.yaml</code> image definition:</p>
+      <div class="code-block">
+        <div class="code-header">
+          <span class="code-filename">image.yaml (distrobuilder)</span>
+          <button class="copy-btn" onclick="copyCode(this)">copy</button>
+        </div>
+        <pre><span class="ck">files:</span>
   <span class="cv">- path: /etc/apt/trusted.gpg.d/debthin.gpg
     generator: download
     url: http://debthin.org/debthin-keyring-binary.gpg</span>
@@ -518,15 +602,15 @@ deb http://security.debian.org/debian-security trixie-security main" \
       suite: trixie-security
       components:
         - main</span></pre>
-    </div>
-
-    <h3>LXC / Incus (cloud-init)</h3>
-    <div class="code-block">
-      <div class="code-header">
-        <span class="code-filename">user-data</span>
-        <button class="copy-btn" onclick="copyCode(this)">copy</button>
       </div>
-      <pre><span class="ck">apt:</span>
+
+      <h3>LXC / Incus (cloud-init)</h3>
+      <div class="code-block">
+        <div class="code-header">
+          <span class="code-filename">user-data</span>
+          <button class="copy-btn" onclick="copyCode(this)">copy</button>
+        </div>
+        <pre><span class="ck">apt:</span>
   <span class="ck">sources_list:</span> <span class="cv">|
     deb http://deb.debthin.org/debian trixie main
     deb http://deb.debthin.org/debian trixie-updates main
@@ -536,106 +620,111 @@ deb http://security.debian.org/debian-security trixie-security main" \
   <span class="cv">- curl -fsSL http://debthin.org/debthin-keyring-binary.gpg
       -o /etc/apt/trusted.gpg.d/debthin.gpg
   - apt-get update</span></pre>
-    </div>
-  </section>
+      </div>
+    </section>
 
-  <!-- ── Adding packages ── -->
-  <section>
-    <h2>Adding Packages</h2>
-    <p>
-      Packages not in the curated index are still installable - apt will resolve
-      and fetch them from <code>deb.debian.org</code> transparently via the 301
-      redirect for any unknown path. The index just won't list them for
-      <code>apt search</code> or <code>apt-cache</code>.
-    </p>
-    <p>
-      To add a package to the index permanently, open a pull request against
-      <a href="https://github.com/debthin/debthin" style="color:#7eb8d4;text-decoration:none">github.com/debthin/debthin</a>
-      and add the package name to <code>curated/packages.txt</code>.
-      The index rebuilds daily; merged additions appear within 24 hours.
-    </p>
-  </section>
+    <!-- ── Adding packages ── -->
+    <section>
+      <h2>Adding Packages</h2>
+      <p>
+        Packages not in the curated index are still installable - apt will resolve
+        and fetch them from <code>deb.debian.org</code> transparently via the 301
+        redirect for any unknown path. The index just won't list them for
+        <code>apt search</code> or <code>apt-cache</code>.
+      </p>
+      <p>
+        To add a package to the index permanently, open a pull request against
+        <a href="https://github.com/debthin/debthin"
+          style="color:#7eb8d4;text-decoration:none">github.com/debthin/debthin</a>
+        and add the package name to <code>curated/packages.txt</code>.
+        The index rebuilds daily; merged additions appear within 24 hours.
+      </p>
+    </section>
 
-  <!-- ── Trademark ── -->
-  <section>
-    <h2>Trademark notice</h2>
-    <div class="notice">
-      Debian is a registered trademark of
-      <a href="https://www.spi-inc.org/">Software in the Public Interest, Inc</a>.
-      debthin is an independent project and is not affiliated with,
-      endorsed by, or sponsored by the Debian Project.
-      Use of the name "deb" in "debthin" refers to the
-      <code>.deb</code> package format and Debian ecosystem,
-      consistent with
-      <a href="https://www.debian.org/trademark">Debian's trademark policy</a>
-      for software that works with Debian systems.
-      debthin does not redistribute Debian packages -
-      all package files are served directly from official Debian mirrors.
-    </div>
-  </section>
+    <!-- ── Trademark ── -->
+    <section>
+      <h2>Trademark notice</h2>
+      <div class="notice">
+        Debian is a registered trademark of
+        <a href="https://www.spi-inc.org/">Software in the Public Interest, Inc</a>.
+        debthin is an independent project and is not affiliated with,
+        endorsed by, or sponsored by the Debian Project.
+        Use of the name "deb" in "debthin" refers to the
+        <code>.deb</code> package format and Debian ecosystem,
+        consistent with
+        <a href="https://www.debian.org/trademark">Debian's trademark policy</a>
+        for software that works with Debian systems.
+        debthin does not redistribute Debian packages -
+        all package files are served directly from official Debian mirrors.
+      </div>
+    </section>
 
-  <!-- ── Source ── -->
-  <section>
-    <h2>Source</h2>
-    <p>
-      Pipeline, worker and curation scripts are open source.<br>
-      <a href="https://github.com/debthin/debthin" style="font-family:var(--mono);font-size:0.85rem;color:#7eb8d4;text-decoration:none">
-        github.com/debthin/debthin
-      </a>
-    </p>
-  </section>
+    <!-- ── Source ── -->
+    <section>
+      <h2>Source</h2>
+      <p>
+        Pipeline, worker and curation scripts are open source.<br>
+        <a href="https://github.com/debthin/debthin"
+          style="font-family:var(--mono);font-size:0.85rem;color:#7eb8d4;text-decoration:none">
+          github.com/debthin/debthin
+        </a>
+      </p>
+    </section>
 
-  <footer>
-    debthin.org &mdash; rebuilt daily &mdash; no cookies, no tracking, no ads
-  </footer>
+    <footer>
+      debthin.org &mdash; rebuilt daily &mdash; no cookies, no tracking, no ads
+    </footer>
 
-</div>
+  </div>
 
-<script>
-  function copyCode(btn) {
-    const pre = btn.closest('.code-block').querySelector('pre');
-    const text = pre.innerText;
-    navigator.clipboard.writeText(text).then(() => {
-      btn.textContent = 'copied';
-      btn.classList.add('copied');
-      setTimeout(() => {
-        btn.textContent = 'copy';
-        btn.classList.remove('copied');
-      }, 1800);
-    });
-  }
-
-  async function loadSuites() {
-    try {
-      const res = await fetch('/config.json');
-      if (!res.ok) throw new Error('Failed to load config');
-      const config = await res.json();
-      
-      const tbody = document.getElementById('suite-table-body');
-      let html = '';
-      
-      // Debian suites
-      for (const [suite, meta] of Object.entries(config.debian.suites)) {
-        const aliases = meta.aliases ? meta.aliases.join(', ') : '';
-        const arches = (meta.arches || config.debian.arches).join(' ');
-        html += `<tr><td>${aliases}</td><td>${suite}</td><td>${arches}</td></tr>`;
-      }
-      
-      // Ubuntu suites
-      const ubuntuArches = [...new Set([...config.ubuntu.archive_arches, ...config.ubuntu.ports_arches])].join(' ');
-      for (const [suite, meta] of Object.entries(config.ubuntu.suites)) {
-        const aliases = meta.aliases ? meta.aliases.join(', ') : '';
-        html += `<tr><td>${aliases}</td><td>${suite}</td><td>${ubuntuArches}</td></tr>`;
-      }
-      
-      tbody.innerHTML = html;
-    } catch (e) {
-      console.error(e);
-      document.getElementById('suite-table-body').innerHTML = '<tr><td colspan="3" style="color:var(--muted)">Failed to load suites configuration.</td></tr>';
+  <script>
+    function copyCode(btn) {
+      const pre = btn.closest('.code-block').querySelector('pre');
+      const text = pre.innerText;
+      navigator.clipboard.writeText(text).then(() => {
+        btn.textContent = 'copied';
+        btn.classList.add('copied');
+        setTimeout(() => {
+          btn.textContent = 'copy';
+          btn.classList.remove('copied');
+        }, 1800);
+      });
     }
-  }
 
-  document.addEventListener("DOMContentLoaded", loadSuites);
-</script>
+    async function loadSuites() {
+      try {
+        const res = await fetch('/config.json');
+        if (!res.ok) throw new Error('Failed to load config');
+        const config = await res.json();
+
+        const tbody = document.getElementById('suite-table-body');
+        let html = '';
+
+        // Debian suites
+        for (const [suite, meta] of Object.entries(config.debian.suites)) {
+          const aliases = meta.aliases ? meta.aliases.join(', ') : '';
+          const arches = (meta.arches || config.debian.arches).join(' ');
+          html += `<tr><td>${aliases}</td><td>${suite}</td><td>${arches}</td></tr>`;
+        }
+
+        // Ubuntu suites
+        if (config.ubuntu) {
+          const ubuntuArches = [...new Set([...(config.ubuntu.archive_arches || []), ...(config.ubuntu.ports_arches || [])])].join(' ');
+          for (const [suite, meta] of Object.entries(config.ubuntu.suites || {})) {
+            const aliases = meta.aliases ? meta.aliases.join(', ') : '';
+            html += `<tr><td>${aliases}</td><td>${suite}</td><td>${ubuntuArches}</td></tr>`;
+          }
+        }
+
+        tbody.innerHTML = html;
+      } catch (e) {
+        console.error(e);
+        document.getElementById('suite-table-body').innerHTML = '<tr><td colspan="3" style="color:var(--muted)">Failed to load suites configuration.</td></tr>';
+      }
+    }
+
+    document.addEventListener("DOMContentLoaded", loadSuites);
+  </script>
 </body>
+
 </html>
