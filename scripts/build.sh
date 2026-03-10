@@ -125,17 +125,20 @@ run_filter_batch() {
     local curated_base
     curated_base=$(jq -r ".\"$distro\".suites.\"$suite\".curated_base // \"\"" "$CONFIG_FILE")
     
+    local stable_suite
+    stable_suite=$(jq -r '.debian.suites | to_entries[] | select(.value.aliases and (.value.aliases | index("stable"))) | .key' "$CONFIG_FILE")
+
     local allowed=""
     if [[ -n "$curated_base" && -f "curated/$curated_base/all.txt" ]]; then
         allowed="curated/$curated_base/all.txt"
     elif [[ -f "curated/$distro/$suite/all.txt" ]]; then
         allowed="curated/$distro/$suite/all.txt"
-    elif [[ -f "curated/$distro/trixie/all.txt" ]]; then
-        allowed="curated/$distro/trixie/all.txt"
-    elif [[ -f "curated/debian/trixie/all.txt" ]]; then
-        allowed="curated/debian/trixie/all.txt"
+    elif [[ -f "curated/$distro/$stable_suite/all.txt" ]]; then
+        allowed="curated/$distro/$stable_suite/all.txt"
+    elif [[ -f "curated/debian/$stable_suite/all.txt" ]]; then
+        allowed="curated/debian/$stable_suite/all.txt"
     else
-        echo "ERROR: no allowed list found for $distro/$suite and fallback to trixie failed" >&2
+        echo "ERROR: no allowed list found for $distro/$suite and fallback to $stable_suite failed" >&2
         return 1
     fi
 
