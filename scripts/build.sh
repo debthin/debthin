@@ -5,14 +5,11 @@
 set -euo pipefail
 
 CONFIG_FILE="config.json"
-if [[ ! -f "$CONFIG_FILE" ]]; then
-    echo "ERROR: config.json not found" >&2
-    exit 1
-fi
+[[ -f "$CONFIG_FILE" ]] || { echo "ERROR: config.json not found" >&2; exit 1; }
 
 GPG_KEY_ID=C2564E8797299A499FCABFE052BBA2F43AEC90C5
 
-PARALLEL=${PARALLEL:-8}   # concurrent curl jobs
+PARALLEL=${PARALLEL:-8}
 
 R2_ACCOUNT_ID="${R2_ACCOUNT_ID:-}"
 R2_ACCESS_KEY="${R2_ACCESS_KEY:-}"
@@ -27,10 +24,67 @@ if [[ "$NO_UPLOAD" != "1" ]]; then
     fi
 fi
 
-DEBIAN_UPSTREAM=$(jq -r '.debian.upstream' "$CONFIG_FILE")
-UBUNTU_ARCHIVE=$(jq -r '.ubuntu.upstream_archive' "$CONFIG_FILE")
+# ── Config helpers ────────────────────────────────────────────────────────────
+# Emit one line per fetch job from all distros in config.json.
+# Per-suite upstream/component/arch overrides are respected.
 
-# ── Helpers ──────────────────────────────────────────────────────────────────
+fetch_jobs() {
+    jq -r '
+      to_entries[]
+      | .key as $distro
+      | .value as $c
+      | if (.value.upstream // .value.upstream_archive // .value.upstream_ports // null) == null
+        then empty else
+          $c.suites | to_entries[]
+          | .key as $suite | .value as $smeta
+          | ( $smeta.components // $c.components // [] ) as $comps
+          | (
+              # Collect all (upstream, arch) pairs for this suite
+              (
+                ( $smeta.arches // $c.arches // [] )
+                | map({ up: ($smeta.upstream // $c.upstream), arch: . })
+              ) +
+              (
+                ( $c.archive_arches // [] )
+                | map({ up: ($c.upstream_archive // $c.upstream), arch: . })
+              ) +
+              (
+                ( $c.ports_arches // [] )
+                | map({ up: ($c.upstream_ports // $c.upstream), arch: . })
+              )
+            ) as $pairs
+          | $comps[] as $comp
+          | $pairs[]
+          | "\($distro) \(.up) \($suite) \($comp) \(.arch)"
+        end
+    ' "$CONFIG_FILE"
+}
+
+inrelease_jobs() {
+    jq -r '
+      to_entries[]
+      | .key as $distro
+      | .value as $c
+      | (.value.upstream // .value.upstream_archive // .value.upstream_ports // null) as $up
+      | if $up == null then empty else
+          $c.suites | keys[]
+          | "\($distro) \($up) \(.)"
+        end
+    ' "$CONFIG_FILE"
+}
+
+distro_suites() {
+    jq -r '
+      to_entries[]
+      | .key as $distro
+      | (.value.upstream // .value.upstream_archive // .value.upstream_ports // null) as $up
+      | if $up == null then empty else
+          .value.suites | keys[] | "\($distro) \(.)"
+        end
+    ' "$CONFIG_FILE"
+}
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
 
 do_fetch() {
     local distro=$1 upstream_base=$2 suite=$3 component=$4 arch=$5
@@ -60,114 +114,67 @@ do_fetch_inrelease() {
     mkdir -p ".tmp_cache/$distro/$suite"
     curl -sf --retry 3 -z "$cachefile" -o "$cachefile" \
         "$upstream_base/dists/$suite/InRelease" 2>/dev/null || true
-    # No warning if missing - upstream may not have it yet for testing suites
 }
 export -f do_fetch_inrelease
 
 run_filter_batch() {
-    local distro=$1
-    local suite=$2
+    local distro=$1 suite=$2
     local jobfile
     jobfile=$(mktemp)
-    
-    # Resolve the correct allowed.txt file
+
     local allowed=""
-    if [[ -f "curated/$distro/$suite/all.txt" ]]; then
-        allowed="curated/$distro/$suite/all.txt"
-    elif [[ -f "curated/$distro/all.txt" ]]; then
-        allowed="curated/$distro/all.txt"
-    elif [[ -f "curated/debian/all.txt" ]]; then
-        allowed="curated/debian/all.txt"
+    if   [[ -f "curated/$distro/$suite/all.txt" ]]; then allowed="curated/$distro/$suite/all.txt"
+    elif [[ -f "curated/$distro/all.txt" ]];         then allowed="curated/$distro/all.txt"
+    elif [[ -f "curated/all.txt" ]];                 then allowed="curated/all.txt"
     else
-        echo "ERROR: Could not find allowed list for $distro/$suite" >&2
+        echo "ERROR: no allowed list found for $distro/$suite" >&2
         return 1
     fi
-    
-    echo "  Resolved allowed list for $distro/$suite: $allowed" >&2
+
+    echo "  Allowed list for $distro/$suite: $allowed" >&2
 
     while IFS= read -r -d "" cachefile; do
-        local outfile="${cachefile/.tmp_cache\/$distro\//dist_output\/$distro\/dists\/}"
+        local outfile="${cachefile/.tmp_cache\/$distro\//dist_output\/dists\/$distro\/}"
         mkdir -p "$(dirname "$outfile")"
         printf "%s\t%s\n" "$cachefile" "$outfile"
     done < <(find ".tmp_cache/$distro/$suite" -name "Packages.gz" -print0 2>/dev/null | sort -z) > "$jobfile"
-    
+
     local n; n=$(wc -l < "$jobfile")
-    if [[ $n -eq 0 ]]; then
-        rm -f "$jobfile"
-        return 0
-    fi
-    
+    if [[ $n -eq 0 ]]; then rm -f "$jobfile"; return 0; fi
+
     echo "  Filtering $distro/$suite: $n jobs..." >&2
-    python3 scripts/filter.py \
-        --allowed "$allowed" \
-        --batch "$jobfile" \
-        --stats
+    python3 scripts/filter.py --allowed "$allowed" --batch "$jobfile" --stats
     rm -f "$jobfile"
 }
 
-
-# ── Phase 1: Fetch in parallel ───────────────────────────────────────────────
+# ── Phase 1: Fetch in parallel ────────────────────────────────────────────────
 
 echo "Phase 1: fetching upstream indexes (parallel=$PARALLEL)..." >&2
 
-{
-    # Debian
-    jq -r '
-      .debian as $d | 
-      .debian.suites | to_entries[] | 
-      .key as $suite | 
-      (.value.components // $d.components) as $comps |
-      (.value.arches // $d.arches) as $arches |
-      $comps[] | . as $comp |
-      "debian \($d.upstream) \($suite) \($comp) all",
-      ( $arches[] | "debian \($d.upstream) \($suite) \($comp) \(.)" )
-    ' "$CONFIG_FILE"
+fetch_jobs      | xargs -P "$PARALLEL" -L1 bash -c 'do_fetch "$@"' _
+inrelease_jobs  | xargs -P "$PARALLEL" -L1 bash -c 'do_fetch_inrelease "$@"' _
 
-    # Ubuntu
-    jq -r '
-      .ubuntu as $u | 
-      .ubuntu.suites | to_entries[] | 
-      .key as $suite | 
-      $u.components[] | . as $comp |
-      ( $u.archive_arches[] | "ubuntu \($u.upstream_archive) \($suite) \($comp) \(.)" ),
-      ( $u.ports_arches[] | "ubuntu \($u.upstream_ports) \($suite) \($comp) \(.)" )
-    ' "$CONFIG_FILE"
-} | xargs -P "$PARALLEL" -L1 bash -c 'do_fetch "$@"' _
-
-# InRelease - once per suite, same parallel pool
-{
-    jq -r '.debian as $d | .debian.suites | keys[] | "debian \($d.upstream) \(.)"' "$CONFIG_FILE"
-    jq -r '.ubuntu as $u | .ubuntu.suites | keys[] | "ubuntu \($u.upstream_archive) \(.)"' "$CONFIG_FILE"
-} | xargs -P "$PARALLEL" -L1 bash -c 'do_fetch_inrelease "$@"' _
-
-# ── Phase 2: Batch filter ────────────────────────────────────────────────────
+# ── Phase 2: Filter ───────────────────────────────────────────────────────────
 
 echo "Phase 2: filtering..." >&2
 
-# Debian filter jobs
-while read -r suite; do
-    run_filter_batch debian "$suite"
-done < <(jq -r '.debian.suites | keys[]' "$CONFIG_FILE")
+while read -r distro suite; do
+    run_filter_batch "$distro" "$suite"
+done < <(distro_suites)
 
-# Ubuntu filter jobs
-while read -r suite; do
-    run_filter_batch ubuntu "$suite"
-done < <(jq -r '.ubuntu.suites | keys[]' "$CONFIG_FILE")
-
-# ── Phase 3: Sign (all suites, one GPG session) ──────────────────────────────
+# ── Phase 3: Sign ─────────────────────────────────────────────────────────────
 
 echo "Phase 3: signing..." >&2
 
-GPG_KEY_ID=$GPG_KEY_ID bash scripts/sign_all.sh     dist_output     "$DEBIAN_UPSTREAM"     "$UBUNTU_ARCHIVE"
+GPG_KEY_ID=$GPG_KEY_ID bash scripts/sign_all.sh dist_output "$CONFIG_FILE"
 
-# ── Upload ───────────────────────────────────────────────────────────────────
+# ── Upload ────────────────────────────────────────────────────────────────────
 
-cp index.html dist_output/
-cp config.json dist_output/
-cp debthin-keyring.gpg dist_output/
+cp index.html           dist_output/
+cp config.json          dist_output/
+cp debthin-keyring.gpg  dist_output/
 cp debthin-keyring-binary.gpg dist_output/
 
-# Remove any uncompressed Packages files - only .gz is served
 find dist_output -name "Packages" -not -name "*.gz" -delete
 
 echo "Validating dist_output/..." >&2
