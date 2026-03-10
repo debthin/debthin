@@ -122,3 +122,9 @@ gpg
 gpg-agent
 systemd
 systemd-sysv
+
+# Ubuntu specific
+ubuntu-advantage-tools
+pro
+landscape-client
+needrestart
