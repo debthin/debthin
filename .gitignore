@@ -217,3 +217,9 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# debthin local caches
+.tmp_cache/
+.tmp_cache_broken/
+test_cache/
+.npm_cache/
