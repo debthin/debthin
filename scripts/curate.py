@@ -217,6 +217,11 @@ def build_curated_list(
             break
         primary.add(pkg)
 
+    # Force include critical packages regardless of popcon score
+    for pkg in FORCE_INCLUDE:
+        if pkg in packages:
+            primary.add(pkg)
+
     print(f"  Primary packages: {len(primary)}", file=sys.stderr)
 
     # Resolve dependencies within budget

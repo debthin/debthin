@@ -143,9 +143,12 @@ gpg "${GPG_ARGS[@]}" --output /dev/null - <<< "" 2>/dev/null || true
 
 while IFS= read -r release_file; do
     inrelease="${release_file%Release}InRelease"
+    release_gpg="${release_file}.gpg"
     gpg "${GPG_ARGS[@]}" --output "$inrelease" "$release_file"
+    gpg "${GPG_ARGS[@]}" --detach-sign --output "$release_gpg" "$release_file"
     [[ -s "$inrelease" ]] || { echo "ERROR: $inrelease empty after signing" >&2; exit 1; }
-    echo "  Signed: $inrelease" >&2
+    [[ -s "$release_gpg" ]] || { echo "ERROR: $release_gpg empty after signing" >&2; exit 1; }
+    echo "  Signed: $inrelease and $release_gpg" >&2
 done < <(find "$DIST_OUTPUT" -name "Release" -not -name "InRelease" | sort)
 
 echo "Done: all suites signed." >&2
