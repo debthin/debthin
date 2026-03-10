@@ -149,8 +149,8 @@ export default {
       });
     }
 
-    // Keyring files
-    if (/^debthin-keyring(-binary)?\.gpg$/.test(raw)) {
+    // Keyring files and config.json
+    if (raw === "config.json" || /^debthin-keyring(-binary)?\.gpg$/.test(raw)) {
       return await serveR2(env, raw) || new Response("Not found", { status: 404 });
     }
 
