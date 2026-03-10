@@ -36,42 +36,32 @@ EXCLUDED_SECTIONS = {
     "electronics", "embedded", "otherosfs", "news",
 }
 
-# Packages to force-include regardless of popcon (critical base packages)
-FORCE_INCLUDE = {
-    # Base system
-    "base-files", "base-passwd", "bash", "bsdutils", "coreutils",
-    "dash", "debconf", "debian-archive-keyring", "debianutils",
-    "diffutils", "dpkg", "e2fsprogs", "findutils", "gcc-12-base",
-    "grep", "gzip", "hostname", "init-system-helpers", "libacl1",
-    "libattr1", "libaudit1", "libblkid1", "libc-bin", "libc6",
-    "libcap-ng0", "libcap2", "libcom-err2", "libcrypt1",
-    "libdb5.3", "libdebconfclient0", "libext2fs2", "libffi8",
-    "libgcc-s1", "libgcrypt20", "libgmp10", "libgnutls30",
-    "libgpg-error0", "libhogweed6", "libidn2-0", "liblz4-1",
-    "liblzma5", "libmount1", "libncurses6", "libncursesw6",
-    "libnettle8", "libnsl2", "libp11-kit0", "libpam-modules",
-    "libpam-modules-bin", "libpam-runtime", "libpam0g",
-    "libpcre2-8-0", "libpcre3", "libseccomp2", "libselinux1",
-    "libsemanage-common", "libsemanage2", "libsepol2",
-    "libsmartcols1", "libss2", "libstdc++6", "libsystemd0",
-    "libtasn1-6", "libtinfo6", "libudev1", "libunistring2",
-    "libuuid1", "libxxhash0", "libzstd1", "login", "logsave",
-    "mawk", "mount", "ncurses-base", "ncurses-bin", "passwd",
-    "perl-base", "sed", "sensible-utils", "sysvinit-utils",
-    "tar", "tzdata", "util-linux", "zlib1g",
-    # Essential networking
-    "iproute2", "iputils-ping", "net-tools", "dnsutils",
-    "netcat-openbsd", "curl", "wget", "ca-certificates",
-    "openssl", "openssh-client", "openssh-server",
-    # Essential tools
-    "apt", "apt-utils", "apt-transport-https",
-    "unattended-upgrades", "apt-listchanges",
-    "vim-tiny", "nano", "less", "man-db", "procps",
-    "psmisc", "lsof", "strace", "htop", "iotop",
-    "rsync", "cron", "logrotate", "sudo",
-    "gnupg", "gpg", "gpg-agent",
-    "systemd", "systemd-sysv",
-}
+def get_required_packages(distro: str, suite: str) -> set[str]:
+    """
+    Read required packages resolving in order:
+    1. required_packages/distro/suite.txt
+    2. required_packages/distro.txt
+    3. required_packages/debian.txt
+    """
+    candidates = [
+        Path(f"required_packages/{distro}/{suite}.txt"),
+        Path(f"required_packages/{distro}.txt"),
+        Path(f"required_packages/debian.txt")
+    ]
+    
+    for candidate in candidates:
+        if candidate.is_file():
+            print(f"  Loaded required packages from {candidate}", file=sys.stderr)
+            content = candidate.read_text()
+            # Return non-empty lines, ignoring comments
+            return {
+                line.split('#')[0].strip()
+                for line in content.splitlines()
+                if line.split('#')[0].strip()
+            }
+            
+    print(f"  WARNING: No required packages lists found. Base packages may be omitted.", file=sys.stderr)
+    return set()
 
 def fetch_url(url: str) -> bytes:
     print(f"  Fetching {url}", file=sys.stderr)
@@ -187,6 +177,7 @@ def is_server_relevant(info: dict) -> bool:
     return section in SERVER_SECTIONS
 
 def build_curated_list(
+    distro: str,
     suite: str,
     arch: str,
     primary_budget: int = 10000,
@@ -218,7 +209,8 @@ def build_curated_list(
         primary.add(pkg)
 
     # Force include critical packages regardless of popcon score
-    for pkg in FORCE_INCLUDE:
+    required_packages = get_required_packages(distro, suite)
+    for pkg in required_packages:
         if pkg in packages:
             primary.add(pkg)
 
@@ -239,6 +231,7 @@ def build_curated_list(
 
 def main():
     parser = argparse.ArgumentParser(description="Build curated Debian package list")
+    parser.add_argument("--distro", default="debian")
     parser.add_argument("--suite", default="trixie")
     parser.add_argument("--arch", default="amd64")
     parser.add_argument("--primary-budget", type=int, default=10000)
@@ -248,7 +241,7 @@ def main():
     args = parser.parse_args()
 
     primary, deps = build_curated_list(
-        args.suite, args.arch, args.primary_budget, args.dep_budget
+        args.distro, args.suite, args.arch, args.primary_budget, args.dep_budget
     )
 
     out = Path(args.output)

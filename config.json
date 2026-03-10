@@ -1,0 +1,59 @@
+{
+  "debian": {
+    "arches": ["amd64", "arm64", "armhf", "i386", "riscv64"],
+    "components": ["main", "contrib", "non-free", "non-free-firmware"],
+    "upstream": "https://deb.debian.org/debian",
+    "suites": {
+      "forky": {
+        "aliases": ["testing"]
+      },
+      "trixie": {
+        "aliases": ["stable"]
+      },
+      "trixie-updates": {
+        "aliases": ["stable-updates"]
+      },
+      "bookworm": {
+        "aliases": ["oldstable"],
+        "components": ["main", "contrib", "non-free"],
+        "arches": ["amd64", "arm64", "armhf", "i386"]
+      },
+      "bookworm-updates": {
+        "aliases": ["oldstable-updates"],
+        "components": ["main", "contrib", "non-free"],
+        "arches": ["amd64", "arm64", "armhf", "i386"]
+      },
+      "bullseye": {
+        "aliases": ["oldoldstable"],
+        "components": ["main", "contrib", "non-free"],
+        "arches": ["amd64", "arm64", "armhf", "i386"]
+      },
+      "bullseye-updates": {
+        "aliases": ["oldoldstable-updates"],
+        "components": ["main", "contrib", "non-free"],
+        "arches": ["amd64", "arm64", "armhf", "i386"]
+      }
+    }
+  },
+  "ubuntu": {
+    "components": ["main", "restricted", "universe", "multiverse"],
+    "upstream_archive": "https://archive.ubuntu.com/ubuntu",
+    "upstream_ports": "https://ports.ubuntu.com/ubuntu-ports",
+    "ports_arches": ["arm64", "riscv64"],
+    "archive_arches": ["amd64", "i386"],
+    "suites": {
+      "jammy": { "aliases": ["22.04", "previous-lts"] },
+      "jammy-updates": { "aliases": ["22.04-updates", "previous-lts-updates"] },
+      "jammy-backports": { "aliases": ["22.04-backports", "previous-lts-backports"] },
+      "noble": { "aliases": ["24.04", "lts"] },
+      "noble-updates": { "aliases": ["24.04-updates", "lts-updates"] },
+      "noble-backports": { "aliases": ["24.04-backports", "lts-backports"] },
+      "plucky": { "aliases": ["25.04", "current"] },
+      "plucky-updates": { "aliases": ["25.04-updates", "current-updates"] },
+      "plucky-backports": { "aliases": ["25.04-backports", "current-backports"] },
+      "questing": { "aliases": ["25.10", "testing"] },
+      "questing-updates": { "aliases": ["25.10-updates", "testing-updates"] },
+      "questing-backports": { "aliases": ["25.10-backports", "testing-backports"] }
+    }
+  }
+}

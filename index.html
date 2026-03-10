@@ -381,42 +381,8 @@ apt-get update</span></pre>
       <thead>
         <tr><th>Alias</th><th>Codename</th><th>Architectures</th></tr>
       </thead>
-      <tbody>
-        <tr>
-          <td>testing</td>
-          <td>forky</td>
-          <td>amd64 arm64 armhf i386 riscv64</td>
-        </tr>
-        <tr>
-          <td>stable</td>
-          <td>trixie</td>
-          <td>amd64 arm64 armhf i386 riscv64</td>
-        </tr>
-        <tr>
-          <td>stable-updates</td>
-          <td>trixie-updates</td>
-          <td>amd64 arm64 armhf i386 riscv64</td>
-        </tr>
-        <tr>
-          <td>oldstable</td>
-          <td>bookworm</td>
-          <td>amd64 arm64 armhf i386</td>
-        </tr>
-        <tr>
-          <td>oldstable-updates</td>
-          <td>bookworm-updates</td>
-          <td>amd64 arm64 armhf i386</td>
-        </tr>
-        <tr>
-          <td>oldoldstable</td>
-          <td>bullseye</td>
-          <td>amd64 arm64 armhf i386</td>
-        </tr>
-        <tr>
-          <td>oldoldstable-updates</td>
-          <td>bullseye-updates</td>
-          <td>amd64 arm64 armhf i386</td>
-        </tr>
+      <tbody id="suite-table-body">
+         <!-- Populated via config.json -->
       </tbody>
     </table>
   </section>
@@ -638,6 +604,38 @@ deb http://security.debian.org/debian-security trixie-security main" \
       }, 1800);
     });
   }
+
+  async function loadSuites() {
+    try {
+      const res = await fetch('/config.json');
+      if (!res.ok) throw new Error('Failed to load config');
+      const config = await res.json();
+      
+      const tbody = document.getElementById('suite-table-body');
+      let html = '';
+      
+      // Debian suites
+      for (const [suite, meta] of Object.entries(config.debian.suites)) {
+        const aliases = meta.aliases ? meta.aliases.join(', ') : '';
+        const arches = (meta.arches || config.debian.arches).join(' ');
+        html += `<tr><td>${aliases}</td><td>${suite}</td><td>${arches}</td></tr>`;
+      }
+      
+      // Ubuntu suites
+      const ubuntuArches = [...new Set([...config.ubuntu.archive_arches, ...config.ubuntu.ports_arches])].join(' ');
+      for (const [suite, meta] of Object.entries(config.ubuntu.suites)) {
+        const aliases = meta.aliases ? meta.aliases.join(', ') : '';
+        html += `<tr><td>${aliases}</td><td>${suite}</td><td>${ubuntuArches}</td></tr>`;
+      }
+      
+      tbody.innerHTML = html;
+    } catch (e) {
+      console.error(e);
+      document.getElementById('suite-table-body').innerHTML = '<tr><td colspan="3" style="color:var(--muted)">Failed to load suites configuration.</td></tr>';
+    }
+  }
+
+  document.addEventListener("DOMContentLoaded", loadSuites);
 </script>
 </body>
 </html>
