@@ -31,8 +31,8 @@ check_file() {
         fail "missing: $f"
     elif [[ ! -s "$f" ]]; then
         fail "empty: $f"
-    elif [[ $(stat -c%s "$f") -lt $min_size ]]; then
-        fail "too small ($(stat -c%s "$f") bytes): $f"
+    elif [[ $(python3 -c "import os,sys; print(os.path.getsize(sys.argv[1]))" "$f") -lt $min_size ]]; then
+        fail "too small ($(python3 -c "import os,sys; print(os.path.getsize(sys.argv[1]))" "$f") bytes): $f"
     else
         pass "$f"
     fi
@@ -121,7 +121,7 @@ verify_inrelease_hashes() {
         fi
         local actual_hash actual_size
         actual_hash=$(sha256sum "$full_path" | cut -d' ' -f1)
-        actual_size=$(stat -c%s "$full_path")
+        actual_size=$(python3 -c "import os,sys; print(os.path.getsize(sys.argv[1]))" "$full_path")
         if [[ "$actual_hash" != "$expect_hash" ]]; then
             fail "SHA256 mismatch: $rel_path"
         elif [[ "$actual_size" != "$expect_size" ]]; then
