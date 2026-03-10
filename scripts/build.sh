@@ -18,10 +18,13 @@ R2_ACCOUNT_ID="${R2_ACCOUNT_ID:-}"
 R2_ACCESS_KEY="${R2_ACCESS_KEY:-}"
 R2_SECRET_KEY="${R2_SECRET_KEY:-}"
 R2_BUCKET="${R2_BUCKET:-debthin}"
+NO_UPLOAD="${NO_UPLOAD:-0}"
 
-if [[ -z "$R2_ACCOUNT_ID" || -z "$R2_ACCESS_KEY" || -z "$R2_SECRET_KEY" ]]; then
-    echo "ERROR: R2_ACCOUNT_ID, R2_ACCESS_KEY and R2_SECRET_KEY must be set" >&2
-    exit 1
+if [[ "$NO_UPLOAD" != "1" ]]; then
+    if [[ -z "$R2_ACCOUNT_ID" || -z "$R2_ACCESS_KEY" || -z "$R2_SECRET_KEY" ]]; then
+        echo "ERROR: R2_ACCOUNT_ID, R2_ACCESS_KEY and R2_SECRET_KEY must be set (or set NO_UPLOAD=1 to skip upload)" >&2
+        exit 1
+    fi
 fi
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -167,12 +170,16 @@ find dist_output -name "Packages" -not -name "*.gz" -delete
 echo "Validating dist_output/..." >&2
 bash scripts/validate.sh dist_output
 
-echo "Uploading to Cloudflare R2..." >&2
-python3 scripts/r2_upload.py \
-    --dir dist_output \
-    --account "$R2_ACCOUNT_ID" \
-    --access-key "$R2_ACCESS_KEY" \
-    --secret-key "$R2_SECRET_KEY" \
-    --bucket "$R2_BUCKET"
+if [[ "$NO_UPLOAD" != "1" ]]; then
+    echo "Uploading to Cloudflare R2..." >&2
+    python3 scripts/r2_upload.py \
+        --dir dist_output \
+        --account "$R2_ACCOUNT_ID" \
+        --access-key "$R2_ACCESS_KEY" \
+        --secret-key "$R2_SECRET_KEY" \
+        --bucket "$R2_BUCKET"
+else
+    echo "Skipping Cloudflare R2 upload (NO_UPLOAD=1)." >&2
+fi
 
 echo "Done."
