@@ -15,27 +15,35 @@
  * R2 bucket binding: DEBTHIN_BUCKET
  */
 
-import config from "../config.json";
+async function loadConfig(env) {
+  const obj = await r2Get(env, "config.json");
+  if (!obj) {
+    throw new Error("config.json not found in R2 bucket");
+  }
+  return JSON.parse(await obj.text());
+}
 
-const UPSTREAMS = {
-  debian: config.debian.upstream.replace(/^https?:\/\//, ''),
-  ubuntu: config.ubuntu.upstream_archive.replace(/^https?:\/\//, ''),
-};
+function getUpstreams(config) {
+  return {
+    debian: config.debian.upstream.replace(/^https?:\/\//, ''),
+    ubuntu: config.ubuntu.upstream_archive.replace(/^https?:\/\//, ''),
+  };
+}
 
-function getConfig(distro) {
+function getConfig(config, distro) {
   return config[distro];
 }
 
-function components(distro) {
-  return getConfig(distro).components;
+function components(config, distro) {
+  return getConfig(config, distro).components;
 }
 
-function componentRe(distro) {
-  return components(distro).join("|");
+function componentRe(config, distro) {
+  return components(config, distro).join("|");
 }
 
-function resolveAliases(distro, suitePath) {
-  const c = getConfig(distro);
+function resolveAliases(config, distro, suitePath) {
+  const c = getConfig(config, distro);
   const parts = suitePath.split("/");
   if (parts[0] === "dists" && parts[1]) {
     const term = parts[1];
@@ -50,8 +58,8 @@ function resolveAliases(distro, suitePath) {
   return parts.join("/");
 }
 
-function buildArchRegex(distro) {
-  const c = getConfig(distro);
+function buildArchRegex(config, distro) {
+  const c = getConfig(config, distro);
   if (distro === 'debian') {
     return c.arches.join("|") + "|all"; // Debian allows 'all'
   } else {
@@ -161,10 +169,18 @@ export default {
       rest = raw;
     }
 
+    let configObj;
+    try {
+      configObj = await loadConfig(env);
+    } catch (e) {
+      return new Response("Internal Server Error: Missing config.json", { status: 500 });
+    }
+
+    const UPSTREAMS = getUpstreams(configObj);
     const upstream = UPSTREAMS[distro];
-    const suitePath = resolveAliases(distro, rest);
+    const suitePath = resolveAliases(configObj, distro, rest);
     const r2Key = `${distro}/${suitePath}`;
-    const c = componentRe(distro);
+    const c = componentRe(configObj, distro);
 
     // Suite-level Release - strip PGP wrapper from InRelease
     if (/^dists\/[^/]+\/Release$/.test(suitePath)) {
@@ -179,7 +195,7 @@ export default {
       });
     }
 
-    const archRe = buildArchRegex(distro);
+    const archRe = buildArchRegex(configObj, distro);
 
     // Per-component per-arch Release - generated on the fly
     if (new RegExp(`^dists/[^/]+/(${c})/binary-(${archRe})/Release$`).test(suitePath)) {
