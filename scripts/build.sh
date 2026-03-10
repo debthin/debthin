@@ -27,6 +27,9 @@ if [[ "$NO_UPLOAD" != "1" ]]; then
     fi
 fi
 
+DEBIAN_UPSTREAM=$(jq -r '.debian.upstream' "$CONFIG_FILE")
+UBUNTU_ARCHIVE=$(jq -r '.ubuntu.upstream_archive' "$CONFIG_FILE")
+
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 do_fetch() {
@@ -155,7 +158,7 @@ done < <(jq -r '.ubuntu.suites | keys[]' "$CONFIG_FILE")
 
 echo "Phase 3: signing..." >&2
 
-GPG_KEY_ID=$GPG_KEY_ID bash scripts/sign_all.sh     dist_output     "https://deb.debian.org/debian"     "$UBUNTU_ARCHIVE"
+GPG_KEY_ID=$GPG_KEY_ID bash scripts/sign_all.sh     dist_output     "$DEBIAN_UPSTREAM"     "$UBUNTU_ARCHIVE"
 
 # ── Upload ───────────────────────────────────────────────────────────────────
 
