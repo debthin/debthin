@@ -9,7 +9,6 @@ curated/all.txt
 /tmp/
 *.gz
 *.log
-.tmp_cache/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
