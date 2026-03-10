@@ -4,7 +4,7 @@ Fetch Debian popcon data + Packages index, filter to server-relevant packages,
 output curated list split into primary (~10,000) and dependency (~1000) slots.
 
 Usage:
-    python3 curate.py [--suite trixie] [--arch amd64] [--output curated/packages.txt]
+    python3 curate.py [--distro debian] [--suite trixie] [--arch amd64] [--output curated/debian/all.txt]
 """
 
 import argparse
@@ -12,13 +12,15 @@ import gzip
 import io
 import re
 import sys
+import json
+import logging
 import urllib.request
 from collections import defaultdict
 from pathlib import Path
 
 UPSTREAM = "https://deb.debian.org/debian"
 POPCON_URL = "https://popcon.debian.org/main/by_inst.gz"
-#POPCON_URL = "file:///root/by_inst.gz"
+CONFIG_FILE = "config.json"
 
 # Sections that are relevant for server containers
 SERVER_SECTIONS = {
@@ -63,7 +65,10 @@ def get_required_packages(distro: str, suite: str) -> set[str]:
     print(f"  WARNING: No required packages lists found. Base packages may be omitted.", file=sys.stderr)
     return set()
 
-def fetch_url(url: str) -> bytes:
+def fetch_url(url: str, delay: int = 0) -> bytes:
+    import time
+    if delay > 0:
+        time.sleep(delay)
     print(f"  Fetching {url}", file=sys.stderr)
     req = urllib.request.Request(url, headers={"User-Agent": "debian-slim-mirror/1.0"})
     with urllib.request.urlopen(req, timeout=60) as r:
@@ -182,13 +187,19 @@ def build_curated_list(
     arch: str,
     primary_budget: int = 10000,
     dep_budget: int = 1000,
+    popcon: dict[str, int] = None,
 ) -> tuple[list[str], list[str]]:
 
-    print(f"\nFetching popcon data...", file=sys.stderr)
-    popcon = fetch_popcon()
+    if popcon is None:
+        print(f"\nFetching popcon data...", file=sys.stderr)
+        popcon = fetch_popcon()
 
     print(f"\nFetching Packages index for {suite}/{arch}...", file=sys.stderr)
-    packages = fetch_packages_index(suite, arch)
+    try:
+        packages = fetch_packages_index(suite, arch)
+    except Exception as e:
+        print(f"  ERROR fetching packages for {suite}: {e}", file=sys.stderr)
+        return [], []
 
     print(f"\nFiltering and ranking...", file=sys.stderr)
 
@@ -230,35 +241,45 @@ def build_curated_list(
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Build curated Debian package list")
-    parser.add_argument("--distro", default="debian")
-    parser.add_argument("--suite", default="trixie")
-    parser.add_argument("--arch", default="amd64")
+    parser = argparse.ArgumentParser(description="Build curated Debian package lists from config.json")
     parser.add_argument("--primary-budget", type=int, default=10000)
     parser.add_argument("--dep-budget", type=int, default=1000)
-    parser.add_argument("--output", default="curated/packages.txt")
-    parser.add_argument("--deps-output", default="curated/deps.txt")
+    parser.add_argument("--arch", default="amd64", help="Architecture to pull from debian to resolve dependencies")
     args = parser.parse_args()
 
-    primary, deps = build_curated_list(
-        args.distro, args.suite, args.arch, args.primary_budget, args.dep_budget
-    )
+    config_path = Path(CONFIG_FILE)
+    if not config_path.is_file():
+        print(f"ERROR: {CONFIG_FILE} not found", file=sys.stderr)
+        sys.exit(1)
 
-    out = Path(args.output)
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text("\n".join(primary) + "\n")
-    print(f"\nWrote {len(primary)} primary packages to {args.output}", file=sys.stderr)
+    config = json.loads(config_path.read_text())
+    debian_suites = config.get("debian", {}).get("suites", {})
 
-    deps_out = Path(args.deps_output)
-    deps_out.write_text("\n".join(deps) + "\n")
-    print(f"Wrote {len(deps)} dependency packages to {args.deps_output}", file=sys.stderr)
+    print(f"\nFetching global popcon data...", file=sys.stderr)
+    popcon = fetch_popcon()
 
-    # Combined for filter.py consumption
-    all_pkgs = sorted(set(primary) | set(deps))
-    combined = Path(args.output).parent / "all.txt"
-    combined.write_text("\n".join(all_pkgs) + "\n")
-    print(f"Wrote {len(all_pkgs)} total packages to {combined}", file=sys.stderr)
+    for suite, meta in debian_suites.items():
+        if "curated_base" in meta:
+            print(f"\nSkipping {suite}: uses curated_base {meta['curated_base']}", file=sys.stderr)
+            continue
+            
+        print(f"\n=== Generating list for debian/{suite} ===", file=sys.stderr)
+        primary, deps = build_curated_list(
+            "debian", suite, args.arch, args.primary_budget, args.dep_budget, popcon
+        )
+        
+        if not primary and not deps:
+            print(f"Skipping empty results for {suite}", file=sys.stderr)
+            continue
 
+        all_pkgs = sorted(set(primary) | set(deps))
+        
+        out = Path(f"curated/debian/{suite}/all.txt")
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text("\n".join(all_pkgs) + "\n")
+        
+        print(f"\nResolved {len(primary)} primary packages and {len(deps)} dependency packages.", file=sys.stderr)
+        print(f"Wrote {len(all_pkgs)} total packages to {out}", file=sys.stderr)
 
 if __name__ == "__main__":
     main()
