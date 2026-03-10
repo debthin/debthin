@@ -1,36 +1,65 @@
 #!/usr/bin/env bash
 # sign_all.sh - Generate Release files and sign all suites in one GPG session.
 #
-# Usage: GPG_KEY_ID=<fp> bash sign_all.sh <dist_output> <upstream_debian> <upstream_ubuntu>
+# Usage: GPG_KEY_ID=<fp> bash sign_all.sh <dist_output> [config.json]
 #
-# Generates Release files in parallel (curl + sha256 work), then signs all
-# in a single loop so gpg-agent is loaded exactly once.
+# Reads all distro/suite/upstream metadata from config.json.
+# Generates Release files in parallel, then signs all in one GPG session.
 
 set -euo pipefail
 
 DIST_OUTPUT="${1:-dist_output}"
-UPSTREAM_DEBIAN="${2:-https://deb.debian.org/debian}"
-UPSTREAM_UBUNTU="${3:-https://archive.ubuntu.com/ubuntu}"
+CONFIG_FILE="${2:-config.json}"
 
 [[ -z "${GPG_KEY_ID:-}" ]] && { echo "GPG_KEY_ID not set" >&2; exit 1; }
+[[ -f "$CONFIG_FILE" ]]    || { echo "config.json not found: $CONFIG_FILE" >&2; exit 1; }
 
 PARALLEL=${PARALLEL:-8}
 
-# ── Generate one Release file (no signing) ───────────────────────────────────
+# ── Build distro metadata table from config ───────────────────────────────────
+# Emit lines: <distro> <upstream> <suite> <components_csv> <arches_csv>
+# Components and arches respect per-suite overrides if present in config.
+
+distro_suite_lines() {
+    jq -r '
+      to_entries[]
+      | .key as $distro
+      | .value as $c
+      | (.value.upstream // .value.upstream_archive // .value.upstream_ports // null) as $up
+      | if $up == null then empty else
+          ($c.suites // {} | to_entries[])
+          | .key as $suite
+          | .value as $smeta
+          | ( $smeta.components // $c.components // [] | join(",") ) as $comps
+          | ( [ $smeta.arches,
+                $c.arches,
+                $c.archive_arches,
+                $c.ports_arches
+              ] | map(select(. != null)) | flatten | unique | join(",") ) as $arches
+          | ($smeta.upstream // $up) as $suite_up
+          | "\($distro) \($suite_up) \($suite) \($comps) \($arches)"
+        end
+    ' "$CONFIG_FILE"
+}
+export CONFIG_FILE
+
+# ── Generate one Release file ─────────────────────────────────────────────────
 
 gen_release() {
-    local dist_dir=$1 upstream_base=$2
-    local suite distro
+    local distro=$1 upstream_base=$2 suite=$3 components_csv=$4 arches_csv=$5
+    local dist_dir="$DIST_OUTPUT/dists/$distro/$suite"
 
-    suite=$(basename "$dist_dir")
-    distro=$(basename "$(dirname "$(dirname "$dist_dir")")")
+    [[ -d "$dist_dir" ]] || { echo "  Skipping $distro/$suite (no output dir)" >&2; return 0; }
 
-    local inrelease_cache="cached/$distro/$suite/InRelease"
+    # Fetch upstream InRelease for metadata fields (Date, Version, Changelogs, Suite)
+    local inrelease_cache=".tmp_cache/$distro/$suite/InRelease"
     if [[ ! -f "$inrelease_cache" ]]; then
+        mkdir -p "$(dirname "$inrelease_cache")"
         curl -sf --retry 3 --max-time 15 \
             -o "$inrelease_cache" \
             "$upstream_base/dists/$suite/InRelease" 2>/dev/null || true
     fi
+
     local upstream_inrelease=""
     [[ -s "$inrelease_cache" ]] && upstream_inrelease=$(< "$inrelease_cache")
 
@@ -44,73 +73,61 @@ gen_release() {
     upstream_date=$(extract_field "Date")
     upstream_changelogs=$(extract_field "Changelogs")
 
-    local date suite_line version_line changelogs_line description
+    local date
     date="${upstream_date:-$(date -u +"%a, %d %b %Y %H:%M:%S UTC")}"
-    suite_line="Suite: ${upstream_suite:-$suite}"
-    version_line=""; [[ -n "$upstream_version" ]] && version_line="Version: $upstream_version"
-    changelogs_line=""; [[ -n "$upstream_changelogs" ]] && changelogs_line="Changelogs: $upstream_changelogs"
 
+    local description
     if [[ -n "$upstream_version" ]]; then
-        description="Curated server package index for ${distro^} $upstream_version (${suite}) - debthin.org"
+        description="Curated server package index for ${distro^} $upstream_version ($suite) - debthin.org"
     else
-        description="Curated server package index for ${distro^} ${suite} - debthin.org"
+        description="Curated server package index for ${distro^} $suite - debthin.org"
     fi
 
+    # Build SHA256 manifest for all Packages.gz files and their derived paths
     local sha256_file
     sha256_file=$(mktemp)
-    # shellcheck disable=SC2064
     trap "rm -f $sha256_file" RETURN
 
     while IFS= read -r -d '' f; do
-        local rel relbase reldir size_gz sha256_gz raw sha256_raw size_raw
+        local rel relbase reldir size_gz sha256_gz tmp_raw sha256_raw size_raw
         rel="${f#$dist_dir/}"
         relbase="${rel%.gz}"
         reldir=$(dirname "$rel")
-        size_gz=$(python3 -c "import os,sys; print(os.path.getsize(sys.argv[1]))" "$f")
+
+        size_gz=$(wc -c < "$f")
         sha256_gz=$(sha256sum "$f" | cut -d' ' -f1)
-        local tmp_raw
+
         tmp_raw=$(mktemp)
         gunzip -c "$f" > "$tmp_raw"
         sha256_raw=$(sha256sum "$tmp_raw" | cut -d' ' -f1)
-        size_raw=$(python3 -c "import os,sys; print(os.path.getsize(sys.argv[1]))" "$tmp_raw")
+        size_raw=$(wc -c < "$tmp_raw")
         rm -f "$tmp_raw"
 
         printf " %s %s %s\n" "$sha256_gz"  "$size_gz"  "$rel"                              >> "$sha256_file"
         printf " %s %s %s\n" "$sha256_gz"  "$size_gz"  "$reldir/by-hash/SHA256/$sha256_gz" >> "$sha256_file"
         printf " %s %s %s\n" "$sha256_raw" "$size_raw" "$relbase"                          >> "$sha256_file"
 
+        # Per-arch Release entry (generated on the fly by the worker, but still hashed)
         local arch component arch_release sha256_ar size_ar
         arch=$(basename "$(dirname "$f")" | sed 's/binary-//')
         component=$(basename "$(dirname "$(dirname "$f")")")
         arch_release="Archive: $suite"$'\n'"Component: $component"$'\n'"Architecture: $arch"$'\n'
         sha256_ar=$(printf '%s' "$arch_release" | sha256sum | cut -d' ' -f1)
         size_ar=${#arch_release}
-        printf " %s %s %s\n" "$sha256_ar" "$size_ar" "$reldir/Release"                    >> "$sha256_file"
+        printf " %s %s %s\n" "$sha256_ar" "$size_ar" "$reldir/Release" >> "$sha256_file"
     done < <(find "$dist_dir" -type f -name "Packages.gz" -print0 | sort -z)
 
     {
         echo "Origin: debthin"
         echo "Label: debthin"
-        echo "$suite_line"
-        [[ -n "$version_line" ]]    && echo "$version_line"
+        echo "Suite: ${upstream_suite:-$suite}"
+        [[ -n "$upstream_version" ]]    && echo "Version: $upstream_version"
         echo "Codename: $suite"
-        [[ -n "$changelogs_line" ]] && echo "$changelogs_line"
+        [[ -n "$upstream_changelogs" ]] && echo "Changelogs: $upstream_changelogs"
         echo "Date: $date"
         echo "Acquire-By-Hash: yes"
-        if [[ "$distro" == "ubuntu" ]]; then
-            echo "Architectures: amd64 arm64 i386 riscv64"
-        elif [[ "$suite" == "forky" || "$suite" == "trixie" || "$suite" == "trixie-updates" ]]; then
-            echo "Architectures: all amd64 arm64 armhf i386 riscv64"
-        else
-            echo "Architectures: all amd64 arm64 armhf i386"
-        fi
-        if [[ "$distro" == "ubuntu" ]]; then
-            echo "Components: main restricted universe multiverse"
-        elif [[ "$suite" == "bullseye" || "$suite" == "bullseye-updates" ]]; then
-            echo "Components: main contrib non-free"
-        else
-            echo "Components: main contrib non-free non-free-firmware"
-        fi
+        echo "Architectures: $(echo "$arches_csv" | tr ',' ' ')"
+        echo "Components: $(echo "$components_csv" | tr ',' ' ')"
         echo "Description: $description"
         echo "SHA256:"
         cat "$sha256_file"
@@ -119,17 +136,13 @@ gen_release() {
     echo "  Release: $distro/$suite" >&2
 }
 export -f gen_release
+export DIST_OUTPUT
 
 # ── Phase A: Generate all Release files in parallel ──────────────────────────
 
 echo "Signing phase A: generating Release files (parallel=$PARALLEL)..." >&2
 
-{
-    find "$DIST_OUTPUT/debian/dists" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort | \
-        while read -r d; do echo "$d $UPSTREAM_DEBIAN"; done
-    find "$DIST_OUTPUT/ubuntu/dists" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort | \
-        while read -r d; do echo "$d $UPSTREAM_UBUNTU"; done
-} | xargs -P "$PARALLEL" -L1 bash -c 'gen_release $@' _
+distro_suite_lines | xargs -P "$PARALLEL" -L1 bash -c 'gen_release "$@"' _
 
 # ── Phase B: Sign all Release files in one GPG session ───────────────────────
 
@@ -138,7 +151,6 @@ echo "Signing phase B: signing all Release files..." >&2
 GPG_ARGS=(--batch --yes --armor --clearsign --default-key "$GPG_KEY_ID")
 [[ -n "${GPG_HOMEDIR:-}" ]] && GPG_ARGS+=(--homedir "$GPG_HOMEDIR")
 
-# Warm the agent before the loop
 gpg "${GPG_ARGS[@]}" --output /dev/null - <<< "" 2>/dev/null || true
 
 while IFS= read -r release_file; do
@@ -146,9 +158,9 @@ while IFS= read -r release_file; do
     release_gpg="${release_file}.gpg"
     gpg "${GPG_ARGS[@]}" --output "$inrelease" "$release_file"
     gpg "${GPG_ARGS[@]}" --detach-sign --output "$release_gpg" "$release_file"
-    [[ -s "$inrelease" ]] || { echo "ERROR: $inrelease empty after signing" >&2; exit 1; }
+    [[ -s "$inrelease" ]]  || { echo "ERROR: $inrelease empty after signing" >&2; exit 1; }
     [[ -s "$release_gpg" ]] || { echo "ERROR: $release_gpg empty after signing" >&2; exit 1; }
-    echo "  Signed: $inrelease and $release_gpg" >&2
-done < <(find "$DIST_OUTPUT" -name "Release" -not -name "InRelease" | sort)
+    echo "  Signed: $(basename "$(dirname "$inrelease")")/InRelease" >&2
+done < <(find "$DIST_OUTPUT" -name "Release" -not -name "*.gpg" | sort)
 
 echo "Done: all suites signed." >&2
