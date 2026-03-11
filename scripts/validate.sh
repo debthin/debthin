@@ -136,6 +136,7 @@ echo "=== Static files ==="
 check_file "$DIST_OUTPUT/index.html" 1000
 check_file "$DIST_OUTPUT/debthin-keyring.gpg" 100
 check_file "$DIST_OUTPUT/debthin-keyring-binary.gpg" 100
+check_file "$DIST_OUTPUT/config.json" 100
 # ── Per-distro checks ─────────────────────────────────────────────────────────
 for distro_dir in "$DIST_OUTPUT"/*/dists; do
     [[ -d "$distro_dir" ]] || continue
