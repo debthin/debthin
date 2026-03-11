@@ -137,6 +137,10 @@ def sync(directory: Path, account_id: str, access_key: str,
     total = len(uploads)
     print(f"Uploading {total} objects to R2 bucket '{bucket}' ({workers} workers)...", file=sys.stderr)
 
+    if "config.json" in uploads:
+        size = len(uploads["config.json"])
+        print(f"  Found config.json ({size} bytes) in upload queue", file=sys.stderr)
+
     jobs = [(client, bucket, key, data, dry_run) for key, data in sorted(uploads.items())]
     errors = []
     done = 0

@@ -131,12 +131,36 @@ verify_inrelease_hashes() {
         fi
     done < "$inrelease"
 }
+check_config_json() {
+    local f=$1
+    if [[ ! -f "$f" ]]; then
+        fail "missing: $f"
+        return
+    fi
+    if ! jq -e . "$f" >/dev/null 2>&1; then
+        fail "invalid JSON: $f"
+        return
+    fi
+    if ! jq -e '.debian.suites' "$f" >/dev/null 2>&1; then
+        fail "missing .debian.suites: $f"
+        return
+    fi
+    local stable_suite
+    stable_suite=$(jq -r '.debian.suites | to_entries[] | select(.value.aliases and (.value.aliases | index("stable"))) | .key' "$f")
+    if [[ -z "$stable_suite" ]]; then
+        fail "no debian suite has 'stable' in aliases: $f"
+        return
+    fi
+    pass "$f (JSON valid, stable suite: $stable_suite)"
+}
+
 # ── Static files ──────────────────────────────────────────────────────────────
 echo "=== Static files ==="
 check_file "$DIST_OUTPUT/index.html" 1000
 check_file "$DIST_OUTPUT/debthin-keyring.gpg" 100
 check_file "$DIST_OUTPUT/debthin-keyring-binary.gpg" 100
-check_file "$DIST_OUTPUT/config.json" 100
+check_config_json "$DIST_OUTPUT/config.json"
+
 # ── Per-distro checks ─────────────────────────────────────────────────────────
 for distro_dir in "$DIST_OUTPUT"/*/dists; do
     [[ -d "$distro_dir" ]] || continue
