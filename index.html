@@ -316,19 +316,19 @@
 
       <div class="stats">
         <div class="stat">
-          <span class="stat-val">2</span>
+          <span class="stat-val" id="stat-distros">2</span>
           <span class="stat-label">distros</span>
         </div>
         <div class="stat">
-          <span class="stat-val">19</span>
+          <span class="stat-val" id="stat-suites">19</span>
           <span class="stat-label">suites</span>
         </div>
         <div class="stat">
-          <span class="stat-val">90%+</span>
+          <span class="stat-val" id="stat-reduction">90%+</span>
           <span class="stat-label">index reduction</span>
         </div>
         <div class="stat">
-          <span class="stat-val">5</span>
+          <span class="stat-val" id="stat-arches">5</span>
           <span class="stat-label">architectures</span>
         </div>
       </div>
@@ -710,6 +710,7 @@ deb http://security.ubuntu.com/ubuntu noble-security main restricted universe mu
 
     <footer>
       debthin.org &mdash; rebuilt daily &mdash; no cookies, no tracking, no ads
+      <span id="build-status" style="display:none"> &mdash; <span id="build-status-text"></span></span>
     </footer>
 
   </div>
@@ -764,7 +765,64 @@ deb http://security.ubuntu.com/ubuntu noble-security main restricted universe mu
       }
     }
 
-    document.addEventListener("DOMContentLoaded", loadSuites);
+    async function loadStatus() {
+      try {
+        const res = await fetch('/status.json');
+        if (!res.ok) return;
+        const s = await res.json();
+
+        // Stats from status.json
+        const distros = Object.values(s.distros || {});
+        const distroCount = distros.length;
+        let suiteCount = 0;
+        const archSet = new Set();
+        let totalCount = 0, totalUpstream = 0;
+        for (const d of distros) {
+          const suites = Object.values(d.suites || {});
+          suiteCount += suites.length;
+          for (const suite of suites) {
+            for (const [arch, info] of Object.entries(suite.packages || {})) {
+              if (arch === 'all') continue;
+              archSet.add(arch);
+              totalCount += info.count || 0;
+              totalUpstream += info.upstream_count || 0;
+            }
+          }
+        }
+
+        if (distroCount > 0) document.getElementById('stat-distros').textContent = distroCount;
+        if (suiteCount > 0) document.getElementById('stat-suites').textContent = suiteCount;
+        if (archSet.size > 0) document.getElementById('stat-arches').textContent = archSet.size;
+        if (totalUpstream > 0) {
+          const pct = Math.round((1 - totalCount / totalUpstream) * 100);
+          document.getElementById('stat-reduction').textContent = pct + '%';
+        }
+
+        // Build status in footer
+        const builtAt = s.built_at ? new Date(s.built_at) : null;
+        if (builtAt) {
+          const rel = formatRelative(builtAt);
+          const color = s.valid ? 'var(--muted)' : 'var(--red)';
+          const label = s.valid ? `index built ${rel}` : `last build failed (${rel})`;
+          const el = document.getElementById('build-status-text');
+          el.textContent = label;
+          el.style.color = color;
+          document.getElementById('build-status').style.display = '';
+        }
+      } catch (e) {
+        // status.json unavailable - silently ignore
+      }
+    }
+
+    function formatRelative(date) {
+      const diff = Math.floor((Date.now() - date) / 1000);
+      if (diff < 60) return 'just now';
+      if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+      if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+      return Math.floor(diff / 86400) + 'd ago';
+    }
+
+    document.addEventListener("DOMContentLoaded", () => { loadSuites(); loadStatus(); });
   </script>
 </body>
 

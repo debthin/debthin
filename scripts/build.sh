@@ -158,6 +158,9 @@ run_filter_batch() {
     rm -f "$jobfile"
 }
 
+BUILD_START=$(date +%s)
+BUILT_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
 # ── Phase 1: Fetch in parallel ────────────────────────────────────────────────
 
 echo "Phase 1: fetching upstream indexes (parallel=$PARALLEL)..." >&2
@@ -189,7 +192,12 @@ cp debthin-keyring-binary.gpg dist_output/
 find dist_output -name "Packages" -not -name "*.gz" -delete
 
 echo "Validating dist_output/..." >&2
-bash scripts/validate.sh dist_output
+DURATION=$(( $(date +%s) - BUILD_START ))
+bash scripts/validate.sh dist_output \
+    --json dist_output/status.json \
+    --cache-dir .tmp_cache \
+    --built-at "$BUILT_AT" \
+    --duration-seconds "$DURATION"
 
 if [[ "$NO_UPLOAD" != "1" ]]; then
     echo "Uploading to Cloudflare R2..." >&2
