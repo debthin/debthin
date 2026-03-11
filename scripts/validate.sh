@@ -259,13 +259,15 @@ for distro_dir in "$DIST_OUTPUT"/dists/*; do
     # ── Per-suite JSON emission ───────────────────────────────────────────────
     if [[ -n "$JSON_TMPDIR" ]]; then
         # Collect upstream counts from cache if available
-        unset upstream_arch
-        declare -A upstream_arch
+        unset upstream_suite_arch
+        declare -A upstream_suite_arch
         if [[ -n "$CACHE_DIR" && -d "$CACHE_DIR/$distro" ]]; then
             while IFS= read -r -d '' f; do
+                rel_path="${f#$CACHE_DIR/$distro/}"
+                suite="${rel_path%%/*}"
                 arch=$(basename "$(dirname "$f")" | sed 's/binary-//')
                 ucount=$(gunzip -c "$f" 2>/dev/null | grep -c "^Package:" || true)
-                upstream_arch["$arch"]=$(( ${upstream_arch["$arch"]:-0} + ucount ))
+                upstream_suite_arch["$suite/$arch"]=$(( ${upstream_suite_arch["$suite/$arch"]:-0} + ucount ))
             done < <(find "$CACHE_DIR/$distro" -name "Packages.gz" -print0 2>/dev/null)
         fi
         # Build per-suite JSON blobs
@@ -311,8 +313,8 @@ for distro_dir in "$DIST_OUTPUT"/dists/*; do
                     [[ $first_arch -eq 0 ]] && printf ', '
                     first_arch=0
                     printf '"%s": {"count": %d' "$arch" "$count"
-                    if [[ -n "${upstream_arch[$arch]:-}" && ${upstream_arch[$arch]} -gt 0 ]]; then
-                        upstream=${upstream_arch[$arch]}
+                    if [[ -n "${upstream_suite_arch[$key]:-}" && ${upstream_suite_arch[$key]} -gt 0 ]]; then
+                        upstream=${upstream_suite_arch[$key]}
                         reduction=$(python3 -c "print(round((1 - $count/$upstream)*100, 1))")
                         printf ', "upstream_count": %d, "reduction_pct": %s' "$upstream" "$reduction"
                     fi
