@@ -281,7 +281,7 @@ for distro_dir in "$DIST_OUTPUT"/dists/*; do
             while IFS= read -r -d '' f; do
                 arch=$(basename "$(dirname "$f")" | sed 's/binary-//')
                 count=$(gunzip -c "$f" 2>/dev/null | grep -c "^Package:" || true)
-                suite_arch_json["$suite/$arch"]=$count
+                suite_arch_json["$suite/$arch"]=$(( ${suite_arch_json["$suite/$arch"]:-0} + count ))
             done < <(find "$suite_dir" -name "Packages.gz" -print0 2>/dev/null)
         done
         # Write distro JSON file
@@ -315,8 +315,7 @@ for distro_dir in "$DIST_OUTPUT"/dists/*; do
                     printf '"%s": {"count": %d' "$arch" "$count"
                     if [[ -n "${upstream_suite_arch[$key]:-}" && ${upstream_suite_arch[$key]} -gt 0 ]]; then
                         upstream=${upstream_suite_arch[$key]}
-                        reduction=$(python3 -c "print(round((1 - $count/$upstream)*100, 1))")
-                        printf ', "upstream_count": %d, "reduction_pct": %s' "$upstream" "$reduction"
+                        printf ', "upstream_count": %d' "$upstream"
                     fi
                     printf '}'
                 done
