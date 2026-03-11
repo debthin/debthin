@@ -162,9 +162,9 @@ check_file "$DIST_OUTPUT/debthin-keyring-binary.gpg" 100
 check_config_json "$DIST_OUTPUT/config.json"
 
 # ── Per-distro checks ─────────────────────────────────────────────────────────
-for distro_dir in "$DIST_OUTPUT"/*/dists; do
+for distro_dir in "$DIST_OUTPUT"/dists/*; do
     [[ -d "$distro_dir" ]] || continue
-    distro=$(basename "$(dirname "$distro_dir")")
+    distro=$(basename "$distro_dir")
     echo ""
     echo "=== $distro ==="
     suite_count=0
