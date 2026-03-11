@@ -340,6 +340,7 @@
       <div class="tabs">
         <button class="tab-btn active" onclick="switchTab('debian', this)">Debian</button>
         <button class="tab-btn" onclick="switchTab('ubuntu', this)">Ubuntu</button>
+        <button class="tab-btn" onclick="switchTab('status', this)">Build Status</button>
       </div>
 
       <!-- ════════════ DEBIAN ════════════ -->
@@ -657,6 +658,14 @@ deb http://security.ubuntu.com/ubuntu noble-security main restricted universe mu
 
       </div><!-- /panel-ubuntu -->
 
+      <!-- ════════════ BUILD STATUS ════════════ -->
+      <div class="tab-panel" id="panel-status">
+        <h2>Build Details</h2>
+        <div id="status-content">
+          <p class="hint">Loading build status from recent run...</p>
+        </div>
+      </div><!-- /panel-status -->
+
     </section>
 
     <!-- ── Adding packages ── -->
@@ -794,9 +803,33 @@ deb http://security.ubuntu.com/ubuntu noble-security main restricted universe mu
         if (suiteCount > 0) document.getElementById('stat-suites').textContent = suiteCount;
         if (archSet.size > 0) document.getElementById('stat-arches').textContent = archSet.size;
         if (totalUpstream > 0) {
-          const pct = Math.round((1 - totalCount / totalUpstream) * 100);
+          const pct = ((1 - totalCount / totalUpstream) * 100).toFixed(1);
           document.getElementById('stat-reduction').textContent = pct + '%';
         }
+
+        // Populate Status Tab
+        let statusHtml = '';
+        if (s.built_at) statusHtml += `<p><strong>Built:</strong> ${new Date(s.built_at).toLocaleString()}</p>`;
+        if (s.duration_seconds !== undefined) statusHtml += `<p><strong>Duration:</strong> ${s.duration_seconds}s</p>`;
+        statusHtml += `<p><strong>Status:</strong> <span style="color: ${s.valid ? 'var(--bright)' : 'var(--red)'}">${s.valid ? 'Success' : 'Failed'}</span></p>`;
+        if (s.errors > 0) statusHtml += `<p><strong>Errors:</strong> <span style="color: var(--red)">${s.errors}</span></p>`;
+        if (s.warnings > 0) statusHtml += `<p><strong>Warnings:</strong> <span style="color: #ffb86c">${s.warnings}</span></p>`;
+
+        for (const [distro, distroData] of Object.entries(s.distros || {})) {
+          statusHtml += `<h3 style="margin-top: 2rem; text-transform: capitalize;">${distro} Packages</h3>`;
+          statusHtml += `<table><thead><tr><th>Suite</th><th>Arch</th><th>Count</th><th>Upstream</th><th>Reduction</th></tr></thead><tbody>`;
+          for (const [suite, suiteData] of Object.entries(distroData.suites || {})) {
+            for (const [arch, info] of Object.entries(suiteData.packages || {})) {
+              if (arch === 'all') continue; // Only count architecture specific numbers
+              const upText = info.upstream_count ? info.upstream_count : '-';
+              const redText = info.reduction_pct ? info.reduction_pct + '%' : '-';
+              statusHtml += `<tr><td>${suite}</td><td>${arch}</td><td>${info.count}</td><td>${upText}</td><td>${redText}</td></tr>`;
+            }
+          }
+          statusHtml += `</tbody></table>`;
+        }
+
+        document.getElementById('status-content').innerHTML = statusHtml || '<p class="hint">No build status data available.</p>';
 
         // Build status in footer
         const builtAt = s.built_at ? new Date(s.built_at) : null;
