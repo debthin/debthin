@@ -225,3 +225,4 @@ test_cache/
 .npm_cache/
 .DS_Store
 .wrangler/
+.claude/
