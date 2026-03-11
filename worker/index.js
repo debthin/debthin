@@ -61,6 +61,7 @@ async function serveR2(env, key, { transform, fetchKey } = {}) {
     key.endsWith(".xz")   ? "application/x-xz"         :
     key.endsWith(".gpg")  ? "application/pgp-keys"      :
     key.endsWith(".html") ? "text/html; charset=utf-8"  :
+    key.endsWith(".json") ? "application/json"          :
     "text/plain; charset=utf-8"
   );
   return new Response(obj.body, {
@@ -458,7 +459,7 @@ export default {
 
     if (raw === "") return serveR2(env, "index.html");
 
-    if (raw === "config.json" || raw === "debthin-keyring.gpg" || raw === "debthin-keyring-binary.gpg") {
+    if (raw === "config.json" || raw === "status.json" || raw === "debthin-keyring.gpg" || raw === "debthin-keyring-binary.gpg") {
       return serveR2(env, raw);
     }
 
