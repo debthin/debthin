@@ -324,10 +324,6 @@
           <span class="stat-label">suites</span>
         </div>
         <div class="stat">
-          <span class="stat-val" id="stat-reduction">90%+</span>
-          <span class="stat-label">index reduction</span>
-        </div>
-        <div class="stat">
           <span class="stat-val" id="stat-arches">5</span>
           <span class="stat-label">architectures</span>
         </div>
@@ -802,10 +798,6 @@ deb http://security.ubuntu.com/ubuntu noble-security main restricted universe mu
         if (distroCount > 0) document.getElementById('stat-distros').textContent = distroCount;
         if (suiteCount > 0) document.getElementById('stat-suites').textContent = suiteCount;
         if (archSet.size > 0) document.getElementById('stat-arches').textContent = archSet.size;
-        if (totalUpstream > 0) {
-          const pct = ((1 - totalCount / totalUpstream) * 100).toFixed(1);
-          document.getElementById('stat-reduction').textContent = pct + '%';
-        }
 
         // Populate Status Tab
         let statusHtml = '';
@@ -817,13 +809,12 @@ deb http://security.ubuntu.com/ubuntu noble-security main restricted universe mu
 
         for (const [distro, distroData] of Object.entries(s.distros || {})) {
           statusHtml += `<h3 style="margin-top: 2rem; text-transform: capitalize;">${distro} Packages</h3>`;
-          statusHtml += `<table><thead><tr><th>Suite</th><th>Arch</th><th>Count</th><th>Upstream</th><th>Reduction</th></tr></thead><tbody>`;
+          statusHtml += `<table><thead><tr><th>Suite</th><th>Arch</th><th>Count</th><th>Upstream</th></tr></thead><tbody>`;
           for (const [suite, suiteData] of Object.entries(distroData.suites || {})) {
             for (const [arch, info] of Object.entries(suiteData.packages || {})) {
               if (arch === 'all') continue; // Only count architecture specific numbers
               const upText = info.upstream_count ? info.upstream_count : '-';
-              const redText = info.reduction_pct ? info.reduction_pct + '%' : '-';
-              statusHtml += `<tr><td>${suite}</td><td>${arch}</td><td>${info.count}</td><td>${upText}</td><td>${redText}</td></tr>`;
+              statusHtml += `<tr><td>${suite}</td><td>${arch}</td><td>${info.count}</td><td>${upText}</td></tr>`;
             }
           }
           statusHtml += `</tbody></table>`;
