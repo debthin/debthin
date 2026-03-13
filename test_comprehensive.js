@@ -13,8 +13,11 @@ async function fetchAndAnalyze(label, path, expectedStatus, expectedXDebthinLaye
         const text = redirect === 'follow' ? await res.text() : '';
         const duration = Math.round(performance.now() - start);
         
-        const passed = res.status === expectedStatus &&
-            (!expectedXDebthinLayer || res.headers.get('x-debthin') === expectedXDebthinLayer);
+        const actualHeader = res.headers.get('x-debthin');
+        const isHeaderValid = !expectedXDebthinLayer || 
+            (Array.isArray(expectedXDebthinLayer) ? expectedXDebthinLayer.includes(actualHeader) : actualHeader === expectedXDebthinLayer);
+
+        const passed = res.status === expectedStatus && isHeaderValid;
 
         if (!passed) {
             console.error(`❌ FAILED: ${label}`);
@@ -74,16 +77,16 @@ async function runTests() {
         const dummyPoolPath = `${distro}/pool/main/b/bash/bash.deb`;
 
         console.log(`--- Caching Layers: InRelease ---`);
-        const r1 = await fetchAndAnalyze("InRelease - Initial Request (MISS)", inReleasePath, 200, "hit");
+        const r1 = await fetchAndAnalyze("InRelease - Initial Request (MISS or WARM)", inReleasePath, 200, ["hit", "hit-isolate-cache"]);
         const r2 = await fetchAndAnalyze("InRelease - Immediate Follow-up (ISOLATE CACHE)", inReleasePath, 200, "hit-isolate-cache");
         
-        console.log(`\n--- Dynamic Routing Transforms ---`);
-        const r3 = await fetchAndAnalyze("Release (strip-pgp derived signature layer)", releasePath, 200, "hit-derived");
-        const r4 = await fetchAndAnalyze("Packages (on-the-fly decompression)", packagesPath, 200, "hit-decomp");
-
         console.log(`\n--- Caching Layers: Packages.gz ---`);
-        const r5 = await fetchAndAnalyze("Packages.gz - Initial Request (MISS)", packagesGzPath, 200, "hit");
-        const r6 = await fetchAndAnalyze("Packages.gz - Immediate Follow-up (ISOLATE CACHE)", packagesGzPath, 200, "hit-isolate-cache");
+        const r3 = await fetchAndAnalyze("Packages.gz - Initial Request (MISS or WARM)", packagesGzPath, 200, ["hit", "hit-isolate-cache"]);
+        const r4 = await fetchAndAnalyze("Packages.gz - Immediate Follow-up (ISOLATE CACHE)", packagesGzPath, 200, "hit-isolate-cache");
+
+        console.log(`\n--- Dynamic Routing Transforms ---`);
+        const r5 = await fetchAndAnalyze("Release (strip-pgp derived signature layer)", releasePath, 200, "hit-derived");
+        const r6 = await fetchAndAnalyze("Packages (on-the-fly decompression)", packagesPath, 200, "hit-decomp");
 
         console.log(`\n--- 301 Proxy Redirects: Pool .deb Binaries ---`);
         const r7 = await fetchAndAnalyze("Binary .deb Redirect", dummyPoolPath, 301, null, "manual");
