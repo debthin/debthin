@@ -37,15 +37,14 @@ def count_packages(raw: bytes) -> int:
     return raw.count(b"\nPackage: ") + (1 if raw.startswith(b"Package: ") else 0)
 
 
-def generalize_name(name: bytes) -> bytes:
+def generalize_name(pkg_name: bytes) -> bytes:
     """Safely strip volatile version/architecture suffixes from package names."""
     # Strip t64 suffix from base name (but preserve trailing components like -dbg)
-    name = re.sub(b't64(-|$)', b'\\1', name)
-    # Strip major/minor versions for known language/compiler stacks
-    name = re.sub(b'(python3)\\.[0-9]+', b'\\1.', name)
-    name = re.sub(b'(php)[0-9]+\\.[0-9]+', b'\\1.', name)
-    name = re.sub(b'(ruby)[0-9]+\\.[0-9]+', b'\\1.', name)
-    name = re.sub(b'(gcc|g\\+\\+|cpp|libgcc|libstdc\\+\\+|libgfortran|llvm|clang|libclang|liblldb|lldb)-[0-9]+', b'\\1-', name)
+    name = re.sub(b't64(-|$)', b'\\1', pkg_name)
+    # Generic rule: strip hyphenated versions like -14, -3.12, etc anywhere in the name
+    name = re.sub(b'-[0-9]+(?:\\.[0-9]+)*(?=-|$)', b'-', name)
+    # Generic rule: strip dot versions directly attached to names like python3.12 or gir1.2
+    name = re.sub(b'([a-z]+)[0-9]+\\.[0-9]+(?=-|$)', b'\\1.', name)
     return name
 
 
