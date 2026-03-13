@@ -27,9 +27,64 @@
 const PROXY_CACHE_TTL_MS = 60 * 60 * 1000;
 const CACHE_HEADERS      = { "Cache-Control": "public, max-age=3600" };
 
-// ── R2 helpers ────────────────────────────────────────────────────────────────
+// Empty file hashes (e3b0c442... is an empty file, ac39ce29... is an empty gzip file)
+const EMPTY_HASH         = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+const EMPTY_GZ_HASH      = "ac39ce295e2578367767006b7a1ef7728a4ba747707aacec48a30d843fe1ecaf";
+const EMPTY_GZ           = new Uint8Array([31, 139, 8, 0, 0, 0, 0, 0, 4, 255, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0]).buffer;
 
-const r2Get = (env, key)            => env.DEBTHIN_BUCKET.get(key);
+// ── R2 helpers & Isolate Cache ────────────────────────────────────────────────
+
+const _r2Cache = new Map();
+
+function createMockR2Object(arrayBuffer, httpMetadata, isCached = false) {
+  return {
+    body: arrayBuffer.byteLength ? new Response(arrayBuffer).body : null,
+    httpMetadata,
+    isCached,
+    async arrayBuffer() { return arrayBuffer; },
+    async text() { return new TextDecoder().decode(arrayBuffer); }
+  };
+}
+
+async function r2Get(env, key) {
+  if (_r2Cache.has(key)) return createMockR2Object(_r2Cache.get(key).buf, _r2Cache.get(key).meta, true);
+  const obj = await env.DEBTHIN_BUCKET.get(key);
+  if (!obj) return null;
+  const buf = await obj.arrayBuffer();
+  const meta = obj.httpMetadata || {};
+  _r2Cache.set(key, { buf, meta });
+
+  if (key.endsWith("InRelease") || key.endsWith("Release")) {
+    const text = new TextDecoder().decode(buf);
+    const parts = key.split("/");
+    if (parts.length >= 3 && parts[0] === "dists") {
+      const suiteRoot = parts.slice(0, 3).join("/"); // e.g. dists/debian/trixie
+      prepopulateEmptyFilesFromRelease(text, suiteRoot);
+    }
+  }
+  return createMockR2Object(buf, meta);
+}
+
+function prepopulateEmptyFilesFromRelease(text, suiteRoot) {
+  const sectionIdx = text.indexOf("\nSHA256:");
+  if (sectionIdx === -1) return;
+  let pos = text.indexOf("\n", sectionIdx + 1) + 1;
+  while (pos > 0 && pos < text.length && text.charCodeAt(pos) === 32) {
+    const lineEnd = text.indexOf("\n", pos);
+    const line = lineEnd === -1 ? text.slice(pos) : text.slice(pos, lineEnd);
+    const s1 = line.indexOf(" ", 1);
+    const s2 = line.indexOf(" ", s1 + 1);
+    const hash = line.slice(1, s1);
+    const name = line.slice(s2 + 1);
+    if (hash === EMPTY_GZ_HASH) {
+      _r2Cache.set(`${suiteRoot}/${name}`, { buf: EMPTY_GZ, meta: { contentType: "application/x-gzip" } });
+    } else if (hash === EMPTY_HASH) {
+      _r2Cache.set(`${suiteRoot}/${name}`, { buf: new ArrayBuffer(0), meta: { contentType: "text/plain; charset=utf-8" } });
+    }
+    pos = lineEnd === -1 ? text.length : lineEnd + 1;
+  }
+}
+
 const r2Put = (env, key, val, meta) => env.DEBTHIN_BUCKET.put(key, val, meta || {});
 
 // transform: "strip-pgp" strips the PGP wrapper from an InRelease file to
@@ -64,8 +119,11 @@ async function serveR2(env, key, { transform, fetchKey } = {}) {
     key.endsWith(".json") ? "application/json"          :
     "text/plain; charset=utf-8"
   );
+  
+  const hitType = obj.isCached ? "hit-isolate-cache" : "hit";
+
   return new Response(obj.body, {
-    headers: { "Content-Type": ct, ...CACHE_HEADERS, "X-Debthin": "hit" },
+    headers: { "Content-Type": ct, ...CACHE_HEADERS, "X-Debthin": hitType },
   });
 }
 
@@ -533,6 +591,16 @@ export default {
 
       if (parts.length >= 5 && parts.at(-3) === "by-hash" && parts.at(-2) === "SHA256") {
         const sha256 = parts.at(-1);
+        if (sha256 === EMPTY_GZ_HASH) {
+          return new Response(EMPTY_GZ, {
+            headers: { "Content-Type": "application/x-gzip", ...CACHE_HEADERS, "X-Debthin": "hit-empty" },
+          });
+        }
+        if (sha256 === EMPTY_HASH) {
+          return new Response("", {
+            headers: { "Content-Type": "text/plain; charset=utf-8", ...CACHE_HEADERS, "X-Debthin": "hit-empty" },
+          });
+        }
         if (sha256.length === 64 && /^[0-9a-f]+$/.test(sha256)) {
           const indexObj = await r2Get(env, `dists/${distro}/${p1}/by-hash-index`);
           if (indexObj) {
