@@ -132,6 +132,13 @@ async function runTests() {
             fetchAndAnalyze("Native /pool/ upstream 301 routing", `${distro}/pool/main/b/bash/bash.deb`, 301)
         ]);
         
+        // --- Explicit Isolate Cache Verification ---
+        // Ensure that the preceding requests successfully populated the local isolate cache
+        const cacheVerifyResults = await Promise.all([
+            fetchAndAnalyze("InRelease - Isolate Cache Verification", `${distro}/dists/${testSuite}/InRelease`, 200, "hit-isolate-cache"),
+            fetchAndAnalyze("Packages.gz - Isolate Cache Verification", `${distro}/dists/${testSuite}/${component}/binary-${arch}/Packages.gz`, 200, "hit-isolate-cache")
+        ]);
+        
         // --- Dynamic live by-hash testing ---
         // Grab the InRelease text (pulling from memory cache is fine)
         const inReleaseUrl = `${TARGET_HOST}/${distro}/dists/${testSuite}/InRelease`;
@@ -171,7 +178,7 @@ async function runTests() {
             }
         }
 
-        if (results.some(r => !r)) allPassed = false;
+        if (results.some(r => !r) || cacheVerifyResults.some(r => !r)) allPassed = false;
     }
     
     if (allPassed) {
