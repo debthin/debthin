@@ -37,10 +37,10 @@ def count_packages(raw: bytes) -> int:
     return raw.count(b"\nPackage: ") + (1 if raw.startswith(b"Package: ") else 0)
 
 
-def generalize_name(name: bytes) -> bytes:
+def generalize_name(pkg_name: bytes) -> bytes:
     """Safely strip volatile version/architecture suffixes from package names."""
     # Strip t64 suffix from base name (but preserve trailing components like -dbg)
-    name = re.sub(b't64(-|$)', b'\\1', name)
+    name = re.sub(b't64(-|$)', b'\\1', pkg_name)
     # Strip major/minor versions for known language/compiler stacks
     name = re.sub(b'(python3)\\.[0-9]+', b'\\1.', name)
     name = re.sub(b'(php)[0-9]+\\.[0-9]+', b'\\1.', name)
@@ -50,16 +50,44 @@ def generalize_name(name: bytes) -> bytes:
 
 
 def filter_packages(raw: bytes, allowed: set, gen_allowed: set) -> bytes:
-    out = []
+    # Keyed by generalize_name(pkg_name): (version_str, stanza_bytes)
+    kept: dict[bytes, tuple[str, bytes]] = {}
+    
+    VER_PREFIX = b"Version: "
+    
     for stanza in raw.split(b"\n\n"):
         if not stanza:
             continue
-        for line in stanza.split(b"\n", 3):
+            
+        pkg_name = b""
+        version = b""
+        
+        # Extract Package and Version lines efficiently
+        lines = stanza.split(b"\n")
+        for line in lines:
             if line.startswith(PKG_PREFIX):
                 pkg_name = line[len(PKG_PREFIX):]
-                if pkg_name in allowed or generalize_name(pkg_name) in gen_allowed:
-                    out.append(stanza)
+            elif line.startswith(VER_PREFIX):
+                version = line[len(VER_PREFIX):]
+            
+            if pkg_name and version: # Found both, no need to parse more lines for this stanza
                 break
+                
+        if pkg_name:
+            gen_name = generalize_name(pkg_name)
+            
+            # Check if the specific package name or its generalized form is allowed
+            if pkg_name in allowed or gen_name in gen_allowed:
+                v_str = version.decode('utf-8', errors='ignore')
+                
+                if gen_name in kept:
+                    old_v_str, _ = kept[gen_name]
+                    if compare_debian_versions(v_str, old_v_str) > 0:
+                        kept[gen_name] = (v_str, stanza)
+                else:
+                    kept[gen_name] = (v_str, stanza)
+
+    out = [stanza for _, stanza in kept.values()]
     result = b"\n\n".join(out)
     if result:
         result += b"\n"
