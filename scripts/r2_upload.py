@@ -52,9 +52,9 @@ def build_hash_indexes(directory: Path) -> dict:
     for f in sorted(directory.rglob("Packages.gz")):
         key = str(f.relative_to(directory))
         parts = key.split("/")
-        if len(parts) < 3 or parts[1] != "dists":
+        if len(parts) < 3 or parts[0] != "dists":
             continue
-        suite_prefix   = "/".join(parts[:3])   # debian/dists/trixie
+        suite_prefix   = "/".join(parts[:3])   # dists/debian/trixie
         rel_from_suite = "/".join(parts[3:])   # main/binary-amd64/Packages.gz
         sha256 = hashlib.sha256(f.read_bytes()).hexdigest()
         suite_hashes[suite_prefix][sha256] = rel_from_suite
