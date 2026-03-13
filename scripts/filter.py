@@ -17,6 +17,7 @@ If the input has fewer than 100 packages it is passed through unchanged.
 import argparse
 import gzip
 import lzma
+import re
 import sys
 from pathlib import Path
 
@@ -36,14 +37,27 @@ def count_packages(raw: bytes) -> int:
     return raw.count(b"\nPackage: ") + (1 if raw.startswith(b"Package: ") else 0)
 
 
-def filter_packages(raw: bytes, allowed: set) -> bytes:
+def generalize_name(name: bytes) -> bytes:
+    """Safely strip volatile version/architecture suffixes from package names."""
+    # Strip t64 suffix from base name (but preserve trailing components like -dbg)
+    name = re.sub(b't64(-|$)', b'\\1', name)
+    # Strip major/minor versions for known language/compiler stacks
+    name = re.sub(b'(python3)\\.[0-9]+', b'\\1.', name)
+    name = re.sub(b'(php)[0-9]+\\.[0-9]+', b'\\1.', name)
+    name = re.sub(b'(ruby)[0-9]+\\.[0-9]+', b'\\1.', name)
+    name = re.sub(b'(gcc|g\\+\\+|cpp|libgcc|libstdc\\+\\+|libgfortran|llvm|clang|libclang|liblldb|lldb)-[0-9]+', b'\\1-', name)
+    return name
+
+
+def filter_packages(raw: bytes, allowed: set, gen_allowed: set) -> bytes:
     out = []
     for stanza in raw.split(b"\n\n"):
         if not stanza:
             continue
         for line in stanza.split(b"\n", 3):
             if line.startswith(PKG_PREFIX):
-                if line[len(PKG_PREFIX):] in allowed:
+                pkg_name = line[len(PKG_PREFIX):]
+                if pkg_name in allowed or generalize_name(pkg_name) in gen_allowed:
                     out.append(stanza)
                 break
     result = b"\n\n".join(out)
@@ -52,7 +66,7 @@ def filter_packages(raw: bytes, allowed: set) -> bytes:
     return gzip.compress(result, compresslevel=1)
 
 
-def process_one(input_path: str, output_path: str, allowed: set, stats: bool) -> None:
+def process_one(input_path: str, output_path: str, allowed: set, gen_allowed: set, stats: bool) -> None:
     raw_input = Path(input_path).read_bytes() if input_path else sys.stdin.buffer.read()
     raw = decompress(raw_input, input_path or "")
     total_in = count_packages(raw)
@@ -63,7 +77,7 @@ def process_one(input_path: str, output_path: str, allowed: set, stats: bool) ->
     if total_in < PASSTHROUGH_THRESHOLD:
         filtered = gzip.compress(raw, compresslevel=1)
     else:
-        filtered = filter_packages(raw, allowed)
+        filtered = filter_packages(raw, allowed, gen_allowed)
         if stats:
             total_out = count_packages(gzip.decompress(filtered))
             pct = (1 - total_out / total_in) * 100
@@ -88,6 +102,7 @@ def main():
     args = parser.parse_args()
 
     allowed = {p.encode() for p in Path(args.allowed).read_text().splitlines() if p}
+    gen_allowed = {generalize_name(p) for p in allowed}
 
     if args.batch:
         jobs = []
@@ -105,11 +120,11 @@ def main():
             print(f"Batch: {len(jobs)} jobs, allowed list: {len(allowed)}", file=sys.stderr)
 
         for input_path, output_path in jobs:
-            process_one(input_path, output_path, allowed, args.stats)
+            process_one(input_path, output_path, allowed, gen_allowed, args.stats)
     else:
         if args.stats:
             print(f"Allowed list: {len(allowed)}", file=sys.stderr)
-        process_one(args.input or "", args.output or "", allowed, args.stats)
+        process_one(args.input or "", args.output or "", allowed, gen_allowed, args.stats)
 
 
 if __name__ == "__main__":
