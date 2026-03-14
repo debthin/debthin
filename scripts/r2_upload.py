@@ -44,25 +44,25 @@ def content_type_for(path: str) -> str:
 
 def build_hash_indexes(directory: Path) -> dict:
     """
-    Returns {key: bytes} for one by-hash-index JSON per distro/suite.
-    JSON maps sha256 -> relative path from suite root e.g.:
-      "abc123...": "main/binary-amd64/Packages.gz"
+    Returns {key: bytes} for one by-hash-index.json per distro.
+    JSON maps sha256 -> relative path from distro root e.g.:
+      "abc123...": "trixie/main/binary-amd64/Packages.gz"
     """
-    suite_hashes = defaultdict(dict)
+    distro_hashes = defaultdict(dict)
 
     for f in sorted(directory.rglob("Packages.gz")):
         key = str(f.relative_to(directory))
         parts = key.split("/")
         if len(parts) < 3 or parts[0] != "dists":
             continue
-        suite_prefix   = "/".join(parts[:3])   # dists/debian/trixie
-        rel_from_suite = "/".join(parts[3:])   # main/binary-amd64/Packages.gz
+        distro_prefix   = "/".join(parts[:2])   # dists/debian
+        rel_from_distro = "/".join(parts[2:])   # trixie/main/binary-amd64/Packages.gz
         sha256 = hashlib.sha256(f.read_bytes()).hexdigest()
-        suite_hashes[suite_prefix][sha256] = rel_from_suite
+        distro_hashes[distro_prefix][sha256] = rel_from_distro
 
     return {
-        f"{prefix}/by-hash-index": json.dumps(mapping, sort_keys=True).encode()
-        for prefix, mapping in suite_hashes.items()
+        f"{prefix}/by-hash-index.json": json.dumps(mapping, sort_keys=True).encode()
+        for prefix, mapping in distro_hashes.items()
     }
 
 
