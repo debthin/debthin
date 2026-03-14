@@ -557,8 +557,14 @@ export default {
     const derived = getDerived(env);
     const slash   = raw.indexOf("/");
     const first   = slash === -1 ? raw : raw.slice(0, slash);
-    const distro  = derived[first] ? first : Object.keys(derived)[0];
-    const rest    = derived[first] ? (slash === -1 ? "" : raw.slice(slash + 1)) : raw;
+    
+    // Explicit distro check - no longer defaults to the first configured distro
+    if (!derived[first]) {
+      return new Response("Not found - Unknown distribution or endpoint\n", { status: 404 });
+    }
+    
+    const distro  = first;
+    const rest    = slash === -1 ? "" : raw.slice(slash + 1);
 
     // pool/ requests are .deb downloads - redirect immediately, no further dispatch needed
     if (rest.startsWith("pool/")) {
