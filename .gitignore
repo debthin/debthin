@@ -226,3 +226,6 @@ test_cache/
 .DS_Store
 .wrangler/
 .claude/
+worker/node_modules
+worker/bundle.js
+package-lock.json

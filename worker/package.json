@@ -1,0 +1,12 @@
+{
+  "name": "debthin-worker",
+  "version": "1.0.0",
+  "description": "Cloudflare Worker for Debthin",
+  "main": "bundle.js",
+  "scripts": {
+    "build": "esbuild index.js --bundle --outfile=bundle.js --format=esm"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
+  }
+}

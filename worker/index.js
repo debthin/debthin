@@ -129,7 +129,8 @@ async function serveR2(env, key, { transform, fetchKey } = {}) {
 
 // ── Config (loaded once per isolate lifetime) ─────────────────────────────────
 
-const _derivedByBucket = new WeakMap();
+import config from '../config.json';
+
 const _hashIndexesByBucket = new WeakMap();
 
 function getHashIndex(env, distro) {
@@ -148,32 +149,25 @@ function getHashIndex(env, distro) {
   return indexes.get(distro);
 }
 
-async function ensureConfig(env) {
-  if (_derivedByBucket.has(env.DEBTHIN_BUCKET)) return;
-  const obj = await r2Get(env, "config.json");
-  if (!obj) throw new Error("config.json not found in R2");
-  const config  = JSON.parse(await obj.text());
-  const derived = {};
-  for (const [distro, c] of Object.entries(config)) {
-    // Each distro block must have: upstream (string), components (array),
-    // arches (array or multiple arch arrays), suites (object with optional aliases).
-    // upstream_key names the field holding the upstream hostname.
-    const upstreamRaw = c.upstream ?? c.upstream_archive ?? c.upstream_ports;
-    if (!upstreamRaw) continue; // skip non-distro keys (e.g. top-level metadata)
-    const upstream  = upstreamRaw.slice(upstreamRaw.indexOf("//") + 2); // strip protocol
-    const components = new Set(c.components);
-    const archArrays = [c.arches, c.archive_arches, c.ports_arches].filter(Boolean);
-    const arches     = new Set(["all", ...archArrays.flat()]);
-    const aliasMap   = new Map();
-    for (const [suite, meta] of Object.entries(c.suites ?? {})) {
-      if (meta.aliases) for (const alias of meta.aliases) aliasMap.set(alias, suite);
-    }
-    derived[distro] = { upstream, components, arches, aliasMap };
+const derivedConfig = {};
+for (const [distro, c] of Object.entries(config)) {
+  // Each distro block must have: upstream (string), components (array),
+  // arches (array or multiple arch arrays), suites (object with optional aliases).
+  // upstream_key names the field holding the upstream hostname.
+  const upstreamRaw = c.upstream ?? c.upstream_archive ?? c.upstream_ports;
+  if (!upstreamRaw) continue; // skip non-distro keys (e.g. top-level metadata)
+  const upstream  = upstreamRaw.slice(upstreamRaw.indexOf("//") + 2); // strip protocol
+  const components = new Set(c.components);
+  const archArrays = [c.arches, c.archive_arches, c.ports_arches].filter(Boolean);
+  const arches     = new Set(["all", ...archArrays.flat()]);
+  const aliasMap   = new Map();
+  for (const [suite, meta] of Object.entries(c.suites ?? {})) {
+    if (meta.aliases) for (const alias of meta.aliases) aliasMap.set(alias, suite);
   }
-  _derivedByBucket.set(env.DEBTHIN_BUCKET, derived);
+  derivedConfig[distro] = { upstream, components, arches, aliasMap };
 }
 
-const getDerived = env => _derivedByBucket.get(env.DEBTHIN_BUCKET);
+const getDerived = () => derivedConfig;
 
 function resolveAlias(derived, distro, suitePath) {
   if (!suitePath.startsWith("dists/")) return suitePath;
@@ -555,13 +549,7 @@ export default {
       return Response.redirect(`https://${raw.slice(4)}`, 301);
     }
 
-    try {
-      await ensureConfig(env);
-    } catch {
-      return new Response("Internal Server Error: Missing config.json", { status: 500 });
-    }
-
-    const derived = getDerived(env);
+    const derived = getDerived();
     const slash   = raw.indexOf("/");
     const first   = slash === -1 ? raw : raw.slice(0, slash);
     
