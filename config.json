@@ -202,5 +202,30 @@
         "curated_base": "debian/forky"
       }
     }
+  },
+  "raspbian": {
+    "arches": [
+      "armhf"
+    ],
+    "components": [
+      "main",
+      "rpi"
+    ],
+    "upstream": "http://raspbian.raspberrypi.com/raspbian",
+    "suites": {
+      "bookworm": {
+        "aliases": [
+          "stable"
+        ]
+      },
+      "bullseye": {
+        "aliases": [
+          "oldstable"
+        ],
+        "components": [
+          "main"
+        ]
+      }
+    }
   }
 }
