@@ -18,7 +18,6 @@ import urllib.request
 from collections import defaultdict
 from pathlib import Path
 
-UPSTREAM = "https://deb.debian.org/debian"
 POPCON_URL = "https://popcon.debian.org/main/by_inst.gz"
 CONFIG_FILE = "config.json"
 
@@ -96,9 +95,9 @@ def fetch_popcon() -> dict[str, int]:
     return result
 
 
-def fetch_packages_index(suite: str, arch: str) -> dict[str, dict]:
+def fetch_packages_index(upstream: str, suite: str, arch: str) -> dict[str, dict]:
     """Returns {package_name: {section, depends, version, ...}}"""
-    url = f"{UPSTREAM}/dists/{suite}/main/binary-{arch}/Packages.gz"
+    url = f"{upstream}/dists/{suite}/main/binary-{arch}/Packages.gz"
     data = fetch_url(url)
     text = gzip.decompress(data).decode("utf-8", errors="replace")
 
@@ -185,6 +184,7 @@ def build_curated_list(
     distro: str,
     suite: str,
     arch: str,
+    upstream: str,
     primary_budget: int = 10000,
     dep_budget: int = 1000,
     popcon: dict[str, int] = None,
@@ -194,9 +194,9 @@ def build_curated_list(
         print(f"\nFetching popcon data...", file=sys.stderr)
         popcon = fetch_popcon()
 
-    print(f"\nFetching Packages index for {suite}/{arch}...", file=sys.stderr)
+    print(f"\nFetching Packages index for {distro}/{suite}/{arch}...", file=sys.stderr)
     try:
-        packages = fetch_packages_index(suite, arch)
+        packages = fetch_packages_index(upstream, suite, arch)
     except Exception as e:
         print(f"  ERROR fetching packages for {suite}: {e}", file=sys.stderr)
         return [], []
@@ -253,33 +253,49 @@ def main():
         sys.exit(1)
 
     config = json.loads(config_path.read_text())
-    debian_suites = config.get("debian", {}).get("suites", {})
-
     print(f"\nFetching global popcon data...", file=sys.stderr)
     popcon = fetch_popcon()
 
-    for suite, meta in debian_suites.items():
-        if "curated_base" in meta:
-            print(f"\nSkipping {suite}: uses curated_base {meta['curated_base']}", file=sys.stderr)
-            continue
-            
-        print(f"\n=== Generating list for debian/{suite} ===", file=sys.stderr)
-        primary, deps = build_curated_list(
-            "debian", suite, args.arch, args.primary_budget, args.dep_budget, popcon
-        )
-        
-        if not primary and not deps:
-            print(f"Skipping empty results for {suite}", file=sys.stderr)
+    for distro, c in config.items():
+        suites = c.get("suites", {})
+        if not suites:
             continue
 
-        all_pkgs = sorted(set(primary) | set(deps))
-        
-        out = Path(f"curated/debian/{suite}/all.txt")
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text("\n".join(all_pkgs) + "\n")
-        
-        print(f"\nResolved {len(primary)} primary packages and {len(deps)} dependency packages.", file=sys.stderr)
-        print(f"Wrote {len(all_pkgs)} total packages to {out}", file=sys.stderr)
+        upstream = c.get("upstream")
+        if not upstream:
+            if args.arch in c.get("ports_arches", []):
+                upstream = c.get("upstream_ports")
+            elif args.arch in c.get("archive_arches", []):
+                upstream = c.get("upstream_archive")
+            else:
+                upstream = c.get("upstream_archive") or c.get("upstream_ports")
+                
+        if not upstream:
+            print(f"Skipping {distro}: no upstream defined", file=sys.stderr)
+            continue
+
+        for suite, meta in suites.items():
+            if "curated_base" in meta:
+                print(f"\nSkipping {distro}/{suite}: uses curated_base {meta['curated_base']}", file=sys.stderr)
+                continue
+                
+            print(f"\n=== Generating list for {distro}/{suite} ===", file=sys.stderr)
+            primary, deps = build_curated_list(
+                distro, suite, args.arch, upstream, args.primary_budget, args.dep_budget, popcon
+            )
+            
+            if not primary and not deps:
+                print(f"Skipping empty results for {distro}/{suite}", file=sys.stderr)
+                continue
+
+            all_pkgs = sorted(set(primary) | set(deps))
+            
+            out = Path(f"curated/{distro}/{suite}/all.txt")
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_text("\n".join(all_pkgs) + "\n")
+            
+            print(f"\nResolved {len(primary)} primary packages and {len(deps)} dependency packages.", file=sys.stderr)
+            print(f"Wrote {len(all_pkgs)} total packages to {out}", file=sys.stderr)
 
 if __name__ == "__main__":
     main()
