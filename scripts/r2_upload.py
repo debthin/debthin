@@ -38,6 +38,7 @@ def content_type_for(path: str) -> str:
     if path.endswith(".gpg"):  return "application/pgp-keys"
     if path.endswith(".html"): return "text/html; charset=utf-8"
     if path.endswith(".json"): return "application/json"
+    if path.endswith(".ico"):  return "image/x-icon"
     return "text/plain; charset=utf-8"
 
 
