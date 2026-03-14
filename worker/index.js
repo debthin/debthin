@@ -517,7 +517,13 @@ export default {
 
     if (raw === "") return serveR2(env, "index.html");
 
-    if (raw === "config.json" || raw === "status.json" || raw === "debthin-keyring.gpg" || raw === "debthin-keyring-binary.gpg") {
+    if (raw === "robots.txt") {
+      return new Response("User-agent: *\nAllow: /$\nDisallow: /\n", {
+        headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "public, max-age=86400", "X-Debthin": "hit-synthetic" },
+      });
+    }
+
+    if (raw === "favicon.ico" || raw === "config.json" || raw === "status.json" || raw === "debthin-keyring.gpg" || raw === "debthin-keyring-binary.gpg") {
       return serveR2(env, raw);
     }
 
