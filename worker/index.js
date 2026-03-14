@@ -130,6 +130,23 @@ async function serveR2(env, key, { transform, fetchKey } = {}) {
 // ── Config (loaded once per isolate lifetime) ─────────────────────────────────
 
 const _derivedByBucket = new WeakMap();
+const _hashIndexesByBucket = new WeakMap();
+
+function getHashIndex(env, distro) {
+  let indexes = _hashIndexesByBucket.get(env.DEBTHIN_BUCKET);
+  if (!indexes) {
+    indexes = new Map();
+    _hashIndexesByBucket.set(env.DEBTHIN_BUCKET, indexes);
+  }
+  if (!indexes.has(distro)) {
+    const promise = r2Get(env, `dists/${distro}/by-hash-index.json`).then(async obj => {
+      if (obj) return JSON.parse(await obj.text());
+      return {};
+    }).catch(() => ({}));
+    indexes.set(distro, promise);
+  }
+  return indexes.get(distro);
+}
 
 async function ensureConfig(env) {
   if (_derivedByBucket.has(env.DEBTHIN_BUCKET)) return;
@@ -517,7 +534,13 @@ export default {
 
     if (raw === "") return serveR2(env, "index.html");
 
-    if (raw === "config.json" || raw === "status.json" || raw === "debthin-keyring.gpg" || raw === "debthin-keyring-binary.gpg") {
+    if (raw === "robots.txt") {
+      return new Response("User-agent: *\nAllow: /$\nDisallow: /\n", {
+        headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "public, max-age=86400", "X-Debthin": "hit-synthetic" },
+      });
+    }
+
+    if (raw === "favicon.ico" || raw === "config.json" || raw === "status.json" || raw === "debthin-keyring.gpg" || raw === "debthin-keyring-binary.gpg") {
       return serveR2(env, raw);
     }
 
@@ -602,11 +625,9 @@ export default {
           });
         }
         if (sha256.length === 64 && /^[0-9a-f]+$/.test(sha256)) {
-          const indexObj = await r2Get(env, `dists/${distro}/${p1}/by-hash-index`);
-          if (indexObj) {
-            const relPath = JSON.parse(await indexObj.text())[sha256];
-            if (relPath) return serveR2(env, `dists/${distro}/${p1}/${relPath}`);
-          }
+          const index = await getHashIndex(env, distro);
+          const relPath = index[sha256];
+          if (relPath) return serveR2(env, `dists/${distro}/${relPath}`);
           return new Response("Not found", { status: 404 });
         }
       }
