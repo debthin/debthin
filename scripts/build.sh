@@ -237,10 +237,11 @@ GPG_KEY_ID=$GPG_KEY_ID bash scripts/sign_all.sh dist_output "$CONFIG_FILE"
 
 # ── Upload ────────────────────────────────────────────────────────────────────
 
-cp index.html           dist_output/
+cp static/index.html           dist_output/
+cp static/favicon.ico          dist_output/
 cp config.json          dist_output/
-cp debthin-keyring.gpg  dist_output/
-cp debthin-keyring-binary.gpg dist_output/
+cp static/debthin-keyring.gpg  dist_output/
+cp static/debthin-keyring-binary.gpg dist_output/
 
 find dist_output -name "Packages" -not -name "*.gz" -delete
 
