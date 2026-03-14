@@ -352,8 +352,7 @@
           <pre><span class="cv">curl -fsSL http://debthin.org/debthin-keyring-binary.gpg \
   -o /etc/apt/trusted.gpg.d/debthin.gpg
 
-printf "deb http://deb.debthin.org/debian trixie main contrib non-free non-free-firmware\n\
-deb http://deb.debthin.org/debian trixie-updates main contrib non-free non-free-firmware\n\
+printf "deb http://deb.debthin.org/debian trixie headless\n\
 deb http://security.debian.org/debian-security trixie-security main\n" \
   > /etc/apt/sources.list
 
@@ -530,8 +529,7 @@ deb http://security.debian.org/debian-security trixie-security main</pre>
           <pre><span class="cv">curl -fsSL http://debthin.org/debthin-keyring-binary.gpg \
   -o /etc/apt/trusted.gpg.d/debthin.gpg
 
-printf "deb http://deb.debthin.org/ubuntu noble main restricted universe multiverse\n\
-deb http://deb.debthin.org/ubuntu noble-updates main restricted universe multiverse\n\
+printf "deb http://deb.debthin.org/ubuntu noble headless\n\
 deb http://security.ubuntu.com/ubuntu noble-security main restricted universe multiverse\n" \
   > /etc/apt/sources.list
 
@@ -808,15 +806,70 @@ deb http://security.ubuntu.com/ubuntu noble-security main restricted universe mu
 
         for (const [distro, distroData] of Object.entries(s.distros || {})) {
           statusHtml += `<h3 style="margin-top: 2rem; text-transform: capitalize;">${distro} Packages</h3>`;
-          statusHtml += `<table><thead><tr><th>Suite</th><th>Arch</th><th>Count</th><th>Upstream</th></tr></thead><tbody>`;
-          for (const [suite, suiteData] of Object.entries(distroData.suites || {})) {
-            for (const [arch, info] of Object.entries(suiteData.packages || {})) {
-              if (arch === 'all') continue; // Only count architecture specific numbers
-              const upText = info.upstream_count ? info.upstream_count : '-';
-              statusHtml += `<tr><td>${suite}</td><td>${arch}</td><td>${info.count}</td><td>${upText}</td></tr>`;
+          
+          // Phase 1: Collect unique arches across all suites for this distro
+          const arches = new Set();
+          for (const suiteData of Object.values(distroData.suites || {})) {
+            for (const arch of Object.keys(suiteData.packages || {})) {
+              if (arch !== 'all') arches.add(arch);
             }
           }
-          statusHtml += `</tbody></table>`;
+          const sortedArches = Array.from(arches).sort();
+
+          // Phase 2: Group suites by type (base, updates, backports)
+          const baseSuites = [];
+          const updateSuites = [];
+          const backportSuites = [];
+          
+          for (const [suite, suiteData] of Object.entries(distroData.suites || {})) {
+            if (suite.endsWith('-updates')) {
+              updateSuites.push([suite, suiteData]);
+            } else if (suite.endsWith('-backports')) {
+              backportSuites.push([suite, suiteData]);
+            } else {
+              baseSuites.push([suite, suiteData]);
+            }
+          }
+
+          // Phase 3: Helper to build table
+          const buildTable = (title, suitesList) => {
+            if (suitesList.length === 0) return '';
+            
+            let html = `<h4 style="margin-top: 1.5rem; color: var(--muted); font-size: 0.8rem; letter-spacing: 0.05em; text-transform: uppercase;">${title}</h4>`;
+            html += `<table style="margin-top: 0.8rem;"><thead><tr>`;
+            html += `<th rowspan="2" style="border-bottom: 1px solid var(--border); vertical-align: bottom;">Suite</th>`;
+            for (const arch of sortedArches) {
+              html += `<th colspan="2" style="text-align: center; border-bottom: 1px solid var(--border); padding-left: 1rem;">${arch}</th>`;
+            }
+            html += `</tr><tr>`;
+            for (let i = 0; i < sortedArches.length; i++) {
+              html += `<th style="text-align: right; border-bottom: 1px solid var(--border); padding-left: 1rem; color: var(--bright);">Thin</th>`;
+              html += `<th style="text-align: right; border-bottom: 1px solid var(--border); padding-left: 1rem;">Upstream</th>`;
+            }
+            html += `</tr></thead><tbody>`;
+
+            for (const [suite, suiteData] of suitesList) {
+              html += `<tr><td>${suite}</td>`;
+              for (const arch of sortedArches) {
+                const info = suiteData.packages?.[arch];
+                if (info) {
+                  const upText = info.upstream_count ? info.upstream_count.toLocaleString() : '-';
+                  html += `<td style="text-align: right; padding-left: 1rem; color: var(--bright);">${info.count.toLocaleString()}</td>`;
+                  html += `<td style="text-align: right; padding-left: 1rem; color: var(--muted);">${upText}</td>`;
+                } else {
+                  html += `<td style="text-align: right; padding-left: 1rem; color: var(--muted);">-</td>`;
+                  html += `<td style="text-align: right; padding-left: 1rem; color: var(--muted);">-</td>`;
+                }
+              }
+              html += `</tr>`;
+            }
+            html += `</tbody></table>`;
+            return html;
+          };
+
+          statusHtml += buildTable('Base Releases', baseSuites);
+          statusHtml += buildTable('Updates (-updates)', updateSuites);
+          statusHtml += buildTable('Backports (-backports)', backportSuites);
         }
 
         document.getElementById('status-content').innerHTML = statusHtml || '<p class="hint">No build status data available.</p>';
