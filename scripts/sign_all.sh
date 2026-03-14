@@ -51,6 +51,14 @@ gen_release() {
 
     [[ -d "$dist_dir" ]] || { echo "  Skipping $distro/$suite (no output dir)" >&2; return 0; }
 
+    if [[ -d "$dist_dir/headless" ]]; then
+        if [[ -n "$components_csv" ]]; then
+            components_csv="$components_csv,headless"
+        else
+            components_csv="headless"
+        fi
+    fi
+
     # Fetch upstream InRelease for metadata fields (Date, Version, Changelogs, Suite)
     local inrelease_cache=".tmp_cache/$distro/$suite/InRelease"
     if [[ ! -f "$inrelease_cache" ]]; then

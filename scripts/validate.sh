@@ -212,6 +212,7 @@ for distro_dir in "$DIST_OUTPUT"/dists/*; do
         suite=$(basename "$suite_dir")
         family="${suite%%-*}"
         while IFS= read -r -d '' f; do
+            if [[ "$f" == */headless/* ]]; then continue; fi
             arch=$(basename "$(dirname "$f")" | sed 's/binary-//')
             count=$(gunzip -c "$f" | grep -c "^Package:" || true)
             family_arch["$family/$arch"]=$(( ${family_arch["$family/$arch"]:-0} + count ))
@@ -279,6 +280,7 @@ for distro_dir in "$DIST_OUTPUT"/dists/*; do
             [[ -d "$suite_dir" ]] || continue
             suite=$(basename "$suite_dir")
             while IFS= read -r -d '' f; do
+                if [[ "$f" == */headless/* ]]; then continue; fi
                 arch=$(basename "$(dirname "$f")" | sed 's/binary-//')
                 count=$(gunzip -c "$f" 2>/dev/null | grep -c "^Package:" || true)
                 suite_arch_json["$suite/$arch"]=$(( ${suite_arch_json["$suite/$arch"]:-0} + count ))

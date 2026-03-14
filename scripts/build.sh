@@ -176,6 +176,59 @@ while read -r distro suite; do
     run_filter_batch "$distro" "$suite"
 done < <(distro_suites)
 
+# ── Phase 2.5: Generate headless meta-suites ──────────────────────────────────
+
+echo "Phase 2.5: generating headless meta-suites..." >&2
+
+while read -r distro suite; do
+    if [[ "$suite" == *-updates ]]; then continue; fi
+
+    echo "  Headless: $distro/$suite..." >&2
+
+    dirs=( "dist_output/dists/$distro/$suite" )
+    if [[ "$suite" != *-backports ]]; then
+        dirs+=( "dist_output/dists/$distro/$suite-updates" )
+    fi
+    
+    local_arches=()
+    for d in "${dirs[@]}"; do
+        if [[ -d "$d" ]]; then
+            for arch_dir in "$d"/*/binary-*/; do
+                if [[ -d "$arch_dir" ]]; then
+                    arch_dir="${arch_dir%/}"
+                    local_arches+=("$(basename "$arch_dir")")
+                fi
+            done
+        fi
+    done
+    local_arches=$(printf "%s\n" "${local_arches[@]}" | sort -u || true)
+
+    for bin_arch in $local_arches; do
+        if [[ -z "$bin_arch" || "$bin_arch" == "binary-*" ]]; then continue; fi
+        inputs=()
+        for comp_dir in dist_output/dists/"$distro"/"$suite"/*/; do
+            if [[ -d "$comp_dir" && "$(basename "$comp_dir")" != "headless" ]]; then
+                pkg_gz="${comp_dir}${bin_arch}/Packages.gz"
+                if [[ -f "$pkg_gz" ]]; then inputs+=("$pkg_gz"); fi
+            fi
+        done
+        
+        if [[ "$suite" != *-backports ]]; then
+            for comp_dir in dist_output/dists/"$distro"/"$suite-updates"/*/; do
+                if [[ -d "$comp_dir" && "$(basename "$comp_dir")" != "headless" ]]; then
+                    pkg_gz="${comp_dir}${bin_arch}/Packages.gz"
+                    if [[ -f "$pkg_gz" ]]; then inputs+=("$pkg_gz"); fi
+                fi
+            done
+        fi
+        
+        if [[ ${#inputs[@]} -gt 0 ]]; then
+            out_file="dist_output/dists/$distro/$suite/headless/$bin_arch/Packages.gz"
+            python3 scripts/merge_packages.py "${inputs[@]}" -o "$out_file"
+        fi
+    done
+done < <(distro_suites)
+
 # ── Phase 3: Sign ─────────────────────────────────────────────────────────────
 
 echo "Phase 3: signing..." >&2
