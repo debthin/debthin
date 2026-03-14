@@ -5,3 +5,8 @@ compatibility_date = "2024-01-01"
 [[r2_buckets]]
 binding = "DEBTHIN_BUCKET"
 bucket_name = "debthin"
+
+[[rules]]
+type = "Text"
+globs = ["**/*.json"]
+fallbacks = []

@@ -132,6 +132,8 @@ async function serveR2(env, key, { transform, fetchKey } = {}) {
 const _derivedByBucket = new WeakMap();
 const _hashIndexesByBucket = new WeakMap();
 
+import configText from '../config.json';
+
 function getHashIndex(env, distro) {
   let indexes = _hashIndexesByBucket.get(env.DEBTHIN_BUCKET);
   if (!indexes) {
@@ -148,11 +150,9 @@ function getHashIndex(env, distro) {
   return indexes.get(distro);
 }
 
-async function ensureConfig(env) {
+function ensureConfig(env) {
   if (_derivedByBucket.has(env.DEBTHIN_BUCKET)) return;
-  const obj = await r2Get(env, "config.json");
-  if (!obj) throw new Error("config.json not found in R2");
-  const config  = JSON.parse(await obj.text());
+  const config = typeof configText === "string" ? JSON.parse(configText) : configText.default || configText;
   const derived = {};
   for (const [distro, c] of Object.entries(config)) {
     // Each distro block must have: upstream (string), components (array),
@@ -547,7 +547,13 @@ export default {
       });
     }
 
-    if (raw === "favicon.ico" || raw === "config.json" || raw === "status.json" || raw === "debthin-keyring.gpg" || raw === "debthin-keyring-binary.gpg") {
+    if (raw === "config.json") {
+      return new Response(typeof configText === "string" ? configText : JSON.stringify(configText), {
+        headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "public, max-age=86400", "X-Debthin": "hit-isolate-cache" },
+      });
+    }
+
+    if (raw === "favicon.ico" || raw === "status.json" || raw === "debthin-keyring.gpg" || raw === "debthin-keyring-binary.gpg") {
       return serveR2(env, raw);
     }
 
@@ -556,9 +562,9 @@ export default {
     }
 
     try {
-      await ensureConfig(env);
+      ensureConfig(env);
     } catch {
-      return new Response("Internal Server Error: Missing config.json", { status: 500 });
+      return new Response("Internal Server Error: Missing config.json binding", { status: 500 });
     }
 
     const derived = getDerived(env);
