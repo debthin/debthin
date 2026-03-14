@@ -84,7 +84,8 @@ async function runTests() {
     console.log(`3. Dynamic Distribution Suite Execution`);
     console.log(`======================================\n`);
 
-    const config = JSON.parse(fs.readFileSync('config.json', 'utf8'));
+    const path = require('path');
+    const config = JSON.parse(fs.readFileSync(path.join(__dirname, '../config.json'), 'utf8'));
 
     for (const [distro, meta] of Object.entries(config)) {
         const upstreamRaw = meta.upstream || meta.upstream_archive || meta.upstream_ports;
