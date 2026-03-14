@@ -9,13 +9,13 @@ const TARGET_HOST = process.env.TARGET_HOST || 'http://localhost:8787';
 const EMPTY_HASH         = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 const EMPTY_GZ_HASH      = "ac39ce295e2578367767006b7a1ef7728a4ba747707aacec48a30d843fe1ecaf";
 
-async function fetchAndAnalyze(label, path, expectedStatus, expectedXDebthinLayer = null, redirect = 'manual') {
+async function fetchAndAnalyze(label, path, expectedStatus, expectedXDebthinLayer = null, redirect = 'manual', fetchOpts = {}) {
     // Drop leading slash from path if present so we don't double up
     if (path.startsWith('/')) path = path.slice(1);
     const url = `${TARGET_HOST}/${path}`;
     const start = performance.now();
     try {
-        const res = await fetch(url, { redirect });
+        const res = await fetch(url, { redirect, ...fetchOpts });
         // Consume text so fetch completes natively
         await res.text();
         const duration = Math.round(performance.now() - start);
@@ -70,6 +70,15 @@ async function runTests() {
         fetchAndAnalyze("Debthin Keyring (Binary)", "debthin-keyring-binary.gpg", 200, ["hit", "hit-isolate-cache"])
     ];
     if ((await Promise.all(assets)).some(r => !r)) allPassed = false;
+
+    console.log(`\n======================================`);
+    console.log(`1.5. HTTP Method Restrictions`);
+    console.log(`======================================\n`);
+
+    const methods = [
+        fetchAndAnalyze("POST Method Rejected", "config.json", 405, null, 'manual', { method: 'POST' })
+    ];
+    if ((await Promise.all(methods)).some(r => !r)) allPassed = false;
 
     console.log(`\n======================================`);
     console.log(`2. Package Proxies (/pkg/ redirect)`);
