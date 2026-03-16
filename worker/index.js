@@ -227,6 +227,14 @@ function tokenizePath(path) {
 }
 
 
+function parseURL(request) {
+  const urlStr = request.url;
+  const isHttps = urlStr.charCodeAt(4) === 115; // 's' is 115
+  const pathStart = urlStr.indexOf("/", isHttps ? 8 : 7);
+  const rawPath = pathStart === -1 ? "" : urlStr.slice(pathStart + 1);
+  const protocol = request.headers.get("x-forwarded-proto") === "http" ? "http:" : "https:";
+  return { protocol, rawPath };
+}
 
 export default {
   async fetch(request, env) {
@@ -237,14 +245,13 @@ export default {
       });
     }
 
-    const url = new URL(request.url);
-    if (url.search) {
+    const { protocol, rawPath } = parseURL(request);
+    
+    if (rawPath.indexOf("?") !== -1) {
       return new Response("Bad Request: Query strings are not supported\n", { status: 400 });
     }
     
-    // Cloudflare natively handles upstream TLS offloading and sets x-forwarded-proto
-    const protocol = request.headers.get("x-forwarded-proto") === "http" ? "http:" : "https:";
-    const raw = url.pathname.slice(1);
+    const raw = rawPath;
 
     const slash   = raw.indexOf("/");
 
