@@ -7,7 +7,16 @@
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const CACHE_HEADERS = { "Cache-Control": "public, max-age=3600" };
+const BASE_HEADERS = {
+  "X-Content-Type-Options": "nosniff",
+  "X-Frame-Options": "sameorigin",
+  "Referrer-Policy": "no-referrer",
+  "X-Xss-Protection": "1",
+  "Permissions-Policy": "interest-cohort=()",
+  "X-Clacks-Overhead": "GNU Terry Pratchett"
+};
+
+const CACHE_HEADERS = { "Cache-Control": "public, max-age=3600", ...BASE_HEADERS };
 
 // Empty file hashes (e3b0c442... is an empty file, ac39ce29... is an empty gzip file)
 const EMPTY_HASH = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
@@ -217,7 +226,7 @@ function isNotModified(requestHeaders, obj) {
 async function serveR2(env, request, key, { transform, fetchKey, ctx } = {}) {
   const isHead = request.method === "HEAD";
   const obj = isHead && !transform ? await r2Head(env, fetchKey ?? key) : await r2Get(env, fetchKey ?? key, ctx);
-  if (!obj) return new Response("Not found\n", { status: 404 });
+  if (!obj) return new Response("Not found\n", { status: 404, headers: { "Content-Type": "text/plain; charset=utf-8", ...BASE_HEADERS } });
 
   const hitType = obj.isCached ? "hit-isolate-cache" : "hit";
   const commonHeaders = { ...CACHE_HEADERS, "X-Debthin": hitType };
@@ -332,12 +341,15 @@ export default {
     if (request.method !== "GET" && request.method !== "HEAD") {
       return new Response("Method Not Allowed\n", {
         status: 405,
-        headers: { "Allow": "GET, HEAD", "Content-Type": "text/plain; charset=utf-8" }
+        headers: { "Allow": "GET, HEAD", "Content-Type": "text/plain; charset=utf-8", ...BASE_HEADERS }
       });
     }
     // ── Query string check ───────────────────────────────────────────────────────
     if (request.url.indexOf("?") !== -1) {
-      return new Response("Bad Request: Query strings are not supported\n", { status: 400 });
+      return new Response("Bad Request: Query strings are not supported\n", { 
+        status: 400, 
+        headers: { "Content-Type": "text/plain; charset=utf-8", ...BASE_HEADERS } 
+      });
     }
 
     const { protocol, rawPath } = parseURL(request);
@@ -348,12 +360,12 @@ export default {
     if (slash === -1) {
       if (rawPath === "robots.txt") {
         return new Response("User-agent: *\nAllow: /$\nDisallow: /\n", {
-          headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "public, max-age=86400", "X-Debthin": "hit-synthetic" },
+          headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "public, max-age=86400", "X-Debthin": "hit-synthetic", ...BASE_HEADERS },
         });
       }
       if (rawPath === "config.json") {
         return new Response(CONFIG_JSON_STRING, {
-          headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "public, max-age=86400", "X-Debthin": "hit-synthetic" },
+          headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "public, max-age=86400", "X-Debthin": "hit-synthetic", ...BASE_HEADERS },
         });
       }
       return serveR2(env, request, rawPath === "" ? "index.html" : rawPath);
@@ -363,7 +375,10 @@ export default {
 
     // Explicit distro check
     if (!DERIVED_CONFIG[first]) {
-      return new Response("Not found - Unknown distribution or endpoint\n", { status: 404 });
+      return new Response("Not found - Unknown distribution or endpoint\n", { 
+        status: 404, 
+        headers: { "Content-Type": "text/plain; charset=utf-8", ...BASE_HEADERS } 
+      });
     }
 
     const distro = first;
@@ -373,7 +388,10 @@ export default {
     // example: https://deb.debian.org/debian/pool/main/a/apt/apt_2.8.1_amd64.deb
     if (rest.startsWith("pool/")) {
       const { upstream } = DERIVED_CONFIG[distro];
-      return Response.redirect(`${protocol}://${upstream}/${rest}`, 301);
+      return new Response(null, {
+        status: 301,
+        headers: { "Location": `${protocol}://${upstream}/${rest}`, ...BASE_HEADERS }
+      });
     }
 
     const { upstream, components, arches, aliasMap, suites } = DERIVED_CONFIG[distro];
@@ -458,11 +476,17 @@ export default {
 
           const relPath = distroIndex[sha256];
           if (relPath) return serveR2(env, request, `dists/${distro}/${relPath}`);
-          return new Response("Not found", { status: 404 });
+          return new Response("Not found\n", { 
+            status: 404, 
+            headers: { "Content-Type": "text/plain; charset=utf-8", ...BASE_HEADERS } 
+          });
         }
       }
     }
     // ── Redirect to upstream for unhandled paths ──────────────────────────────────────
-    return Response.redirect(`${protocol}://${upstream}/${suitePath}`, 301);
+    return new Response(null, {
+      status: 301,
+      headers: { "Location": `${protocol}://${upstream}/${suitePath}`, ...BASE_HEADERS }
+    });
   },
 };
