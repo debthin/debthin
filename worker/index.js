@@ -231,12 +231,10 @@ function tokenizePath(path) {
 
 function parseURL(request) {
   const urlStr = request.url;
-  const pathStart = urlStr.indexOf("/", urlStr.indexOf("://") + 3);
+  const protocol = request.headers.get("x-forwarded-proto") === "http" ? "http:" : "https:";
+  const pathStart = urlStr.indexOf("/", protocol === "http:" ? 7 : 8);
   const rawPath = pathStart === -1 ? "" : urlStr.slice(pathStart + 1);
-  return {
-    rawPath,
-    protocol: request.headers.get("x-forwarded-proto") === "http" ? "http:" : "https:"
-  };
+  return { protocol, rawPath };
 }
 
 export default {
