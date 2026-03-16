@@ -200,27 +200,24 @@ export default {
     const url = new URL(request.url);
     const raw = url.pathname.slice(1); // always starts with /
 
+    const slash   = raw.indexOf("/");
+
     // ── Static Assets Fast Path ───────────────────────────────────────────────
-    switch (raw) {
-      case "":
-        return serveR2(env, "index.html", request.method);
-      case "robots.txt":
+    if (slash === -1) {
+      if (raw === "robots.txt") {
         return new Response("User-agent: *\nAllow: /$\nDisallow: /\n", {
           headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "public, max-age=86400", "X-Debthin": "hit-synthetic" },
         });
-      case "config.json":
+      }
+      if (raw === "config.json") {
         return new Response(typeof configText === "string" ? configText : JSON.stringify(configText), {
           headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "public, max-age=86400", "X-Debthin": "hit-synthetic" },
         });
-      case "favicon.ico":
-      case "status.json":
-      case "debthin-keyring.gpg":
-      case "debthin-keyring-binary.gpg":
-        return serveR2(env, raw, request.method);
+      }
+      return serveR2(env, raw === "" ? "index.html" : raw, request.method);
     }
 
-    const slash   = raw.indexOf("/");
-    const first   = slash === -1 ? raw : raw.slice(0, slash);
+    const first   = raw.slice(0, slash);
     
     // Explicit distro check
     if (!DERIVED_CONFIG[first]) {
