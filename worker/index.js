@@ -17,6 +17,8 @@ const BASE_HEADERS = {
 };
 
 const CACHE_HEADERS = { "Cache-Control": "public, max-age=3600", ...BASE_HEADERS };
+const IMMUTABLE_CACHE_HEADERS = { "Cache-Control": "public, max-age=31536000, immutable", ...BASE_HEADERS };
+const SYNTHETIC_HIT_HEADERS = { "X-Cache": "HIT", "X-Cache-Hits": "0" };
 
 // Empty file hashes (e3b0c442... is an empty file, ac39ce29... is an empty gzip file)
 const EMPTY_HASH = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
@@ -34,7 +36,7 @@ function addToCache(key, buf, meta) {
     _r2CacheSize -= _r2Cache.get(key).buf.byteLength;
     _r2Cache.delete(key);
   }
-  _r2Cache.set(key, { buf, meta });
+  _r2Cache.set(key, { buf, meta, hits: 0 });
   _r2CacheSize += buf.byteLength;
 
   // Prune oldest (LRU) until we're under the high watermark
@@ -48,6 +50,7 @@ function addToCache(key, buf, meta) {
 function getFromCache(key) {
   if (!_r2Cache.has(key)) return null;
   const val = _r2Cache.get(key);
+  val.hits++;
   // Re-insert to mark as recently used
   _r2Cache.delete(key);
   _r2Cache.set(key, val);
@@ -62,13 +65,14 @@ function getFromCache(key) {
  * @param {boolean} [isCached=false] - Whether this object was served from the isolate cache.
  * @returns {Object} Mock R2 object interface compatible with Cloudflare Workers.
  */
-function createMockR2Object(arrayBuffer, meta, isCached = false) {
+function createMockR2Object(arrayBuffer, meta, isCached = false, hits = 0) {
   return {
     get body() { return arrayBuffer.byteLength ? new Response(arrayBuffer).body : null; },
     httpMetadata: meta,
     etag: meta.etag || `W/"${arrayBuffer.byteLength}-${Date.now()}"`,
     lastModified: meta.lastModified || new Date().toUTCString(),
     isCached,
+    hits,
     async arrayBuffer() { return arrayBuffer; },
     async text() { return new TextDecoder().decode(arrayBuffer); }
   };
@@ -83,13 +87,13 @@ function createMockR2Object(arrayBuffer, meta, isCached = false) {
  */
 async function r2Head(env, key) {
   const cached = getFromCache(key);
-  if (cached) return createMockR2Object(new ArrayBuffer(0), cached.meta, true);
+  if (cached) return createMockR2Object(new ArrayBuffer(0), cached.meta, true, cached.hits);
   const obj = await env.DEBTHIN_BUCKET.head(key);
   if (!obj) return null;
   const meta = obj.httpMetadata || {};
   meta.etag = obj.etag;
   meta.lastModified = obj.uploaded ? obj.uploaded.toUTCString() : null;
-  return createMockR2Object(new ArrayBuffer(0), meta);
+  return createMockR2Object(new ArrayBuffer(0), meta, false, 0);
 }
 
 /**
@@ -102,7 +106,7 @@ async function r2Head(env, key) {
  */
 async function r2Get(env, key, ctx) {
   const cached = getFromCache(key);
-  if (cached) return createMockR2Object(cached.buf, cached.meta, true);
+  if (cached) return createMockR2Object(cached.buf, cached.meta, true, cached.hits);
   const obj = await env.DEBTHIN_BUCKET.get(key);
   if (!obj) return null;
 
@@ -132,7 +136,7 @@ async function r2Get(env, key, ctx) {
       }
     }
   }
-  return createMockR2Object(buf, meta);
+  return createMockR2Object(buf, meta, false, 0);
 }
 
 /**
@@ -223,13 +227,20 @@ function isNotModified(requestHeaders, obj) {
  * @param {string} [options.fetchKey]  - overrides the R2 key used to fetch (e.g. Release → InRelease).
  * @param {Object} [options.ctx] - Execution context for background tasks (e.g. cache warming).
  */
-async function serveR2(env, request, key, { transform, fetchKey, ctx } = {}) {
+async function serveR2(env, request, key, { transform, fetchKey, ctx, immutable } = {}) {
   const isHead = request.method === "HEAD";
   const obj = isHead && !transform ? await r2Head(env, fetchKey ?? key) : await r2Get(env, fetchKey ?? key, ctx);
-  if (!obj) return new Response("Not found\n", { status: 404, headers: { "Content-Type": "text/plain; charset=utf-8", ...BASE_HEADERS } });
+  if (!obj) return new Response("Not found\n", { status: 404, headers: { "Content-Type": "text/plain; charset=utf-8", "X-Cache": "MISS", ...BASE_HEADERS } });
 
   const hitType = obj.isCached ? "hit-isolate-cache" : "hit";
-  const commonHeaders = { ...CACHE_HEADERS, "X-Debthin": hitType };
+  const cacheOverride = immutable ? { "Cache-Control": "public, max-age=31536000, immutable" } : {};
+  const commonHeaders = { 
+    ...CACHE_HEADERS, 
+    ...cacheOverride, 
+    "X-Debthin": hitType,
+    "X-Cache": obj.isCached ? "HIT" : "MISS",
+    "X-Cache-Hits": obj.hits.toString()
+  };
   if (obj.etag) commonHeaders.ETag = obj.etag;
   if (obj.lastModified) commonHeaders["Last-Modified"] = obj.lastModified;
 
@@ -239,15 +250,15 @@ async function serveR2(env, request, key, { transform, fetchKey, ctx } = {}) {
 
   if (transform === "strip-pgp") {
     return new Response(inReleaseToRelease(await obj.text()), {
-      headers: { "Content-Type": "text/plain; charset=utf-8", ...CACHE_HEADERS, "X-Debthin": "hit-derived" },
+      headers: { "Content-Type": "text/plain; charset=utf-8", ...commonHeaders, "X-Debthin": "hit-derived" },
     });
   }
 
   if (transform === "decompress") {
-    if (!obj.body) return new Response("", { headers: { ...CACHE_HEADERS, "X-Debthin": "hit-decomp" } });
+    if (!obj.body) return new Response("", { headers: { ...commonHeaders, "X-Debthin": "hit-decomp" } });
     const ds = new DecompressionStream("gzip");
     return new Response(obj.body.pipeThrough(ds), {
-      headers: { "Content-Type": "text/plain; charset=utf-8", ...CACHE_HEADERS, "X-Debthin": "hit-decomp" },
+      headers: { "Content-Type": "text/plain; charset=utf-8", ...commonHeaders, "X-Debthin": "hit-decomp" },
     });
   }
 
@@ -337,6 +348,34 @@ function parseURL(request) {
 
 export default {
   async fetch(request, env, ctx) {
+    const t0 = Date.now();
+    const ts = (t0 / 1000).toFixed(6);
+
+    let response;
+    try {
+      response = await handleRequest(request, env, ctx);
+    } catch (err) {
+      response = new Response("Internal Server Error", { status: 500, headers: { "Content-Type": "text/plain", ...BASE_HEADERS } });
+    }
+
+    const newHeaders = new Headers(response.headers);
+    const dur = ((Date.now() - t0) / 1000).toFixed(6);
+    
+    newHeaders.set("X-Timer", `S${ts},VS0,VE${dur}`);
+    if (!newHeaders.has("X-Served-By")) {
+      const colo = request.cf && request.cf.colo ? request.cf.colo : "FLX";
+      newHeaders.set("X-Served-By", `cache-${colo}-debthin`);
+    }
+
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: newHeaders
+    });
+  }
+};
+
+async function handleRequest(request, env, ctx) {
     // ── Method check ───────────────────────────────────────────────────────────
     if (request.method !== "GET" && request.method !== "HEAD") {
       return new Response("Method Not Allowed\n", {
@@ -360,12 +399,12 @@ export default {
     if (slash === -1) {
       if (rawPath === "robots.txt") {
         return new Response("User-agent: *\nAllow: /$\nDisallow: /\n", {
-          headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "public, max-age=86400", "X-Debthin": "hit-synthetic", ...BASE_HEADERS },
+          headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "public, max-age=86400", "X-Debthin": "hit-synthetic", ...SYNTHETIC_HIT_HEADERS, ...BASE_HEADERS },
         });
       }
       if (rawPath === "config.json") {
         return new Response(CONFIG_JSON_STRING, {
-          headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "public, max-age=86400", "X-Debthin": "hit-synthetic", ...BASE_HEADERS },
+          headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "public, max-age=86400", "X-Debthin": "hit-synthetic", ...SYNTHETIC_HIT_HEADERS, ...BASE_HEADERS },
         });
       }
       return serveR2(env, request, rawPath === "" ? "index.html" : rawPath);
@@ -425,7 +464,7 @@ export default {
         if (p4 === "Release") {
           return new Response(
             `Archive: ${p1}\nComponent: ${p2}\nArchitecture: ${p3.slice(7)}\n`,
-            { headers: { "Content-Type": "text/plain; charset=utf-8", ...CACHE_HEADERS, "X-Debthin": "hit-generated" } }
+            { headers: { "Content-Type": "text/plain; charset=utf-8", ...CACHE_HEADERS, "X-Debthin": "hit-generated", ...SYNTHETIC_HIT_HEADERS } }
           );
         }
         if (p4 === "Packages") {
@@ -444,12 +483,12 @@ export default {
         // ── Empty File Hashes ──────────────────────────────────────────────────────
         if (sha256 === EMPTY_GZ_HASH) {
           return new Response(request.method === "HEAD" ? null : EMPTY_GZ, {
-            headers: { "Content-Type": "application/x-gzip", ...CACHE_HEADERS, "X-Debthin": "hit-empty" },
+            headers: { "Content-Type": "application/x-gzip", ...IMMUTABLE_CACHE_HEADERS, "X-Debthin": "hit-empty", ...SYNTHETIC_HIT_HEADERS },
           });
         }
         if (sha256 === EMPTY_HASH) {
           return new Response("", {
-            headers: { "Content-Type": "text/plain; charset=utf-8", ...CACHE_HEADERS, "X-Debthin": "hit-empty" },
+            headers: { "Content-Type": "text/plain; charset=utf-8", ...IMMUTABLE_CACHE_HEADERS, "X-Debthin": "hit-empty", ...SYNTHETIC_HIT_HEADERS },
           });
         }
 
@@ -475,7 +514,7 @@ export default {
           }
 
           const relPath = distroIndex[sha256];
-          if (relPath) return serveR2(env, request, `dists/${distro}/${relPath}`);
+          if (relPath) return serveR2(env, request, `dists/${distro}/${relPath}`, { immutable: true });
           return new Response("Not found\n", { 
             status: 404, 
             headers: { "Content-Type": "text/plain; charset=utf-8", ...BASE_HEADERS } 
@@ -488,5 +527,4 @@ export default {
       status: 301,
       headers: { "Location": `${protocol}://${upstream}/${suitePath}`, ...BASE_HEADERS }
     });
-  },
-};
+}
