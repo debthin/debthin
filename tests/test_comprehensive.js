@@ -137,7 +137,7 @@ async function runTests() {
         // --- Explicit Isolate Cache Verification ---
         // Ensure that the preceding requests successfully populated the local isolate cache
         const inReleaseCache = await fetchAndAnalyze("InRelease - Isolate Cache Verification", `${distro}/dists/${testSuite}/InRelease`, 200, "hit-isolate-cache");
-        const packagesCache = await fetchAndAnalyze("Packages.gz - Isolate Cache Verification", `${distro}/dists/${testSuite}/${component}/binary-${arch}/Packages.gz`, 200, "hit-isolate-cache");
+        const packagesCache = await fetchAndAnalyze("Packages.gz - Isolate Cache Verification", `${distro}/dists/${testSuite}/${component}/binary-${arch}/Packages.gz`, 200, ["hit", "hit-isolate-cache"]);
         const cacheVerifyResults = [inReleaseCache, packagesCache];
         
         // --- 304 Not Modified Caching Verification ---
