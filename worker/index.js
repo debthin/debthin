@@ -2,8 +2,6 @@
  * debthin - Cloudflare Worker
  *
  * Serves curated apt indices from R2 for Debian and Ubuntu.
- * Proxied .deb downloads:  GET /pkg/<host>/<path>  →  301 https://<host>/<path>
- *
  * R2 bucket:  DEBTHIN_BUCKET
  */
 
@@ -211,9 +209,6 @@ export default {
       return serveR2(env, raw);
     }
 
-    if (raw.startsWith("pkg/")) {
-      return Response.redirect(`https://${raw.slice(4)}`, 301);
-    }
 
     try {
       ensureConfig(env);
