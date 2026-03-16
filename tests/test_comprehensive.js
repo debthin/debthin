@@ -44,14 +44,14 @@ async function fetchAndAnalyze(label, path, expectedStatus, expectedXDebthinLaye
             if (res.status === 301 || res.status === 302 || res.status === 307 || res.status === 308) {
                 console.error(`   Location: ${location}`);
             }
-            return false;
+            return { ok: false };
         }
 
         console.log(`✅ PASS: ${label} [${duration}ms, x-debthin: ${actualHeader || 'N/A'}]`);
-        return true;
+        return { ok: true, etag: res.headers.get('etag'), lastModified: res.headers.get('last-modified') };
     } catch (err) {
         console.error(`❌ ERROR: Fetch failed for ${label}:`, err.message);
-        return false;
+        return { ok: false };
     }
 }
 
@@ -69,7 +69,7 @@ async function runTests() {
         fetchAndAnalyze("Status JSON", "status.json", 200, ["hit", "hit-isolate-cache"]),
         fetchAndAnalyze("Debthin Keyring (Binary)", "debthin-keyring-binary.gpg", 200, ["hit", "hit-isolate-cache"])
     ];
-    if ((await Promise.all(assets)).some(r => !r)) allPassed = false;
+    if ((await Promise.all(assets)).some(r => !r.ok)) allPassed = false;
 
     console.log(`\n======================================`);
     console.log(`1.5. HTTP Method Restrictions`);
@@ -78,7 +78,7 @@ async function runTests() {
     const methods = [
         fetchAndAnalyze("POST Method Rejected", "config.json", 405, null, 'manual', { method: 'POST' })
     ];
-    if ((await Promise.all(methods)).some(r => !r)) allPassed = false;
+    if ((await Promise.all(methods)).some(r => !r.ok)) allPassed = false;
 
 
     console.log(`\n======================================`);
@@ -136,10 +136,20 @@ async function runTests() {
         
         // --- Explicit Isolate Cache Verification ---
         // Ensure that the preceding requests successfully populated the local isolate cache
-        const cacheVerifyResults = await Promise.all([
-            fetchAndAnalyze("InRelease - Isolate Cache Verification", `${distro}/dists/${testSuite}/InRelease`, 200, "hit-isolate-cache"),
-            fetchAndAnalyze("Packages.gz - Isolate Cache Verification", `${distro}/dists/${testSuite}/${component}/binary-${arch}/Packages.gz`, 200, "hit-isolate-cache")
-        ]);
+        const inReleaseCache = await fetchAndAnalyze("InRelease - Isolate Cache Verification", `${distro}/dists/${testSuite}/InRelease`, 200, "hit-isolate-cache");
+        const packagesCache = await fetchAndAnalyze("Packages.gz - Isolate Cache Verification", `${distro}/dists/${testSuite}/${component}/binary-${arch}/Packages.gz`, 200, "hit-isolate-cache");
+        const cacheVerifyResults = [inReleaseCache, packagesCache];
+        
+        // --- 304 Not Modified Caching Verification ---
+        if (inReleaseCache.etag) {
+           const eTagHit = await fetchAndAnalyze("InRelease - ETag 304 Not Modified", `${distro}/dists/${testSuite}/InRelease`, 304, ["hit", "hit-isolate-cache"], 'manual', { headers: { 'If-None-Match': inReleaseCache.etag }});
+           if (!eTagHit.ok) allPassed = false;
+        }
+        
+        if (inReleaseCache.lastModified) {
+           const imsHit = await fetchAndAnalyze("InRelease - If-Modified-Since 304 Not Modified", `${distro}/dists/${testSuite}/InRelease`, 304, ["hit", "hit-isolate-cache"], 'manual', { headers: { 'If-Modified-Since': inReleaseCache.lastModified }});
+           if (!imsHit.ok) allPassed = false;
+        }
         
         // --- Dynamic live by-hash testing ---
         // Grab the InRelease text (pulling from memory cache is fine)
@@ -180,7 +190,7 @@ async function runTests() {
             }
         }
 
-        if (results.some(r => !r) || cacheVerifyResults.some(r => !r)) allPassed = false;
+        if (results.some(r => !r.ok) || cacheVerifyResults.some(r => !r.ok)) allPassed = false;
     }
     
     if (allPassed) {
