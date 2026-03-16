@@ -20,7 +20,7 @@ const _r2Cache = new Map();
 
 function createMockR2Object(arrayBuffer, meta, isCached = false) {
   return {
-    body: arrayBuffer.byteLength ? new Response(arrayBuffer).body : null,
+    get body() { return arrayBuffer.byteLength ? new Response(arrayBuffer).body : null; },
     httpMetadata: meta,
     etag: meta.etag || `W/"${arrayBuffer.byteLength}-${Date.now()}"`,
     lastModified: meta.lastModified || new Date().toUTCString(),
@@ -118,8 +118,8 @@ async function serveR2(env, request, key, { transform, fetchKey } = {}) {
 
   const reqIms = request.headers.get("if-modified-since");
   if (reqIms && obj.lastModified) {
-     const clientDate = new Date(reqIms);
-     const serverDate = new Date(obj.lastModified);
+     const clientDate = Date.parse(reqIms);
+     const serverDate = Date.parse(obj.lastModified);
      // 304 if the server's resource is older or same age as the client's cache
      if (!isNaN(clientDate) && serverDate <= clientDate) {
         return new Response(null, { status: 304, headers: commonHeaders });
