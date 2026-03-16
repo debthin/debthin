@@ -193,8 +193,8 @@ export default {
     }
 
     const urlStr = request.url;
-    const protoEnd = urlStr.indexOf("//");
-    const pathStart = urlStr.indexOf("/", protoEnd + 2);
+    const isHttps = urlStr.charCodeAt(4) === 115; // 's' is 115
+    const pathStart = urlStr.indexOf("/", isHttps ? 8 : 7);
     const rawPath = pathStart === -1 ? "" : urlStr.slice(pathStart + 1);
     
     if (rawPath.indexOf("?") !== -1) {
@@ -202,7 +202,7 @@ export default {
     }
     
     const raw = rawPath;
-    const protocol = protoEnd !== -1 ? urlStr.slice(0, protoEnd) : "https:";
+    const protocol = isHttps ? "https:" : "http:";
 
     const slash   = raw.indexOf("/");
 
