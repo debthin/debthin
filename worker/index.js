@@ -59,7 +59,7 @@ async function r2Get(env, key, ctx) {
     if (parts.length >= 3 && parts[0] === "dists") {
       const distro = parts[1];
       const distroIndex = _hashIndexes.get(distro);
-      
+
       // Skip expensive text decode and parsing if the cache is already warm
       if (!distroIndex || (typeof distroIndex === 'object' && distroIndex instanceof Promise)) {
         const text = new TextDecoder().decode(buf);
@@ -111,8 +111,6 @@ function warmRamCacheFromRelease(env, text, suiteRoot) {
   }
 }
 
-
-
 // ── Utility Helpers ───────────────────────────────────────────────────────────
 
 function getContentType(key) {
@@ -139,11 +137,13 @@ function isNotModified(requestHeaders, obj) {
   return false;
 }
 
-// ── R2 Fetch Handlers ─────────────────────────────────────────────────────────
-
-// transform: "strip-pgp" strips the PGP wrapper from an InRelease file to
-// produce a plain Release. "decompress" gunzips on the fly (for Packages).
-// fetchKey overrides the R2 key used to fetch (e.g. Release → InRelease).
+/**
+ * R2 Fetch Handler
+ *
+ * @param {string} transform - "strip-pgp" strips the PGP wrapper from an InRelease file to
+ *                             produce a plain Release. "decompress" gunzips on the fly (for Packages).
+ * @param {string} fetchKey  - overrides the R2 key used to fetch (e.g. Release → InRelease).
+ */
 async function serveR2(env, request, key, ctx, { transform, fetchKey } = {}) {
   const isHead = request.method === "HEAD";
   const obj = isHead && !transform ? await r2Head(env, fetchKey ?? key) : await r2Get(env, fetchKey ?? key, ctx);
