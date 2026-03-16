@@ -59,6 +59,7 @@ function warmRamCacheFromRelease(env, text, suiteRoot) {
   if (sectionIdx === -1) return;
   
   const distro = suiteRoot.split("/")[1];
+  const prefixLen = 7 + distro.length; // "dists/".length + distro.length + 1
   let distroIndex = _hashIndexes.get(distro);
   if (!distroIndex || distroIndex instanceof Promise) {
     distroIndex = typeof distroIndex === 'object' && distroIndex !== null && !(distroIndex instanceof Promise) ? distroIndex : {};
@@ -80,13 +81,8 @@ function warmRamCacheFromRelease(env, text, suiteRoot) {
       _r2Cache.set(`${suiteRoot}/${name}`, { buf: new ArrayBuffer(0), meta: { contentType: "text/plain; charset=utf-8" } });
     }
     
-    const byHashIdx = name.indexOf("/by-hash/SHA256/");
-    if (byHashIdx !== -1) {
-       const keyHash = name.slice(byHashIdx + 16);
-       if (keyHash === hash && keyHash.length === 64) {
-          // Store relative path (subtract 6 chars for "dists/")
-          distroIndex[hash] = suiteRoot.slice(6) + "/" + name;
-       }
+    if (hash.length === 64 && name.endsWith(".gz")) {
+      distroIndex[hash] = suiteRoot.slice(prefixLen) + "/" + name;
     }
     
     pos = lineEnd === -1 ? text.length : lineEnd + 1;
@@ -303,9 +299,9 @@ export default {
         }
       }
 
-      const hashParts = s4 !== -1 ? suitePath.slice(s4 + 1).split("/") : [];
-      if (hashParts.length >= 3 && hashParts.at(-3) === "by-hash" && hashParts.at(-2) === "SHA256") {
-        const sha256 = hashParts.at(-1);
+      const byHashIdx = suitePath.indexOf("/by-hash/SHA256/");
+      if (byHashIdx !== -1) {
+        const sha256 = suitePath.slice(byHashIdx + 16);
         if (sha256 === EMPTY_GZ_HASH) {
           return new Response(request.method === "HEAD" ? null : EMPTY_GZ, {
             headers: { "Content-Type": "application/x-gzip", ...CACHE_HEADERS, "X-Debthin": "hit-empty" },

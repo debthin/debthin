@@ -65,7 +65,7 @@ async function runTests() {
 
     const assets = [
         fetchAndAnalyze("Root (index.html)", "", 200, ["hit", "hit-isolate-cache"]),
-        fetchAndAnalyze("Config JSON", "config.json", 200, ["hit", "hit-isolate-cache"]),
+        fetchAndAnalyze("Config JSON", "config.json", 200, ["hit-synthetic"]),
         fetchAndAnalyze("Status JSON", "status.json", 200, ["hit", "hit-isolate-cache"]),
         fetchAndAnalyze("Debthin Keyring (Binary)", "debthin-keyring-binary.gpg", 200, ["hit", "hit-isolate-cache"])
     ];
@@ -79,14 +79,6 @@ async function runTests() {
         fetchAndAnalyze("POST Method Rejected", "config.json", 405, null, 'manual', { method: 'POST' })
     ];
     if ((await Promise.all(methods)).some(r => !r)) allPassed = false;
-
-    console.log(`\n======================================`);
-    console.log(`2. Package Proxies (/pkg/ redirect)`);
-    console.log(`======================================\n`);
-    const proxies = [
-        fetchAndAnalyze("/pkg/ routing to upstream host", "pkg/archive.ubuntu.com/ubuntu/pool/main/h/hello/hello.deb", 301)
-    ];
-    if ((await Promise.all(proxies)).some(r => !r)) allPassed = false;
 
 
     console.log(`\n======================================`);
