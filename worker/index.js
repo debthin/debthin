@@ -18,7 +18,14 @@ const EMPTY_GZ = new Uint8Array([31, 139, 8, 0, 0, 0, 0, 0, 4, 255, 3, 0, 0, 0, 
 
 const _r2Cache = new Map();
 
-// Mock R2 object for in-memory caching
+/**
+ * Creates a mock R2 object for in-memory caching.
+ *
+ * @param {ArrayBuffer} arrayBuffer - The file content.
+ * @param {Object} meta - Metadata including etag and lastModified.
+ * @param {boolean} [isCached=false] - Whether this object was served from the isolate cache.
+ * @returns {Object} Mock R2 object interface compatible with Cloudflare Workers.
+ */
 function createMockR2Object(arrayBuffer, meta, isCached = false) {
   return {
     get body() { return arrayBuffer.byteLength ? new Response(arrayBuffer).body : null; },
@@ -31,7 +38,13 @@ function createMockR2Object(arrayBuffer, meta, isCached = false) {
   };
 }
 
-// R2 HEAD request wrapper
+/**
+ * R2 HEAD request wrapper with isolate caching.
+ *
+ * @param {Object} env - The Cloudflare Worker environment.
+ * @param {string} key - The R2 object key to fetch.
+ * @returns {Promise<Object|null>} A mock R2 object metadata wrapper, or null if not found.
+ */
 async function r2Head(env, key) {
   if (_r2Cache.has(key)) return createMockR2Object(new ArrayBuffer(0), _r2Cache.get(key).meta, true);
   const obj = await env.DEBTHIN_BUCKET.head(key);
@@ -42,7 +55,14 @@ async function r2Head(env, key) {
   return createMockR2Object(new ArrayBuffer(0), meta);
 }
 
-// R2 GET request wrapper
+/**
+ * R2 GET request wrapper with isolate caching and automatic background cache warming.
+ *
+ * @param {Object} env - The Cloudflare Worker environment.
+ * @param {string} key - The R2 object key to fetch.
+ * @param {Object} [ctx] - The execution context for background tasks.
+ * @returns {Promise<Object|null>} A mock R2 object containing the body and metadata, or null if not found.
+ */
 async function r2Get(env, key, ctx) {
   if (_r2Cache.has(key)) return createMockR2Object(_r2Cache.get(key).buf, _r2Cache.get(key).meta, true);
   const obj = await env.DEBTHIN_BUCKET.get(key);
@@ -75,7 +95,14 @@ async function r2Get(env, key, ctx) {
   return createMockR2Object(buf, meta);
 }
 
-// Warm RAM cache from Release/InRelease files
+/**
+ * Parses Release/InRelease text to pre-warm the RAM cache with by-hash routing info
+ * and empty file definitions, preventing expensive lookups during apt fetches.
+ *
+ * @param {Object} env - The Cloudflare Worker environment.
+ * @param {string} text - The raw text of the InRelease/Release file.
+ * @param {string} suiteRoot - The base path of the suite (e.g., "dists/debian/trixie").
+ */
 function warmRamCacheFromRelease(env, text, suiteRoot) {
   const sectionIdx = text.indexOf("\nSHA256:");
   if (sectionIdx === -1) return;
@@ -124,6 +151,13 @@ function getContentType(key) {
 }
 
 // ── 304 Not Modified? ────────────────────────────────────────────────────────
+/**
+ * Checks if the requested resource has been modified based on ETag and Last-Modified headers.
+ *
+ * @param {Headers} requestHeaders - The incoming request headers.
+ * @param {Object} obj - The mock R2 object containing metadata.
+ * @returns {boolean} True if the resource is not modified (should return 304), false otherwise.
+ */
 function isNotModified(requestHeaders, obj) {
   const reqEtag = requestHeaders.get("if-none-match");
   if (reqEtag && obj.etag && reqEtag === obj.etag) return true;
@@ -206,6 +240,15 @@ const { DERIVED_CONFIG, CONFIG_JSON_STRING } = (() => {
 })();
 
 // ── Alias resolution for suites (e.g. "stable" → "bookworm") ──────────────────
+/**
+ * Resolves suite aliases (like "stable" or "testing") to their canonical names
+ * (like "bookworm" or "trixie") based on the configuration map.
+ *
+ * @param {Object} derived - The fully processed configuration object.
+ * @param {string} distro - The distribution name (e.g., "debian").
+ * @param {string} suitePath - The path including the suite (e.g., "dists/stable/main/binary-amd64/Packages.gz").
+ * @returns {string} The resolved path using the canonical suite name.
+ */
 function resolveAlias(derived, distro, suitePath) {
   if (!suitePath.startsWith("dists/")) return suitePath;
   const slash2 = suitePath.indexOf("/", 6);
@@ -226,7 +269,13 @@ function inReleaseToRelease(text) {
   return text.slice(start + 1, end).trimEnd() + "\n";
 }
 
-// Extract URL path segments recursively without Array splitting / GC thrashing
+/**
+ * Extracts URL path segments recursively without Array splitting or GC thrashing.
+ * Efficiently slices strings using indexOf boundaries.
+ *
+ * @param {string} path - The relative repository path (e.g., "dists/debian/trixie/Release").
+ * @returns {Object} An object containing up to 5 positional path segments (p0 to p4).
+ */
 function tokenizePath(path) {
   const parts = {};
   const s1 = path.indexOf("/");
@@ -246,6 +295,12 @@ function tokenizePath(path) {
 }
 
 
+/**
+ * Parses the incoming request URL to efficiently extract the protocol and raw path.
+ *
+ * @param {Request} request - The incoming HTTP request.
+ * @returns {Object} Extracted `protocol` ("http:" or "https:") and `rawPath`.
+ */
 function parseURL(request) {
   const urlStr = request.url;
   const protocol = request.headers.get("x-forwarded-proto") === "http" ? "http:" : "https:";
