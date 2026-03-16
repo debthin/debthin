@@ -231,32 +231,15 @@ const { DERIVED_CONFIG, CONFIG_JSON_STRING } = (() => {
     const archArrays = [c.arches, c.archive_arches, c.ports_arches].filter(Boolean);
     const arches = new Set(["all", ...archArrays.flat()]);
     const aliasMap = new Map();
+    const suites = new Set(Object.keys(c.suites ?? {}));
     for (const [suite, meta] of Object.entries(c.suites ?? {})) {
       if (meta.aliases) for (const alias of meta.aliases) aliasMap.set(alias, suite);
     }
-    derived[distro] = { upstream, components, arches, aliasMap };
+    derived[distro] = { upstream, components, arches, aliasMap, suites };
   }
   return { DERIVED_CONFIG: derived, CONFIG_JSON_STRING: configString };
 })();
 
-// ── Alias resolution for suites (e.g. "stable" → "bookworm") ──────────────────
-/**
- * Resolves suite aliases (like "stable" or "testing") to their canonical names
- * (like "bookworm" or "trixie") based on the configuration map.
- *
- * @param {Object} derived - The fully processed configuration object.
- * @param {string} distro - The distribution name (e.g., "debian").
- * @param {string} suitePath - The path including the suite (e.g., "dists/stable/main/binary-amd64/Packages.gz").
- * @returns {string} The resolved path using the canonical suite name.
- */
-function resolveAlias(derived, distro, suitePath) {
-  if (!suitePath.startsWith("dists/")) return suitePath;
-  const slash2 = suitePath.indexOf("/", 6);
-  const suite = slash2 === -1 ? suitePath.slice(6) : suitePath.slice(6, slash2);
-  const canonical = derived[distro].aliasMap.get(suite);
-  if (!canonical) return suitePath;
-  return "dists/" + canonical + suitePath.slice(slash2);
-}
 
 // ── Release helpers ───────────────────────────────────────────────────────────
 
@@ -353,19 +336,28 @@ export default {
     const rest = slash === -1 ? "" : rawPath.slice(slash + 1);
 
     // pool/ requests are .deb downloads - redirect immediately, no further dispatch needed
+    // example: https://deb.debian.org/debian/pool/main/a/apt/apt_2.8.1_amd64.deb
     if (rest.startsWith("pool/")) {
       const { upstream } = DERIVED_CONFIG[distro];
       return Response.redirect(`${protocol}://${upstream}/${rest}`, 301);
     }
 
-    const suitePath = resolveAlias(DERIVED_CONFIG, distro, rest);
+    const { upstream, components, arches, aliasMap, suites } = DERIVED_CONFIG[distro];
+
+    let suitePath = rest;
+    let { p0, p1, p2, p3, p4 } = tokenizePath(rest);
+
+    // ── Alias resolution for suites (e.g. "stable" → "bookworm") ──────────────────
+    if (p0 === "dists" && p1 && !suites.has(p1)) {
+      const canonical = aliasMap.get(p1);
+      if (canonical) {
+        p1 = canonical;
+        const tailIdx = rest.indexOf("/", 6);
+        suitePath = "dists/" + canonical + (tailIdx === -1 ? "" : rest.slice(tailIdx));
+      }
+    }
+
     const r2Key = `dists/${distro}/${suitePath.slice(6)}`;
-
-
-
-    const { upstream, components, arches } = DERIVED_CONFIG[distro];
-
-    const { p0, p1, p2, p3, p4 } = tokenizePath(suitePath);
 
     // ── Hash Index Lookup (dists/debian/...) ───────────────────────────────
     if (p0 === "dists" && p1 && p2) {
