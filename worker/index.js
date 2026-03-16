@@ -59,15 +59,10 @@ function warmRamCacheFromRelease(env, text, suiteRoot) {
   if (sectionIdx === -1) return;
   
   const distro = suiteRoot.split("/")[1];
-  let indexes = _hashIndexesByBucket.get(env.DEBTHIN_BUCKET);
-  if (!indexes) {
-    indexes = new Map();
-    _hashIndexesByBucket.set(env.DEBTHIN_BUCKET, indexes);
-  }
-  let distroIndex = indexes.get(distro);
+  let distroIndex = _hashIndexes.get(distro);
   if (!distroIndex || distroIndex instanceof Promise) {
     distroIndex = typeof distroIndex === 'object' && distroIndex !== null && !(distroIndex instanceof Promise) ? distroIndex : {};
-    indexes.set(distro, distroIndex);
+    _hashIndexes.set(distro, distroIndex);
   }
 
   let pos = text.indexOf("\n", sectionIdx + 1) + 1;
@@ -143,7 +138,7 @@ async function serveR2(env, key, reqMethod, { transform, fetchKey } = {}) {
 
 // ── Config (loaded once per isolate lifetime) ─────────────────────────────────
 
-const _hashIndexesByBucket = new WeakMap();
+const _hashIndexes = new Map();
 
 import configText from '../config.json';
 const config = typeof configText === "string" ? JSON.parse(configText) : configText.default || configText;
@@ -197,8 +192,14 @@ export default {
       });
     }
 
-    const url = new URL(request.url);
-    const raw = url.pathname.slice(1); // always starts with /
+    const urlStr = request.url;
+    const protoEnd = urlStr.indexOf("//");
+    const pathStart = urlStr.indexOf("/", protoEnd + 2);
+    const rawPath = pathStart === -1 ? "" : urlStr.slice(pathStart + 1);
+    const qMark = rawPath.indexOf("?");
+    const raw = qMark === -1 ? rawPath : rawPath.slice(0, qMark);
+    const protocol = protoEnd !== -1 ? urlStr.slice(0, protoEnd) : "https:";
+    const search = qMark === -1 ? "" : rawPath.slice(qMark);
 
     const slash   = raw.indexOf("/");
 
@@ -230,7 +231,7 @@ export default {
     // pool/ requests are .deb downloads - redirect immediately, no further dispatch needed
     if (rest.startsWith("pool/")) {
       const { upstream } = DERIVED_CONFIG[distro];
-      return Response.redirect(`${url.protocol}//${upstream}/${rest}${url.search}`, 301);
+      return Response.redirect(`${protocol}//${upstream}/${rest}${search}`, 301);
     }
 
     const suitePath = resolveAlias(DERIVED_CONFIG, distro, rest);
@@ -238,12 +239,7 @@ export default {
 
     // Get a cached hash index map (will trigger async fetch if empty and unpopulated)
     const getHashIndex = async () => {
-      let indexes = _hashIndexesByBucket.get(env.DEBTHIN_BUCKET);
-      if (!indexes) {
-        indexes = new Map();
-        _hashIndexesByBucket.set(env.DEBTHIN_BUCKET, indexes);
-      }
-      let distroIndex = indexes.get(distro);
+      let distroIndex = _hashIndexes.get(distro);
       // Soft populated index exists as raw object
       if (distroIndex && typeof distroIndex === 'object' && !(distroIndex instanceof Promise)) {
          return distroIndex;
@@ -253,12 +249,12 @@ export default {
           if (obj) {
              const json = JSON.parse(await obj.text());
              // Merge with any hashes that got softly populated while we were fetching
-             const existing = indexes.get(distro);
+             const existing = _hashIndexes.get(distro);
              return Object.assign({}, json, typeof existing === 'object' && !(existing instanceof Promise) ? existing : {});
           }
           return {};
         }).catch(() => ({}));
-        indexes.set(distro, promise);
+        _hashIndexes.set(distro, promise);
         distroIndex = promise;
       }
       return distroIndex;
@@ -326,6 +322,6 @@ export default {
       }
     }
 
-    return Response.redirect(`${url.protocol}//${upstream}/${suitePath}${url.search}`, 301);
+    return Response.redirect(`${protocol}//${upstream}/${suitePath}${search}`, 301);
   },
 };
