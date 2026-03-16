@@ -48,13 +48,13 @@ async function r2Get(env, key) {
     const parts = key.split("/");
     if (parts.length >= 3 && parts[0] === "dists") {
       const suiteRoot = parts.slice(0, 3).join("/"); // e.g. dists/debian/trixie
-      prepopulateEmptyFilesFromRelease(env, text, suiteRoot);
+      warmRamCacheFromRelease(env, text, suiteRoot);
     }
   }
   return createMockR2Object(buf, meta);
 }
 
-function prepopulateEmptyFilesFromRelease(env, text, suiteRoot) {
+function warmRamCacheFromRelease(env, text, suiteRoot) {
   const sectionIdx = text.indexOf("\nSHA256:");
   if (sectionIdx === -1) return;
   
