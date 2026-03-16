@@ -289,28 +289,7 @@ export default {
     const suitePath = resolveAlias(DERIVED_CONFIG, distro, rest);
     const r2Key = `dists/${distro}/${suitePath.slice(6)}`;
 
-    // Get a cached hash index map (will trigger async fetch if empty and unpopulated)
-    const getHashIndex = async () => {
-      let distroIndex = _hashIndexes.get(distro);
-      // Soft populated index exists as raw object
-      if (distroIndex && typeof distroIndex === 'object' && !(distroIndex instanceof Promise)) {
-        return distroIndex;
-      }
-      if (!distroIndex) {
-        const promise = r2Get(env, `dists/${distro}/by-hash-index.json`).then(async obj => {
-          if (obj) {
-            const json = JSON.parse(await obj.text());
-            // Merge with any hashes that got softly populated while we were fetching
-            const existing = _hashIndexes.get(distro);
-            return Object.assign({}, json, typeof existing === 'object' && !(existing instanceof Promise) ? existing : {});
-          }
-          return {};
-        }).catch(() => ({}));
-        _hashIndexes.set(distro, promise);
-        distroIndex = promise;
-      }
-      return distroIndex;
-    };
+
 
     const { upstream, components, arches } = DERIVED_CONFIG[distro];
 
@@ -353,8 +332,25 @@ export default {
           });
         }
         if (sha256.length === 64 && /^[0-9a-f]+$/.test(sha256)) {
-          const index = await getHashIndex();
-          const relPath = index[sha256];
+          let distroIndex = _hashIndexes.get(distro);
+          
+          if (!distroIndex || (typeof distroIndex === 'object' && distroIndex instanceof Promise)) {
+            if (!distroIndex) {
+              const promise = r2Get(env, `dists/${distro}/by-hash-index.json`).then(async obj => {
+                if (obj) {
+                  const json = JSON.parse(await obj.text());
+                  const existing = _hashIndexes.get(distro);
+                  return Object.assign({}, json, typeof existing === 'object' && !(existing instanceof Promise) ? existing : {});
+                }
+                return {};
+              }).catch(() => ({}));
+              _hashIndexes.set(distro, promise);
+              distroIndex = promise;
+            }
+            distroIndex = await distroIndex;
+          }
+
+          const relPath = distroIndex[sha256];
           if (relPath) return serveR2(env, request, `dists/${distro}/${relPath}`);
           return new Response("Not found", { status: 404 });
         }
