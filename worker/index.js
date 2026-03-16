@@ -17,6 +17,33 @@ const EMPTY_GZ = new Uint8Array([31, 139, 8, 0, 0, 0, 0, 0, 4, 255, 3, 0, 0, 0, 
 // ── R2 helpers & Isolate Cache ────────────────────────────────────────────────
 
 const _r2Cache = new Map();
+let _r2CacheSize = 0;
+const MAX_CACHE_SIZE = 64 * 1024 * 1024; // 64 MB maximum isolate RAM for cache
+
+function addToCache(key, buf, meta) {
+  if (_r2Cache.has(key)) {
+    _r2CacheSize -= _r2Cache.get(key).buf.byteLength;
+    _r2Cache.delete(key);
+  }
+  _r2Cache.set(key, { buf, meta });
+  _r2CacheSize += buf.byteLength;
+
+  // Prune oldest (LRU) until we're under the high watermark
+  while (_r2CacheSize > MAX_CACHE_SIZE && _r2Cache.size > 0) {
+    const oldestKey = _r2Cache.keys().next().value;
+    _r2CacheSize -= _r2Cache.get(oldestKey).buf.byteLength;
+    _r2Cache.delete(oldestKey);
+  }
+}
+
+function getFromCache(key) {
+  if (!_r2Cache.has(key)) return null;
+  const val = _r2Cache.get(key);
+  // Re-insert to mark as recently used
+  _r2Cache.delete(key);
+  _r2Cache.set(key, val);
+  return val;
+}
 
 /**
  * Creates a mock R2 object for in-memory caching.
@@ -46,7 +73,8 @@ function createMockR2Object(arrayBuffer, meta, isCached = false) {
  * @returns {Promise<Object|null>} A mock R2 object metadata wrapper, or null if not found.
  */
 async function r2Head(env, key) {
-  if (_r2Cache.has(key)) return createMockR2Object(new ArrayBuffer(0), _r2Cache.get(key).meta, true);
+  const cached = getFromCache(key);
+  if (cached) return createMockR2Object(new ArrayBuffer(0), cached.meta, true);
   const obj = await env.DEBTHIN_BUCKET.head(key);
   if (!obj) return null;
   const meta = obj.httpMetadata || {};
@@ -64,29 +92,17 @@ async function r2Head(env, key) {
  * @returns {Promise<Object|null>} A mock R2 object containing the body and metadata, or null if not found.
  */
 async function r2Get(env, key, ctx) {
-  if (_r2Cache.has(key)) return createMockR2Object(_r2Cache.get(key).buf, _r2Cache.get(key).meta, true);
+  const cached = getFromCache(key);
+  if (cached) return createMockR2Object(cached.buf, cached.meta, true);
   const obj = await env.DEBTHIN_BUCKET.get(key);
   if (!obj) return null;
 
+  const buf = await obj.arrayBuffer();
   const meta = obj.httpMetadata || {};
   meta.etag = obj.etag; // preserve native ETag from bucket
   meta.lastModified = obj.uploaded ? obj.uploaded.toUTCString() : null;
 
-  // Stream massive files directly without buffering them in the Isolate RAM map
-  if (obj.size >= 2 * 1024 * 1024) {
-    return {
-      get body() { return obj.body; },
-      httpMetadata: meta,
-      etag: meta.etag,
-      lastModified: meta.lastModified,
-      isCached: false,
-      async arrayBuffer() { return obj.arrayBuffer(); },
-      async text() { return obj.text(); }
-    };
-  }
-
-  const buf = await obj.arrayBuffer();
-  _r2Cache.set(key, { buf, meta });
+  addToCache(key, buf, meta);
 
   // Warm RAM cache from Release/InRelease files (Async background task)
   if (key.endsWith("InRelease") || key.endsWith("Release")) {
@@ -140,9 +156,9 @@ function warmRamCacheFromRelease(env, text, suiteRoot) {
     const name = line.slice(s2 + 1);
 
     if (hash === EMPTY_GZ_HASH) {
-      _r2Cache.set(`${suiteRoot}/${name}`, { buf: EMPTY_GZ, meta: { contentType: "application/x-gzip" } });
+      if (!_r2Cache.has(`${suiteRoot}/${name}`)) addToCache(`${suiteRoot}/${name}`, EMPTY_GZ, { contentType: "application/x-gzip" });
     } else if (hash === EMPTY_HASH) {
-      _r2Cache.set(`${suiteRoot}/${name}`, { buf: new ArrayBuffer(0), meta: { contentType: "text/plain; charset=utf-8" } });
+      if (!_r2Cache.has(`${suiteRoot}/${name}`)) addToCache(`${suiteRoot}/${name}`, new ArrayBuffer(0), { contentType: "text/plain; charset=utf-8" });
     }
 
     if (hash.length === 64 && name.endsWith(".gz")) {
