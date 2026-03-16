@@ -299,12 +299,12 @@ function tokenizePath(path) {
  * Parses the incoming request URL to efficiently extract the protocol and raw path.
  *
  * @param {Request} request - The incoming HTTP request.
- * @returns {Object} Extracted `protocol` ("http:" or "https:") and `rawPath`.
+ * @returns {Object} Extracted `protocol` ("http" or "https") and `rawPath`.
  */
 function parseURL(request) {
   const urlStr = request.url;
-  const protocol = request.headers.get("x-forwarded-proto") === "http" ? "http:" : "https:";
-  const pathStart = urlStr.indexOf("/", protocol === "http:" ? 7 : 8);
+  const protocol = request.headers.get("x-forwarded-proto") === "http" ? "http" : "https";
+  const pathStart = urlStr.indexOf("/", protocol.length + 3);
   const rawPath = pathStart === -1 ? "" : urlStr.slice(pathStart + 1);
   return { protocol, rawPath };
 }
@@ -355,7 +355,7 @@ export default {
     // pool/ requests are .deb downloads - redirect immediately, no further dispatch needed
     if (rest.startsWith("pool/")) {
       const { upstream } = DERIVED_CONFIG[distro];
-      return Response.redirect(`${protocol}//${upstream}/${rest}`, 301);
+      return Response.redirect(`${protocol}://${upstream}/${rest}`, 301);
     }
 
     const suitePath = resolveAlias(DERIVED_CONFIG, distro, rest);
@@ -437,6 +437,6 @@ export default {
       }
     }
     // ── Redirect to upstream for unhandled paths ──────────────────────────────────────
-    return Response.redirect(`${protocol}//${upstream}/${suitePath}`, 301);
+    return Response.redirect(`${protocol}://${upstream}/${suitePath}`, 301);
   },
 };
