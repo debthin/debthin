@@ -98,6 +98,33 @@ function warmRamCacheFromRelease(env, text, suiteRoot) {
 
 const r2Put = (env, key, val, meta) => env.DEBTHIN_BUCKET.put(key, val, meta || {});
 
+// ── Utility Helpers ───────────────────────────────────────────────────────────
+
+function getContentType(key) {
+  if (key.endsWith(".gz"))   return "application/x-gzip";
+  if (key.endsWith(".lz4"))  return "application/x-lz4";
+  if (key.endsWith(".xz"))   return "application/x-xz";
+  if (key.endsWith(".gpg"))  return "application/pgp-keys";
+  if (key.endsWith(".html")) return "text/html; charset=utf-8";
+  if (key.endsWith(".json")) return "application/json";
+  return "text/plain; charset=utf-8";
+}
+
+function isNotModified(requestHeaders, obj) {
+  const reqEtag = requestHeaders.get("if-none-match");
+  if (reqEtag && obj.etag && reqEtag === obj.etag) return true;
+
+  const reqIms = requestHeaders.get("if-modified-since");
+  if (reqIms && obj.lastModified) {
+    const clientDate = Date.parse(reqIms);
+    const serverDate = Date.parse(obj.lastModified);
+    if (!isNaN(clientDate) && serverDate <= clientDate) return true;
+  }
+  return false;
+}
+
+// ── R2 Fetch Handlers ─────────────────────────────────────────────────────────
+
 // transform: "strip-pgp" strips the PGP wrapper from an InRelease file to
 // produce a plain Release. "decompress" gunzips on the fly (for Packages).
 // fetchKey overrides the R2 key used to fetch (e.g. Release → InRelease).
@@ -111,19 +138,8 @@ async function serveR2(env, request, key, { transform, fetchKey } = {}) {
   if (obj.etag) commonHeaders.ETag = obj.etag;
   if (obj.lastModified) commonHeaders["Last-Modified"] = obj.lastModified;
 
-  const reqEtag = request.headers.get("if-none-match");
-  if (reqEtag && obj.etag && reqEtag === obj.etag) {
+  if (isNotModified(request.headers, obj)) {
      return new Response(null, { status: 304, headers: commonHeaders });
-  }
-
-  const reqIms = request.headers.get("if-modified-since");
-  if (reqIms && obj.lastModified) {
-     const clientDate = Date.parse(reqIms);
-     const serverDate = Date.parse(obj.lastModified);
-     // 304 if the server's resource is older or same age as the client's cache
-     if (!isNaN(clientDate) && serverDate <= clientDate) {
-        return new Response(null, { status: 304, headers: commonHeaders });
-     }
   }
 
   if (transform === "strip-pgp") {
@@ -142,17 +158,7 @@ async function serveR2(env, request, key, { transform, fetchKey } = {}) {
     });
   }
 
-  const ct = obj.httpMetadata?.contentType || (
-    key.endsWith(".gz")   ? "application/x-gzip"       :
-    key.endsWith(".lz4")  ? "application/x-lz4"        :
-    key.endsWith(".xz")   ? "application/x-xz"         :
-    key.endsWith(".gpg")  ? "application/pgp-keys"      :
-    key.endsWith(".html") ? "text/html; charset=utf-8"  :
-    key.endsWith(".json") ? "application/json"          :
-    "text/plain; charset=utf-8"
-  );
-  
-  commonHeaders["Content-Type"] = ct;
+  commonHeaders["Content-Type"] = obj.httpMetadata?.contentType || getContentType(key);
   return new Response(obj.body, { headers: commonHeaders });
 }
 
@@ -201,6 +207,25 @@ function inReleaseToRelease(text) {
   return text.slice(start + 1, end).trimEnd() + "\n";
 }
 
+// Extract URL path segments recursively without Array splitting / GC thrashing
+function tokenizePath(path) {
+  const parts = {};
+  const s1 = path.indexOf("/");
+  if (s1 === -1) return parts;
+  
+  const s2 = path.indexOf("/", s1 + 1);
+  const s3 = s2 !== -1 ? path.indexOf("/", s2 + 1) : -1;
+  const s4 = s3 !== -1 ? path.indexOf("/", s3 + 1) : -1;
+  
+  parts.p0 = path.slice(0, s1);
+  parts.p1 = path.slice(s1 + 1, s2 !== -1 ? s2 : undefined);
+  if (s2 !== -1) parts.p2 = path.slice(s2 + 1, s3 !== -1 ? s3 : undefined);
+  if (s3 !== -1) parts.p3 = path.slice(s3 + 1, s4 !== -1 ? s4 : undefined);
+  if (s4 !== -1) parts.p4 = path.slice(s4 + 1);
+  
+  return parts;
+}
+
 
 
 export default {
@@ -212,17 +237,14 @@ export default {
       });
     }
 
-    const urlStr = request.url;
-    const isHttps = urlStr.charCodeAt(4) === 115; // 's' is 115
-    const pathStart = urlStr.indexOf("/", isHttps ? 8 : 7);
-    const rawPath = pathStart === -1 ? "" : urlStr.slice(pathStart + 1);
-    
-    if (rawPath.indexOf("?") !== -1) {
+    const url = new URL(request.url);
+    if (url.search) {
       return new Response("Bad Request: Query strings are not supported\n", { status: 400 });
     }
     
-    const raw = rawPath;
-    const protocol = isHttps ? "https:" : "http:";
+    // Cloudflare natively handles upstream TLS offloading and sets x-forwarded-proto
+    const protocol = request.headers.get("x-forwarded-proto") === "http" ? "http:" : "https:";
+    const raw = url.pathname.slice(1);
 
     const slash   = raw.indexOf("/");
 
@@ -285,20 +307,7 @@ export default {
 
     const { upstream, components, arches } = DERIVED_CONFIG[distro];
     
-    // Instead of splitting array and GC'ing, inline the slashes
-    let p0, p1, p2, p3, p4 = undefined;
-    const s1 = suitePath.indexOf("/");
-    const s2 = s1 !== -1 ? suitePath.indexOf("/", s1 + 1) : -1;
-    const s3 = s2 !== -1 ? suitePath.indexOf("/", s2 + 1) : -1;
-    const s4 = s3 !== -1 ? suitePath.indexOf("/", s3 + 1) : -1;
-    
-    if (s1 !== -1) {
-       p0 = suitePath.slice(0, s1);
-       p1 = suitePath.slice(s1 + 1, s2 !== -1 ? s2 : undefined);
-       if (s2 !== -1) p2 = suitePath.slice(s2 + 1, s3 !== -1 ? s3 : undefined);
-       if (s3 !== -1) p3 = suitePath.slice(s3 + 1, s4 !== -1 ? s4 : undefined);
-       if (s4 !== -1) p4 = suitePath.slice(s4 + 1);
-    }
+    const { p0, p1, p2, p3, p4 } = tokenizePath(suitePath);
 
     if (p0 === "dists" && p1 && p2) {
       if (!p3) {
