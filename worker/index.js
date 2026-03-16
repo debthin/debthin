@@ -246,11 +246,11 @@ export default {
       });
     }
 
-    const { protocol, rawPath } = parseURL(request);
-    
-    if (rawPath.indexOf("?") !== -1) {
+    if (request.url.indexOf("?") !== -1) {
       return new Response("Bad Request: Query strings are not supported\n", { status: 400 });
     }
+
+    const { protocol, rawPath } = parseURL(request);
     
     const raw = rawPath;
 
