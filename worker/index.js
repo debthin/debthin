@@ -18,6 +18,7 @@ const EMPTY_GZ = new Uint8Array([31, 139, 8, 0, 0, 0, 0, 0, 4, 255, 3, 0, 0, 0, 
 
 const _r2Cache = new Map();
 
+// Mock R2 object for in-memory caching
 function createMockR2Object(arrayBuffer, meta, isCached = false) {
   return {
     get body() { return arrayBuffer.byteLength ? new Response(arrayBuffer).body : null; },
@@ -30,6 +31,7 @@ function createMockR2Object(arrayBuffer, meta, isCached = false) {
   };
 }
 
+// R2 HEAD request wrapper
 async function r2Head(env, key) {
   if (_r2Cache.has(key)) return createMockR2Object(new ArrayBuffer(0), _r2Cache.get(key).meta, true);
   const obj = await env.DEBTHIN_BUCKET.head(key);
@@ -40,7 +42,8 @@ async function r2Head(env, key) {
   return createMockR2Object(new ArrayBuffer(0), meta);
 }
 
-async function r2Get(env, key) {
+// R2 GET request wrapper
+async function r2Get(env, key, ctx) {
   if (_r2Cache.has(key)) return createMockR2Object(_r2Cache.get(key).buf, _r2Cache.get(key).meta, true);
   const obj = await env.DEBTHIN_BUCKET.get(key);
   if (!obj) return null;
@@ -50,17 +53,23 @@ async function r2Get(env, key) {
   meta.lastModified = obj.uploaded ? obj.uploaded.toUTCString() : null;
   _r2Cache.set(key, { buf, meta });
 
+  // Warm RAM cache from Release/InRelease files (Async background task)
   if (key.endsWith("InRelease") || key.endsWith("Release")) {
     const text = new TextDecoder().decode(buf);
     const parts = key.split("/");
     if (parts.length >= 3 && parts[0] === "dists") {
       const suiteRoot = parts.slice(0, 3).join("/"); // e.g. dists/debian/trixie
-      warmRamCacheFromRelease(env, text, suiteRoot);
+      if (ctx) {
+        ctx.waitUntil(Promise.resolve().then(() => warmRamCacheFromRelease(env, text, suiteRoot)));
+      } else {
+        warmRamCacheFromRelease(env, text, suiteRoot);
+      }
     }
   }
   return createMockR2Object(buf, meta);
 }
 
+// Warm RAM cache from Release/InRelease files
 function warmRamCacheFromRelease(env, text, suiteRoot) {
   const sectionIdx = text.indexOf("\nSHA256:");
   if (sectionIdx === -1) return;
@@ -129,9 +138,9 @@ function isNotModified(requestHeaders, obj) {
 // transform: "strip-pgp" strips the PGP wrapper from an InRelease file to
 // produce a plain Release. "decompress" gunzips on the fly (for Packages).
 // fetchKey overrides the R2 key used to fetch (e.g. Release → InRelease).
-async function serveR2(env, request, key, { transform, fetchKey } = {}) {
+async function serveR2(env, request, key, ctx, { transform, fetchKey } = {}) {
   const isHead = request.method === "HEAD";
-  const obj = isHead && !transform ? await r2Head(env, fetchKey ?? key) : await r2Get(env, fetchKey ?? key);
+  const obj = isHead && !transform ? await r2Head(env, fetchKey ?? key) : await r2Get(env, fetchKey ?? key, ctx);
   if (!obj) return new Response("Not found\n", { status: 404 });
 
   const hitType = obj.isCached ? "hit-isolate-cache" : "hit";
@@ -240,7 +249,7 @@ function parseURL(request) {
 }
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     // ── Method check ───────────────────────────────────────────────────────────
     if (request.method !== "GET" && request.method !== "HEAD") {
       return new Response("Method Not Allowed\n", {
@@ -269,7 +278,7 @@ export default {
           headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "public, max-age=86400", "X-Debthin": "hit-synthetic" },
         });
       }
-      return serveR2(env, request, rawPath === "" ? "index.html" : rawPath);
+      return serveR2(env, request, rawPath === "" ? "index.html" : rawPath, ctx);
     }
 
     const first = rawPath.slice(0, slash);
@@ -301,9 +310,9 @@ export default {
     if (p0 === "dists" && p1 && p2) {
       if (!p3) {
         if (p2 === "InRelease" || p2 === "Release.gpg") {
-          return serveR2(env, request, r2Key);
+          return serveR2(env, request, r2Key, ctx);
         }
-        if (p2 === "Release") return serveR2(env, request, r2Key, { fetchKey: r2Key.replace("Release", "InRelease"), transform: "strip-pgp" });
+        if (p2 === "Release") return serveR2(env, request, r2Key, ctx, { fetchKey: r2Key.replace("Release", "InRelease"), transform: "strip-pgp" });
       }
 
       // ── Packages & Hashes (dists/debian/.../binary-amd64/...) ──────────────────
@@ -315,10 +324,10 @@ export default {
           );
         }
         if (p4 === "Packages") {
-          return serveR2(env, request, r2Key, { fetchKey: r2Key + ".gz", transform: "decompress" });
+          return serveR2(env, request, r2Key, ctx, { fetchKey: r2Key + ".gz", transform: "decompress" });
         }
         if (p4 === "Packages.gz" || p4 === "Packages.lz4" || p4 === "Packages.xz") {
-          return serveR2(env, request, r2Key);
+          return serveR2(env, request, r2Key, ctx);
         }
       }
 
@@ -346,7 +355,7 @@ export default {
           // Check if we have a valid hash index, if not, fetch it from R2 and cache it
           if (!distroIndex || (typeof distroIndex === 'object' && distroIndex instanceof Promise)) {
             if (!distroIndex) {
-              const promise = r2Get(env, `dists/${distro}/by-hash-index.json`).then(async obj => {
+              const promise = r2Get(env, `dists/${distro}/by-hash-index.json`, ctx).then(async obj => {
                 if (obj) {
                   const json = JSON.parse(await obj.text());
                   const existing = _hashIndexes.get(distro);
@@ -361,7 +370,7 @@ export default {
           }
 
           const relPath = distroIndex[sha256];
-          if (relPath) return serveR2(env, request, `dists/${distro}/${relPath}`);
+          if (relPath) return serveR2(env, request, `dists/${distro}/${relPath}`, ctx);
           return new Response("Not found", { status: 404 });
         }
       }
