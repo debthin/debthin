@@ -55,14 +55,20 @@ async function r2Get(env, key, ctx) {
 
   // Warm RAM cache from Release/InRelease files (Async background task)
   if (key.endsWith("InRelease") || key.endsWith("Release")) {
-    const text = new TextDecoder().decode(buf);
     const parts = key.split("/");
     if (parts.length >= 3 && parts[0] === "dists") {
-      const suiteRoot = parts.slice(0, 3).join("/"); // e.g. dists/debian/trixie
-      if (ctx) {
-        ctx.waitUntil(Promise.resolve().then(() => warmRamCacheFromRelease(env, text, suiteRoot)));
-      } else {
-        warmRamCacheFromRelease(env, text, suiteRoot);
+      const distro = parts[1];
+      const distroIndex = _hashIndexes.get(distro);
+      
+      // Skip expensive text decode and parsing if the cache is already warm
+      if (!distroIndex || (typeof distroIndex === 'object' && distroIndex instanceof Promise)) {
+        const text = new TextDecoder().decode(buf);
+        const suiteRoot = parts.slice(0, 3).join("/"); // e.g. dists/debian/trixie
+        if (ctx) {
+          ctx.waitUntil(Promise.resolve().then(() => warmRamCacheFromRelease(env, text, suiteRoot)));
+        } else {
+          warmRamCacheFromRelease(env, text, suiteRoot);
+        }
       }
     }
   }
