@@ -96,7 +96,7 @@ function warmRamCacheFromRelease(env, text, suiteRoot) {
   }
 }
 
-const r2Put = (env, key, val, meta) => env.DEBTHIN_BUCKET.put(key, val, meta || {});
+
 
 // ── Utility Helpers ───────────────────────────────────────────────────────────
 
@@ -110,6 +110,7 @@ function getContentType(key) {
   return "text/plain; charset=utf-8";
 }
 
+// ── 304 Not Modified? ────────────────────────────────────────────────────────
 function isNotModified(requestHeaders, obj) {
   const reqEtag = requestHeaders.get("if-none-match");
   if (reqEtag && obj.etag && reqEtag === obj.etag) return true;
@@ -189,6 +190,7 @@ const { DERIVED_CONFIG, CONFIG_JSON_STRING } = (() => {
   return { DERIVED_CONFIG: derived, CONFIG_JSON_STRING: configString };
 })();
 
+// ── Alias resolution for suites (e.g. "stable" → "bookworm") ──────────────────
 function resolveAlias(derived, distro, suitePath) {
   if (!suitePath.startsWith("dists/")) return suitePath;
   const slash2 = suitePath.indexOf("/", 6);
@@ -295,6 +297,7 @@ export default {
 
     const { p0, p1, p2, p3, p4 } = tokenizePath(suitePath);
 
+    // ── Hash Index Lookup (dists/debian/...) ───────────────────────────────
     if (p0 === "dists" && p1 && p2) {
       if (!p3) {
         if (p2 === "InRelease" || p2 === "Release.gpg") {
@@ -303,6 +306,7 @@ export default {
         if (p2 === "Release") return serveR2(env, request, r2Key, { fetchKey: r2Key.replace("Release", "InRelease"), transform: "strip-pgp" });
       }
 
+      // ── Packages & Hashes (dists/debian/.../binary-amd64/...) ──────────────────
       if (p3 && components.has(p2) && p3.startsWith("binary-") && arches.has(p3.slice(7))) {
         if (p4 === "Release") {
           return new Response(
@@ -318,9 +322,12 @@ export default {
         }
       }
 
+      // ── Hash Index Lookup (dists/debian/.../by-hash/SHA256/...) ──────────────────
       const byHashIdx = suitePath.indexOf("/by-hash/SHA256/");
       if (byHashIdx !== -1) {
         const sha256 = suitePath.slice(byHashIdx + 16);
+
+        // ── Empty File Hashes ──────────────────────────────────────────────────────
         if (sha256 === EMPTY_GZ_HASH) {
           return new Response(request.method === "HEAD" ? null : EMPTY_GZ, {
             headers: { "Content-Type": "application/x-gzip", ...CACHE_HEADERS, "X-Debthin": "hit-empty" },
@@ -331,9 +338,12 @@ export default {
             headers: { "Content-Type": "text/plain; charset=utf-8", ...CACHE_HEADERS, "X-Debthin": "hit-empty" },
           });
         }
+
+        // ── Hash Index Lookup (dists/debian/.../by-hash/SHA256/...) ──────────────────
         if (sha256.length === 64 && /^[0-9a-f]+$/.test(sha256)) {
           let distroIndex = _hashIndexes.get(distro);
-          
+
+          // Check if we have a valid hash index, if not, fetch it from R2 and cache it
           if (!distroIndex || (typeof distroIndex === 'object' && distroIndex instanceof Promise)) {
             if (!distroIndex) {
               const promise = r2Get(env, `dists/${distro}/by-hash-index.json`).then(async obj => {
@@ -356,7 +366,7 @@ export default {
         }
       }
     }
-
+    // ── Redirect to upstream for unhandled paths ──────────────────────────────────────
     return Response.redirect(`${protocol}//${upstream}/${suitePath}`, 301);
   },
 };
