@@ -166,10 +166,12 @@ async function serveR2(env, request, key, { transform, fetchKey } = {}) {
 
 const _hashIndexes = new Map();
 
-import configText from '../config.json';
-const config = typeof configText === "string" ? JSON.parse(configText) : configText.default || configText;
+import rawConfig from '../config.json';
 
-const DERIVED_CONFIG = (() => {
+const { DERIVED_CONFIG, CONFIG_JSON_STRING } = (() => {
+  const config = typeof rawConfig === "string" ? JSON.parse(rawConfig) : rawConfig.default || rawConfig;
+  const configString = typeof rawConfig === "string" ? rawConfig : JSON.stringify(config);
+  
   const derived = {};
   for (const [distro, c] of Object.entries(config)) {
     const upstreamRaw = c.upstream ?? c.upstream_archive ?? c.upstream_ports;
@@ -184,7 +186,7 @@ const DERIVED_CONFIG = (() => {
     }
     derived[distro] = { upstream, components, arches, aliasMap };
   }
-  return derived;
+  return { DERIVED_CONFIG: derived, CONFIG_JSON_STRING: configString };
 })();
 
 function resolveAlias(derived, distro, suitePath) {
@@ -263,7 +265,7 @@ export default {
         });
       }
       if (raw === "config.json") {
-        return new Response(typeof configText === "string" ? configText : JSON.stringify(configText), {
+        return new Response(CONFIG_JSON_STRING, {
           headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "public, max-age=86400", "X-Debthin": "hit-synthetic" },
         });
       }
