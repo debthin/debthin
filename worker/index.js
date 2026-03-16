@@ -111,37 +111,16 @@ async function serveR2(env, key, { transform, fetchKey } = {}) {
 
 // ── Config (loaded once per isolate lifetime) ─────────────────────────────────
 
-const _derivedByBucket = new WeakMap();
 const _hashIndexesByBucket = new WeakMap();
 
 import configText from '../config.json';
+const config = typeof configText === "string" ? JSON.parse(configText) : configText.default || configText;
 
-function getHashIndex(env, distro) {
-  let indexes = _hashIndexesByBucket.get(env.DEBTHIN_BUCKET);
-  if (!indexes) {
-    indexes = new Map();
-    _hashIndexesByBucket.set(env.DEBTHIN_BUCKET, indexes);
-  }
-  if (!indexes.has(distro)) {
-    const promise = r2Get(env, `dists/${distro}/by-hash-index.json`).then(async obj => {
-      if (obj) return JSON.parse(await obj.text());
-      return {};
-    }).catch(() => ({}));
-    indexes.set(distro, promise);
-  }
-  return indexes.get(distro);
-}
-
-function ensureConfig(env) {
-  if (_derivedByBucket.has(env.DEBTHIN_BUCKET)) return;
-  const config = typeof configText === "string" ? JSON.parse(configText) : configText.default || configText;
+const DERIVED_CONFIG = (() => {
   const derived = {};
   for (const [distro, c] of Object.entries(config)) {
-    // Each distro block must have: upstream (string), components (array),
-    // arches (array or multiple arch arrays), suites (object with optional aliases).
-    // upstream_key names the field holding the upstream hostname.
     const upstreamRaw = c.upstream ?? c.upstream_archive ?? c.upstream_ports;
-    if (!upstreamRaw) continue; // skip non-distro keys (e.g. top-level metadata)
+    if (!upstreamRaw) continue;
     const upstream  = upstreamRaw.slice(upstreamRaw.indexOf("//") + 2); // strip protocol
     const components = new Set(c.components);
     const archArrays = [c.arches, c.archive_arches, c.ports_arches].filter(Boolean);
@@ -152,10 +131,8 @@ function ensureConfig(env) {
     }
     derived[distro] = { upstream, components, arches, aliasMap };
   }
-  _derivedByBucket.set(env.DEBTHIN_BUCKET, derived);
-}
-
-const getDerived = env => _derivedByBucket.get(env.DEBTHIN_BUCKET);
+  return derived;
+})();
 
 function resolveAlias(derived, distro, suitePath) {
   if (!suitePath.startsWith("dists/")) return suitePath;
@@ -201,7 +178,7 @@ export default {
 
     if (raw === "config.json") {
       return new Response(typeof configText === "string" ? configText : JSON.stringify(configText), {
-        headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "public, max-age=86400", "X-Debthin": "hit-isolate-cache" },
+        headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "public, max-age=86400", "X-Debthin": "hit-synthetic" },
       });
     }
 
@@ -210,18 +187,11 @@ export default {
     }
 
 
-    try {
-      ensureConfig(env);
-    } catch {
-      return new Response("Internal Server Error: Missing config.json binding", { status: 500 });
-    }
-
-    const derived = getDerived(env);
     const slash   = raw.indexOf("/");
     const first   = slash === -1 ? raw : raw.slice(0, slash);
     
-    // Explicit distro check - no longer defaults to the first configured distro
-    if (!derived[first]) {
+    // Explicit distro check
+    if (!DERIVED_CONFIG[first]) {
       return new Response("Not found - Unknown distribution or endpoint\n", { status: 404 });
     }
     
@@ -230,16 +200,16 @@ export default {
 
     // pool/ requests are .deb downloads - redirect immediately, no further dispatch needed
     if (rest.startsWith("pool/")) {
-      const { upstream } = derived[distro];
+      const { upstream } = DERIVED_CONFIG[distro];
       return Response.redirect(`${url.protocol}//${upstream}/${rest}${url.search}`, 301);
     }
 
-    const suitePath = resolveAlias(derived, distro, rest);
+    const suitePath = resolveAlias(DERIVED_CONFIG, distro, rest);
     const r2Key     = `dists/${distro}/${suitePath.slice(6)}`;
 
 
 
-    const { upstream, components, arches } = derived[distro];
+    const { upstream, components, arches } = DERIVED_CONFIG[distro];
     const parts = suitePath.split("/");
     const [p0, p1, p2, p3, p4] = parts;
 
