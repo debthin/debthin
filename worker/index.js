@@ -18,7 +18,7 @@ const EMPTY_GZ = new Uint8Array([31, 139, 8, 0, 0, 0, 0, 0, 4, 255, 3, 0, 0, 0, 
 
 const _r2Cache = new Map();
 let _r2CacheSize = 0;
-const MAX_CACHE_SIZE = 64 * 1024 * 1024; // 64 MB maximum isolate RAM for cache
+const MAX_CACHE_SIZE = 96 * 1024 * 1024; // 96 MB maximum isolate RAM for cache
 
 function addToCache(key, buf, meta) {
   if (_r2Cache.has(key)) {
