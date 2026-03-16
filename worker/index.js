@@ -7,12 +7,12 @@
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const CACHE_HEADERS      = { "Cache-Control": "public, max-age=3600" };
+const CACHE_HEADERS = { "Cache-Control": "public, max-age=3600" };
 
 // Empty file hashes (e3b0c442... is an empty file, ac39ce29... is an empty gzip file)
-const EMPTY_HASH         = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
-const EMPTY_GZ_HASH      = "ac39ce295e2578367767006b7a1ef7728a4ba747707aacec48a30d843fe1ecaf";
-const EMPTY_GZ           = new Uint8Array([31, 139, 8, 0, 0, 0, 0, 0, 4, 255, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0]).buffer;
+const EMPTY_HASH = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+const EMPTY_GZ_HASH = "ac39ce295e2578367767006b7a1ef7728a4ba747707aacec48a30d843fe1ecaf";
+const EMPTY_GZ = new Uint8Array([31, 139, 8, 0, 0, 0, 0, 0, 4, 255, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0]).buffer;
 
 // ── R2 helpers & Isolate Cache ────────────────────────────────────────────────
 
@@ -64,7 +64,7 @@ async function r2Get(env, key) {
 function warmRamCacheFromRelease(env, text, suiteRoot) {
   const sectionIdx = text.indexOf("\nSHA256:");
   if (sectionIdx === -1) return;
-  
+
   const distro = suiteRoot.split("/")[1];
   const prefixLen = 7 + distro.length; // "dists/".length + distro.length + 1
   let distroIndex = _hashIndexes.get(distro);
@@ -81,17 +81,17 @@ function warmRamCacheFromRelease(env, text, suiteRoot) {
     const s2 = line.indexOf(" ", s1 + 1);
     const hash = line.slice(1, s1);
     const name = line.slice(s2 + 1);
-    
+
     if (hash === EMPTY_GZ_HASH) {
       _r2Cache.set(`${suiteRoot}/${name}`, { buf: EMPTY_GZ, meta: { contentType: "application/x-gzip" } });
     } else if (hash === EMPTY_HASH) {
       _r2Cache.set(`${suiteRoot}/${name}`, { buf: new ArrayBuffer(0), meta: { contentType: "text/plain; charset=utf-8" } });
     }
-    
+
     if (hash.length === 64 && name.endsWith(".gz")) {
       distroIndex[hash] = suiteRoot.slice(prefixLen) + "/" + name;
     }
-    
+
     pos = lineEnd === -1 ? text.length : lineEnd + 1;
   }
 }
@@ -101,10 +101,10 @@ const r2Put = (env, key, val, meta) => env.DEBTHIN_BUCKET.put(key, val, meta || 
 // ── Utility Helpers ───────────────────────────────────────────────────────────
 
 function getContentType(key) {
-  if (key.endsWith(".gz"))   return "application/x-gzip";
-  if (key.endsWith(".lz4"))  return "application/x-lz4";
-  if (key.endsWith(".xz"))   return "application/x-xz";
-  if (key.endsWith(".gpg"))  return "application/pgp-keys";
+  if (key.endsWith(".gz")) return "application/x-gzip";
+  if (key.endsWith(".lz4")) return "application/x-lz4";
+  if (key.endsWith(".xz")) return "application/x-xz";
+  if (key.endsWith(".gpg")) return "application/pgp-keys";
   if (key.endsWith(".html")) return "text/html; charset=utf-8";
   if (key.endsWith(".json")) return "application/json";
   return "text/plain; charset=utf-8";
@@ -132,14 +132,14 @@ async function serveR2(env, request, key, { transform, fetchKey } = {}) {
   const isHead = request.method === "HEAD";
   const obj = isHead && !transform ? await r2Head(env, fetchKey ?? key) : await r2Get(env, fetchKey ?? key);
   if (!obj) return new Response("Not found\n", { status: 404 });
-  
+
   const hitType = obj.isCached ? "hit-isolate-cache" : "hit";
   const commonHeaders = { ...CACHE_HEADERS, "X-Debthin": hitType };
   if (obj.etag) commonHeaders.ETag = obj.etag;
   if (obj.lastModified) commonHeaders["Last-Modified"] = obj.lastModified;
 
   if (isNotModified(request.headers, obj)) {
-     return new Response(null, { status: 304, headers: commonHeaders });
+    return new Response(null, { status: 304, headers: commonHeaders });
   }
 
   if (transform === "strip-pgp") {
@@ -150,7 +150,7 @@ async function serveR2(env, request, key, { transform, fetchKey } = {}) {
 
   if (transform === "decompress") {
     const ds = new DecompressionStream("gzip");
-    const w  = ds.writable.getWriter();
+    const w = ds.writable.getWriter();
     w.write(await obj.arrayBuffer());
     w.close();
     return new Response(await new Response(ds.readable).arrayBuffer(), {
@@ -171,16 +171,16 @@ import rawConfig from '../config.json';
 const { DERIVED_CONFIG, CONFIG_JSON_STRING } = (() => {
   const config = typeof rawConfig === "string" ? JSON.parse(rawConfig) : rawConfig.default || rawConfig;
   const configString = typeof rawConfig === "string" ? rawConfig : JSON.stringify(config);
-  
+
   const derived = {};
   for (const [distro, c] of Object.entries(config)) {
     const upstreamRaw = c.upstream ?? c.upstream_archive ?? c.upstream_ports;
     if (!upstreamRaw) continue;
-    const upstream  = upstreamRaw.slice(upstreamRaw.indexOf("//") + 2); // strip protocol
+    const upstream = upstreamRaw.slice(upstreamRaw.indexOf("//") + 2); // strip protocol
     const components = new Set(c.components);
     const archArrays = [c.arches, c.archive_arches, c.ports_arches].filter(Boolean);
-    const arches     = new Set(["all", ...archArrays.flat()]);
-    const aliasMap   = new Map();
+    const arches = new Set(["all", ...archArrays.flat()]);
+    const aliasMap = new Map();
     for (const [suite, meta] of Object.entries(c.suites ?? {})) {
       if (meta.aliases) for (const alias of meta.aliases) aliasMap.set(alias, suite);
     }
@@ -191,8 +191,8 @@ const { DERIVED_CONFIG, CONFIG_JSON_STRING } = (() => {
 
 function resolveAlias(derived, distro, suitePath) {
   if (!suitePath.startsWith("dists/")) return suitePath;
-  const slash2    = suitePath.indexOf("/", 6);
-  const suite     = slash2 === -1 ? suitePath.slice(6) : suitePath.slice(6, slash2);
+  const slash2 = suitePath.indexOf("/", 6);
+  const suite = slash2 === -1 ? suitePath.slice(6) : suitePath.slice(6, slash2);
   const canonical = derived[distro].aliasMap.get(suite);
   if (!canonical) return suitePath;
   return "dists/" + canonical + suitePath.slice(slash2);
@@ -214,17 +214,17 @@ function tokenizePath(path) {
   const parts = {};
   const s1 = path.indexOf("/");
   if (s1 === -1) return parts;
-  
+
   const s2 = path.indexOf("/", s1 + 1);
   const s3 = s2 !== -1 ? path.indexOf("/", s2 + 1) : -1;
   const s4 = s3 !== -1 ? path.indexOf("/", s3 + 1) : -1;
-  
+
   parts.p0 = path.slice(0, s1);
   parts.p1 = path.slice(s1 + 1, s2 !== -1 ? s2 : undefined);
   if (s2 !== -1) parts.p2 = path.slice(s2 + 1, s3 !== -1 ? s3 : undefined);
   if (s3 !== -1) parts.p3 = path.slice(s3 + 1, s4 !== -1 ? s4 : undefined);
   if (s4 !== -1) parts.p4 = path.slice(s4 + 1);
-  
+
   return parts;
 }
 
@@ -239,47 +239,46 @@ function parseURL(request) {
 
 export default {
   async fetch(request, env) {
+    // ── Method check ───────────────────────────────────────────────────────────
     if (request.method !== "GET" && request.method !== "HEAD") {
       return new Response("Method Not Allowed\n", {
         status: 405,
         headers: { "Allow": "GET, HEAD", "Content-Type": "text/plain; charset=utf-8" }
       });
     }
-
+    // ── Query string check ───────────────────────────────────────────────────────
     if (request.url.indexOf("?") !== -1) {
       return new Response("Bad Request: Query strings are not supported\n", { status: 400 });
     }
 
     const { protocol, rawPath } = parseURL(request);
-    
-    const raw = rawPath;
 
-    const slash   = raw.indexOf("/");
+    const slash = rawPath.indexOf("/");
 
     // ── Static Assets Fast Path ───────────────────────────────────────────────
     if (slash === -1) {
-      if (raw === "robots.txt") {
+      if (rawPath === "robots.txt") {
         return new Response("User-agent: *\nAllow: /$\nDisallow: /\n", {
           headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "public, max-age=86400", "X-Debthin": "hit-synthetic" },
         });
       }
-      if (raw === "config.json") {
+      if (rawPath === "config.json") {
         return new Response(CONFIG_JSON_STRING, {
           headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "public, max-age=86400", "X-Debthin": "hit-synthetic" },
         });
       }
-      return serveR2(env, request, raw === "" ? "index.html" : raw);
+      return serveR2(env, request, rawPath === "" ? "index.html" : rawPath);
     }
 
-    const first   = raw.slice(0, slash);
-    
+    const first = rawPath.slice(0, slash);
+
     // Explicit distro check
     if (!DERIVED_CONFIG[first]) {
       return new Response("Not found - Unknown distribution or endpoint\n", { status: 404 });
     }
-    
-    const distro  = first;
-    const rest    = slash === -1 ? "" : raw.slice(slash + 1);
+
+    const distro = first;
+    const rest = slash === -1 ? "" : rawPath.slice(slash + 1);
 
     // pool/ requests are .deb downloads - redirect immediately, no further dispatch needed
     if (rest.startsWith("pool/")) {
@@ -288,22 +287,22 @@ export default {
     }
 
     const suitePath = resolveAlias(DERIVED_CONFIG, distro, rest);
-    const r2Key     = `dists/${distro}/${suitePath.slice(6)}`;
+    const r2Key = `dists/${distro}/${suitePath.slice(6)}`;
 
     // Get a cached hash index map (will trigger async fetch if empty and unpopulated)
     const getHashIndex = async () => {
       let distroIndex = _hashIndexes.get(distro);
       // Soft populated index exists as raw object
       if (distroIndex && typeof distroIndex === 'object' && !(distroIndex instanceof Promise)) {
-         return distroIndex;
+        return distroIndex;
       }
       if (!distroIndex) {
         const promise = r2Get(env, `dists/${distro}/by-hash-index.json`).then(async obj => {
           if (obj) {
-             const json = JSON.parse(await obj.text());
-             // Merge with any hashes that got softly populated while we were fetching
-             const existing = _hashIndexes.get(distro);
-             return Object.assign({}, json, typeof existing === 'object' && !(existing instanceof Promise) ? existing : {});
+            const json = JSON.parse(await obj.text());
+            // Merge with any hashes that got softly populated while we were fetching
+            const existing = _hashIndexes.get(distro);
+            return Object.assign({}, json, typeof existing === 'object' && !(existing instanceof Promise) ? existing : {});
           }
           return {};
         }).catch(() => ({}));
@@ -314,7 +313,7 @@ export default {
     };
 
     const { upstream, components, arches } = DERIVED_CONFIG[distro];
-    
+
     const { p0, p1, p2, p3, p4 } = tokenizePath(suitePath);
 
     if (p0 === "dists" && p1 && p2) {
