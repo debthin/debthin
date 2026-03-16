@@ -18,10 +18,12 @@ const EMPTY_GZ           = new Uint8Array([31, 139, 8, 0, 0, 0, 0, 0, 4, 255, 3,
 
 const _r2Cache = new Map();
 
-function createMockR2Object(arrayBuffer, httpMetadata, isCached = false) {
+function createMockR2Object(arrayBuffer, meta, isCached = false) {
   return {
     body: arrayBuffer.byteLength ? new Response(arrayBuffer).body : null,
-    httpMetadata,
+    httpMetadata: meta,
+    etag: meta.etag || `W/"${arrayBuffer.byteLength}-${Date.now()}"`,
+    lastModified: meta.lastModified || new Date().toUTCString(),
     isCached,
     async arrayBuffer() { return arrayBuffer; },
     async text() { return new TextDecoder().decode(arrayBuffer); }
@@ -32,7 +34,10 @@ async function r2Head(env, key) {
   if (_r2Cache.has(key)) return createMockR2Object(new ArrayBuffer(0), _r2Cache.get(key).meta, true);
   const obj = await env.DEBTHIN_BUCKET.head(key);
   if (!obj) return null;
-  return createMockR2Object(new ArrayBuffer(0), obj.httpMetadata || {});
+  const meta = obj.httpMetadata || {};
+  meta.etag = obj.etag;
+  meta.lastModified = obj.uploaded ? obj.uploaded.toUTCString() : null;
+  return createMockR2Object(new ArrayBuffer(0), meta);
 }
 
 async function r2Get(env, key) {
@@ -41,6 +46,8 @@ async function r2Get(env, key) {
   if (!obj) return null;
   const buf = await obj.arrayBuffer();
   const meta = obj.httpMetadata || {};
+  meta.etag = obj.etag; // preserve native ETag from bucket
+  meta.lastModified = obj.uploaded ? obj.uploaded.toUTCString() : null;
   _r2Cache.set(key, { buf, meta });
 
   if (key.endsWith("InRelease") || key.endsWith("Release")) {
@@ -94,10 +101,30 @@ const r2Put = (env, key, val, meta) => env.DEBTHIN_BUCKET.put(key, val, meta || 
 // transform: "strip-pgp" strips the PGP wrapper from an InRelease file to
 // produce a plain Release. "decompress" gunzips on the fly (for Packages).
 // fetchKey overrides the R2 key used to fetch (e.g. Release → InRelease).
-async function serveR2(env, key, reqMethod, { transform, fetchKey } = {}) {
-  const isHead = reqMethod === "HEAD";
+async function serveR2(env, request, key, { transform, fetchKey } = {}) {
+  const isHead = request.method === "HEAD";
   const obj = isHead && !transform ? await r2Head(env, fetchKey ?? key) : await r2Get(env, fetchKey ?? key);
   if (!obj) return new Response("Not found\n", { status: 404 });
+  
+  const hitType = obj.isCached ? "hit-isolate-cache" : "hit";
+  const commonHeaders = { ...CACHE_HEADERS, "X-Debthin": hitType };
+  if (obj.etag) commonHeaders.ETag = obj.etag;
+  if (obj.lastModified) commonHeaders["Last-Modified"] = obj.lastModified;
+
+  const reqEtag = request.headers.get("if-none-match");
+  if (reqEtag && obj.etag && reqEtag === obj.etag) {
+     return new Response(null, { status: 304, headers: commonHeaders });
+  }
+
+  const reqIms = request.headers.get("if-modified-since");
+  if (reqIms && obj.lastModified) {
+     const clientDate = new Date(reqIms);
+     const serverDate = new Date(obj.lastModified);
+     // 304 if the server's resource is older or same age as the client's cache
+     if (!isNaN(clientDate) && serverDate <= clientDate) {
+        return new Response(null, { status: 304, headers: commonHeaders });
+     }
+  }
 
   if (transform === "strip-pgp") {
     return new Response(inReleaseToRelease(await obj.text()), {
@@ -125,11 +152,8 @@ async function serveR2(env, key, reqMethod, { transform, fetchKey } = {}) {
     "text/plain; charset=utf-8"
   );
   
-  const hitType = obj.isCached ? "hit-isolate-cache" : "hit";
-
-  return new Response(obj.body, {
-    headers: { "Content-Type": ct, ...CACHE_HEADERS, "X-Debthin": hitType },
-  });
+  commonHeaders["Content-Type"] = ct;
+  return new Response(obj.body, { headers: commonHeaders });
 }
 
 // ── Config (loaded once per isolate lifetime) ─────────────────────────────────
@@ -214,7 +238,7 @@ export default {
           headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "public, max-age=86400", "X-Debthin": "hit-synthetic" },
         });
       }
-      return serveR2(env, raw === "" ? "index.html" : raw, request.method);
+      return serveR2(env, request, raw === "" ? "index.html" : raw);
     }
 
     const first   = raw.slice(0, slash);
@@ -279,9 +303,9 @@ export default {
     if (p0 === "dists" && p1 && p2) {
       if (!p3) {
         if (p2 === "InRelease" || p2 === "Release.gpg") {
-          return serveR2(env, r2Key, request.method);
+          return serveR2(env, request, r2Key);
         }
-        if (p2 === "Release") return serveR2(env, r2Key, request.method, { fetchKey: r2Key.replace("Release", "InRelease"), transform: "strip-pgp" });
+        if (p2 === "Release") return serveR2(env, request, r2Key, { fetchKey: r2Key.replace("Release", "InRelease"), transform: "strip-pgp" });
       }
 
       if (p3 && components.has(p2) && p3.startsWith("binary-") && arches.has(p3.slice(7))) {
@@ -292,10 +316,10 @@ export default {
           );
         }
         if (p4 === "Packages") {
-          return serveR2(env, r2Key, request.method, { fetchKey: r2Key + ".gz", transform: "decompress" });
+          return serveR2(env, request, r2Key, { fetchKey: r2Key + ".gz", transform: "decompress" });
         }
         if (p4 === "Packages.gz" || p4 === "Packages.lz4" || p4 === "Packages.xz") {
-          return serveR2(env, r2Key, request.method);
+          return serveR2(env, request, r2Key);
         }
       }
 
@@ -315,7 +339,7 @@ export default {
         if (sha256.length === 64 && /^[0-9a-f]+$/.test(sha256)) {
           const index = await getHashIndex();
           const relPath = index[sha256];
-          if (relPath) return serveR2(env, `dists/${distro}/${relPath}`, request.method);
+          if (relPath) return serveR2(env, request, `dists/${distro}/${relPath}`);
           return new Response("Not found", { status: 404 });
         }
       }
