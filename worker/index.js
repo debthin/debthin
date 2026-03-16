@@ -196,10 +196,13 @@ export default {
     const protoEnd = urlStr.indexOf("//");
     const pathStart = urlStr.indexOf("/", protoEnd + 2);
     const rawPath = pathStart === -1 ? "" : urlStr.slice(pathStart + 1);
-    const qMark = rawPath.indexOf("?");
-    const raw = qMark === -1 ? rawPath : rawPath.slice(0, qMark);
+    
+    if (rawPath.indexOf("?") !== -1) {
+      return new Response("Bad Request: Query strings are not supported\n", { status: 400 });
+    }
+    
+    const raw = rawPath;
     const protocol = protoEnd !== -1 ? urlStr.slice(0, protoEnd) : "https:";
-    const search = qMark === -1 ? "" : rawPath.slice(qMark);
 
     const slash   = raw.indexOf("/");
 
@@ -231,7 +234,7 @@ export default {
     // pool/ requests are .deb downloads - redirect immediately, no further dispatch needed
     if (rest.startsWith("pool/")) {
       const { upstream } = DERIVED_CONFIG[distro];
-      return Response.redirect(`${protocol}//${upstream}/${rest}${search}`, 301);
+      return Response.redirect(`${protocol}//${upstream}/${rest}`, 301);
     }
 
     const suitePath = resolveAlias(DERIVED_CONFIG, distro, rest);
@@ -322,6 +325,6 @@ export default {
       }
     }
 
-    return Response.redirect(`${protocol}//${upstream}/${suitePath}${search}`, 301);
+    return Response.redirect(`${protocol}//${upstream}/${suitePath}`, 301);
   },
 };
