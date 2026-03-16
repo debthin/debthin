@@ -174,11 +174,16 @@ function isNotModified(requestHeaders, obj) {
 /**
  * R2 Fetch Handler
  *
- * @param {string} transform - "strip-pgp" strips the PGP wrapper from an InRelease file to
+ * @param {Object} env - The Cloudflare Worker environment.
+ * @param {Request} request - The incoming HTTP request.
+ * @param {string} key - R2 key to fetch.
+ * @param {Object} [options] - Options object.
+ * @param {string} [options.transform] - "strip-pgp" strips the PGP wrapper from an InRelease file to
  *                             produce a plain Release. "decompress" gunzips on the fly (for Packages).
- * @param {string} fetchKey  - overrides the R2 key used to fetch (e.g. Release → InRelease).
+ * @param {string} [options.fetchKey]  - overrides the R2 key used to fetch (e.g. Release → InRelease).
+ * @param {Object} [options.ctx] - Execution context for background tasks (e.g. cache warming).
  */
-async function serveR2(env, request, key, ctx, { transform, fetchKey } = {}) {
+async function serveR2(env, request, key, { transform, fetchKey, ctx } = {}) {
   const isHead = request.method === "HEAD";
   const obj = isHead && !transform ? await r2Head(env, fetchKey ?? key) : await r2Get(env, fetchKey ?? key, ctx);
   if (!obj) return new Response("Not found\n", { status: 404 });
@@ -322,7 +327,7 @@ export default {
           headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "public, max-age=86400", "X-Debthin": "hit-synthetic" },
         });
       }
-      return serveR2(env, request, rawPath === "" ? "index.html" : rawPath, ctx);
+      return serveR2(env, request, rawPath === "" ? "index.html" : rawPath);
     }
 
     const first = rawPath.slice(0, slash);
@@ -363,9 +368,9 @@ export default {
     if (p0 === "dists" && p1 && p2) {
       if (!p3) {
         if (p2 === "InRelease" || p2 === "Release.gpg") {
-          return serveR2(env, request, r2Key, ctx);
+          return serveR2(env, request, r2Key, { ctx });
         }
-        if (p2 === "Release") return serveR2(env, request, r2Key, ctx, { fetchKey: r2Key.replace("Release", "InRelease"), transform: "strip-pgp" });
+        if (p2 === "Release") return serveR2(env, request, r2Key, { fetchKey: r2Key.replace("Release", "InRelease"), transform: "strip-pgp", ctx });
       }
 
       // ── Packages & Hashes (dists/debian/.../binary-amd64/...) ──────────────────
@@ -377,10 +382,10 @@ export default {
           );
         }
         if (p4 === "Packages") {
-          return serveR2(env, request, r2Key, ctx, { fetchKey: r2Key + ".gz", transform: "decompress" });
+          return serveR2(env, request, r2Key, { fetchKey: r2Key + ".gz", transform: "decompress" });
         }
         if (p4 === "Packages.gz" || p4 === "Packages.lz4" || p4 === "Packages.xz") {
-          return serveR2(env, request, r2Key, ctx);
+          return serveR2(env, request, r2Key);
         }
       }
 
@@ -423,7 +428,7 @@ export default {
           }
 
           const relPath = distroIndex[sha256];
-          if (relPath) return serveR2(env, request, `dists/${distro}/${relPath}`, ctx);
+          if (relPath) return serveR2(env, request, `dists/${distro}/${relPath}`);
           return new Response("Not found", { status: 404 });
         }
       }
