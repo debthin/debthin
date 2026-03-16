@@ -28,6 +28,13 @@ function createMockR2Object(arrayBuffer, httpMetadata, isCached = false) {
   };
 }
 
+async function r2Head(env, key) {
+  if (_r2Cache.has(key)) return createMockR2Object(new ArrayBuffer(0), _r2Cache.get(key).meta, true);
+  const obj = await env.DEBTHIN_BUCKET.head(key);
+  if (!obj) return null;
+  return createMockR2Object(new ArrayBuffer(0), obj.httpMetadata || {});
+}
+
 async function r2Get(env, key) {
   if (_r2Cache.has(key)) return createMockR2Object(_r2Cache.get(key).buf, _r2Cache.get(key).meta, true);
   const obj = await env.DEBTHIN_BUCKET.get(key);
@@ -41,15 +48,28 @@ async function r2Get(env, key) {
     const parts = key.split("/");
     if (parts.length >= 3 && parts[0] === "dists") {
       const suiteRoot = parts.slice(0, 3).join("/"); // e.g. dists/debian/trixie
-      prepopulateEmptyFilesFromRelease(text, suiteRoot);
+      prepopulateEmptyFilesFromRelease(env, text, suiteRoot);
     }
   }
   return createMockR2Object(buf, meta);
 }
 
-function prepopulateEmptyFilesFromRelease(text, suiteRoot) {
+function prepopulateEmptyFilesFromRelease(env, text, suiteRoot) {
   const sectionIdx = text.indexOf("\nSHA256:");
   if (sectionIdx === -1) return;
+  
+  const distro = suiteRoot.split("/")[1];
+  let indexes = _hashIndexesByBucket.get(env.DEBTHIN_BUCKET);
+  if (!indexes) {
+    indexes = new Map();
+    _hashIndexesByBucket.set(env.DEBTHIN_BUCKET, indexes);
+  }
+  let distroIndex = indexes.get(distro);
+  if (!distroIndex || distroIndex instanceof Promise) {
+    distroIndex = typeof distroIndex === 'object' && distroIndex !== null && !(distroIndex instanceof Promise) ? distroIndex : {};
+    indexes.set(distro, distroIndex);
+  }
+
   let pos = text.indexOf("\n", sectionIdx + 1) + 1;
   while (pos > 0 && pos < text.length && text.charCodeAt(pos) === 32) {
     const lineEnd = text.indexOf("\n", pos);
@@ -58,11 +78,22 @@ function prepopulateEmptyFilesFromRelease(text, suiteRoot) {
     const s2 = line.indexOf(" ", s1 + 1);
     const hash = line.slice(1, s1);
     const name = line.slice(s2 + 1);
+    
     if (hash === EMPTY_GZ_HASH) {
       _r2Cache.set(`${suiteRoot}/${name}`, { buf: EMPTY_GZ, meta: { contentType: "application/x-gzip" } });
     } else if (hash === EMPTY_HASH) {
       _r2Cache.set(`${suiteRoot}/${name}`, { buf: new ArrayBuffer(0), meta: { contentType: "text/plain; charset=utf-8" } });
     }
+    
+    const byHashIdx = name.indexOf("/by-hash/SHA256/");
+    if (byHashIdx !== -1) {
+       const keyHash = name.slice(byHashIdx + 16);
+       if (keyHash === hash && keyHash.length === 64) {
+          // Store relative path (subtract 6 chars for "dists/")
+          distroIndex[hash] = suiteRoot.slice(6) + "/" + name;
+       }
+    }
+    
     pos = lineEnd === -1 ? text.length : lineEnd + 1;
   }
 }
@@ -72,8 +103,9 @@ const r2Put = (env, key, val, meta) => env.DEBTHIN_BUCKET.put(key, val, meta || 
 // transform: "strip-pgp" strips the PGP wrapper from an InRelease file to
 // produce a plain Release. "decompress" gunzips on the fly (for Packages).
 // fetchKey overrides the R2 key used to fetch (e.g. Release → InRelease).
-async function serveR2(env, key, { transform, fetchKey } = {}) {
-  const obj = await r2Get(env, fetchKey ?? key);
+async function serveR2(env, key, reqMethod, { transform, fetchKey } = {}) {
+  const isHead = reqMethod === "HEAD";
+  const obj = isHead && !transform ? await r2Head(env, fetchKey ?? key) : await r2Get(env, fetchKey ?? key);
   if (!obj) return new Response("Not found\n", { status: 404 });
 
   if (transform === "strip-pgp") {
@@ -168,24 +200,24 @@ export default {
     const url = new URL(request.url);
     const raw = url.pathname.slice(1); // always starts with /
 
-    if (raw === "") return serveR2(env, "index.html");
-
-    if (raw === "robots.txt") {
-      return new Response("User-agent: *\nAllow: /$\nDisallow: /\n", {
-        headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "public, max-age=86400", "X-Debthin": "hit-synthetic" },
-      });
+    // ── Static Assets Fast Path ───────────────────────────────────────────────
+    switch (raw) {
+      case "":
+        return serveR2(env, "index.html", request.method);
+      case "robots.txt":
+        return new Response("User-agent: *\nAllow: /$\nDisallow: /\n", {
+          headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "public, max-age=86400", "X-Debthin": "hit-synthetic" },
+        });
+      case "config.json":
+        return new Response(typeof configText === "string" ? configText : JSON.stringify(configText), {
+          headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "public, max-age=86400", "X-Debthin": "hit-synthetic" },
+        });
+      case "favicon.ico":
+      case "status.json":
+      case "debthin-keyring.gpg":
+      case "debthin-keyring-binary.gpg":
+        return serveR2(env, raw, request.method);
     }
-
-    if (raw === "config.json") {
-      return new Response(typeof configText === "string" ? configText : JSON.stringify(configText), {
-        headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "public, max-age=86400", "X-Debthin": "hit-synthetic" },
-      });
-    }
-
-    if (raw === "favicon.ico" || raw === "status.json" || raw === "debthin-keyring.gpg" || raw === "debthin-keyring-binary.gpg") {
-      return serveR2(env, raw);
-    }
-
 
     const slash   = raw.indexOf("/");
     const first   = slash === -1 ? raw : raw.slice(0, slash);
@@ -207,18 +239,57 @@ export default {
     const suitePath = resolveAlias(DERIVED_CONFIG, distro, rest);
     const r2Key     = `dists/${distro}/${suitePath.slice(6)}`;
 
-
+    // Get a cached hash index map (will trigger async fetch if empty and unpopulated)
+    const getHashIndex = async () => {
+      let indexes = _hashIndexesByBucket.get(env.DEBTHIN_BUCKET);
+      if (!indexes) {
+        indexes = new Map();
+        _hashIndexesByBucket.set(env.DEBTHIN_BUCKET, indexes);
+      }
+      let distroIndex = indexes.get(distro);
+      // Soft populated index exists as raw object
+      if (distroIndex && typeof distroIndex === 'object' && !(distroIndex instanceof Promise)) {
+         return distroIndex;
+      }
+      if (!distroIndex) {
+        const promise = r2Get(env, `dists/${distro}/by-hash-index.json`).then(async obj => {
+          if (obj) {
+             const json = JSON.parse(await obj.text());
+             // Merge with any hashes that got softly populated while we were fetching
+             const existing = indexes.get(distro);
+             return Object.assign({}, json, typeof existing === 'object' && !(existing instanceof Promise) ? existing : {});
+          }
+          return {};
+        }).catch(() => ({}));
+        indexes.set(distro, promise);
+        distroIndex = promise;
+      }
+      return distroIndex;
+    };
 
     const { upstream, components, arches } = DERIVED_CONFIG[distro];
-    const parts = suitePath.split("/");
-    const [p0, p1, p2, p3, p4] = parts;
+    
+    // Instead of splitting array and GC'ing, inline the slashes
+    let p0, p1, p2, p3, p4 = undefined;
+    const s1 = suitePath.indexOf("/");
+    const s2 = s1 !== -1 ? suitePath.indexOf("/", s1 + 1) : -1;
+    const s3 = s2 !== -1 ? suitePath.indexOf("/", s2 + 1) : -1;
+    const s4 = s3 !== -1 ? suitePath.indexOf("/", s3 + 1) : -1;
+    
+    if (s1 !== -1) {
+       p0 = suitePath.slice(0, s1);
+       p1 = suitePath.slice(s1 + 1, s2 !== -1 ? s2 : undefined);
+       if (s2 !== -1) p2 = suitePath.slice(s2 + 1, s3 !== -1 ? s3 : undefined);
+       if (s3 !== -1) p3 = suitePath.slice(s3 + 1, s4 !== -1 ? s4 : undefined);
+       if (s4 !== -1) p4 = suitePath.slice(s4 + 1);
+    }
 
     if (p0 === "dists" && p1 && p2) {
       if (!p3) {
         if (p2 === "InRelease" || p2 === "Release.gpg") {
-          return serveR2(env, r2Key);
+          return serveR2(env, r2Key, request.method);
         }
-        if (p2 === "Release") return serveR2(env, r2Key, { fetchKey: r2Key.replace("Release", "InRelease"), transform: "strip-pgp" });
+        if (p2 === "Release") return serveR2(env, r2Key, request.method, { fetchKey: r2Key.replace("Release", "InRelease"), transform: "strip-pgp" });
       }
 
       if (p3 && components.has(p2) && p3.startsWith("binary-") && arches.has(p3.slice(7))) {
@@ -229,17 +300,18 @@ export default {
           );
         }
         if (p4 === "Packages") {
-          return serveR2(env, r2Key, { fetchKey: r2Key + ".gz", transform: "decompress" });
+          return serveR2(env, r2Key, request.method, { fetchKey: r2Key + ".gz", transform: "decompress" });
         }
         if (p4 === "Packages.gz" || p4 === "Packages.lz4" || p4 === "Packages.xz") {
-          return serveR2(env, r2Key);
+          return serveR2(env, r2Key, request.method);
         }
       }
 
-      if (parts.length >= 5 && parts.at(-3) === "by-hash" && parts.at(-2) === "SHA256") {
-        const sha256 = parts.at(-1);
+      const hashParts = s4 !== -1 ? suitePath.slice(s4 + 1).split("/") : [];
+      if (hashParts.length >= 3 && hashParts.at(-3) === "by-hash" && hashParts.at(-2) === "SHA256") {
+        const sha256 = hashParts.at(-1);
         if (sha256 === EMPTY_GZ_HASH) {
-          return new Response(EMPTY_GZ, {
+          return new Response(request.method === "HEAD" ? null : EMPTY_GZ, {
             headers: { "Content-Type": "application/x-gzip", ...CACHE_HEADERS, "X-Debthin": "hit-empty" },
           });
         }
@@ -249,9 +321,9 @@ export default {
           });
         }
         if (sha256.length === 64 && /^[0-9a-f]+$/.test(sha256)) {
-          const index = await getHashIndex(env, distro);
+          const index = await getHashIndex();
           const relPath = index[sha256];
-          if (relPath) return serveR2(env, `dists/${distro}/${relPath}`);
+          if (relPath) return serveR2(env, `dists/${distro}/${relPath}`, request.method);
           return new Response("Not found", { status: 404 });
         }
       }
