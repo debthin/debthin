@@ -67,10 +67,25 @@ async function r2Get(env, key, ctx) {
   if (_r2Cache.has(key)) return createMockR2Object(_r2Cache.get(key).buf, _r2Cache.get(key).meta, true);
   const obj = await env.DEBTHIN_BUCKET.get(key);
   if (!obj) return null;
-  const buf = await obj.arrayBuffer();
+
   const meta = obj.httpMetadata || {};
   meta.etag = obj.etag; // preserve native ETag from bucket
   meta.lastModified = obj.uploaded ? obj.uploaded.toUTCString() : null;
+
+  // Stream massive files directly without buffering them in the Isolate RAM map
+  if (obj.size >= 2 * 1024 * 1024) {
+    return {
+      get body() { return obj.body; },
+      httpMetadata: meta,
+      etag: meta.etag,
+      lastModified: meta.lastModified,
+      isCached: false,
+      async arrayBuffer() { return obj.arrayBuffer(); },
+      async text() { return obj.text(); }
+    };
+  }
+
+  const buf = await obj.arrayBuffer();
   _r2Cache.set(key, { buf, meta });
 
   // Warm RAM cache from Release/InRelease files (Async background task)
@@ -204,11 +219,9 @@ async function serveR2(env, request, key, { transform, fetchKey, ctx } = {}) {
   }
 
   if (transform === "decompress") {
+    if (!obj.body) return new Response("", { headers: { ...CACHE_HEADERS, "X-Debthin": "hit-decomp" } });
     const ds = new DecompressionStream("gzip");
-    const w = ds.writable.getWriter();
-    w.write(await obj.arrayBuffer());
-    w.close();
-    return new Response(await new Response(ds.readable).arrayBuffer(), {
+    return new Response(obj.body.pipeThrough(ds), {
       headers: { "Content-Type": "text/plain; charset=utf-8", ...CACHE_HEADERS, "X-Debthin": "hit-decomp" },
     });
   }
@@ -338,7 +351,7 @@ export default {
     }
 
     const distro = first;
-    const rest = slash === -1 ? "" : rawPath.slice(slash + 1);
+    const rest = rawPath.slice(slash + 1);
 
     // pool/ requests are .deb downloads - redirect immediately, no further dispatch needed
     // example: https://deb.debian.org/debian/pool/main/a/apt/apt_2.8.1_amd64.deb
