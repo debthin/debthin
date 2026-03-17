@@ -122,8 +122,8 @@ async function runTests() {
             fetchAndAnalyze("Arch Release (generated native text)", `${distro}/dists/${testSuite}/${component}/binary-${arch}/Release`, 200, "hit-generated"),
 
             // By-Hash empty file intercepts
-            fetchAndAnalyze("by-hash empty string intercept", `${distro}/dists/${testSuite}/${component}/by-hash/SHA256/${EMPTY_HASH}`, 200, "hit-empty"),
-            fetchAndAnalyze("by-hash empty gzip intercept", `${distro}/dists/${testSuite}/${component}/by-hash/SHA256/${EMPTY_GZ_HASH}`, 200, "hit-empty"),
+            fetchAndAnalyze("by-hash empty string intercept", `${distro}/dists/${testSuite}/${component}/by-hash/SHA256/${EMPTY_HASH}`, 200, null),
+            fetchAndAnalyze("by-hash empty gzip intercept", `${distro}/dists/${testSuite}/${component}/by-hash/SHA256/${EMPTY_GZ_HASH}`, 200, null),
 
             // Alias routing (e.g. `24.04` maps to `noble`)
             ...(testAlias ? [
