@@ -120,6 +120,13 @@ function getFromCache(key) {
   return { buf: _cacheBuf[slot], meta: _cacheMeta[slot], hits: _cacheHits[slot], addedAt: _cacheAddedAt[slot] };
 }
 
+function updateCacheTTL(key) {
+  const slot = _cacheIndex.get(key);
+  if (slot !== undefined) {
+    _cacheAddedAt[slot] = Date.now();
+  }
+}
+
 /**
  * Wraps an in-memory buffer as an R2-compatible response object.
  *
@@ -152,13 +159,23 @@ function wrapCachedObject(arrayBuffer, meta, isCached = false, hits = 0) {
  */
 async function r2Head(env, key) {
   let cached = getFromCache(key);
-  if (cached) {
-    const isRelease = key.endsWith("InRelease") || key.endsWith("Release");
-    if (isRelease && (Date.now() - cached.addedAt > INDEX_TTL)) {
-      cached = null;
+  if (cached && (Date.now() - cached.addedAt > INDEX_TTL)) {
+    // Check if the file has truly changed via a metadata HEAD request
+    const obj = await env.DEBTHIN_BUCKET.head(key);
+    if (!obj) return null; // File was deleted remotely
+    if (obj.etag === cached.meta.etag) {
+      updateCacheTTL(key); // Not modified, bump TTL
+      return wrapCachedObject(new ArrayBuffer(0), cached.meta, true, cached.hits);
     }
+    // ETag mismatch: fall through to update cache metadata for HEAD
+    const meta = obj.httpMetadata || {};
+    meta.etag = obj.etag;
+    meta.lastModified = obj.uploaded ? Math.floor(obj.uploaded.getTime() / 1000) * 1000 : null;
+    return wrapCachedObject(new ArrayBuffer(0), meta, false, 0);
   }
+  
   if (cached) return wrapCachedObject(new ArrayBuffer(0), cached.meta, true, cached.hits);
+  
   const obj = await env.DEBTHIN_BUCKET.head(key);
   if (!obj) return null;
   const meta = obj.httpMetadata || {};
@@ -179,15 +196,28 @@ async function r2Get(env, key, ctx) {
   let cached = getFromCache(key);
   let forceReindex = false;
 
-  const isRelease = key.endsWith("InRelease") || key.endsWith("Release");
-  if (cached && isRelease && (Date.now() - cached.addedAt > INDEX_TTL)) {
-    cached = null;
-    forceReindex = true;
+  const expired = cached && (Date.now() - cached.addedAt > INDEX_TTL);
+  
+  if (cached && !expired) {
+    return wrapCachedObject(cached.buf, cached.meta, true, cached.hits);
   }
 
-  if (cached) return wrapCachedObject(cached.buf, cached.meta, true, cached.hits);
-  const obj = await env.DEBTHIN_BUCKET.get(key);
-  if (!obj) return null;
+  // If expired, conditionally fetch passing onlyIf. 
+  // If not cached, fetch normally.
+  const fetchOpts = expired ? { onlyIf: { etagDoesNotMatch: cached.meta.etag } } : {};
+  const obj = await env.DEBTHIN_BUCKET.get(key, fetchOpts);
+  
+  if (!obj) return null; // File was deleted remotely
+
+  // R2 conditional fetch failed precondition (not modified): it returns an object without a body getter
+  // In Cloudflare Workers bindings, `R2Object` vs `R2ObjectBody`. We can test if `body` or `size` exists.
+  if (!obj.body) {
+    updateCacheTTL(key); // Not modified, bump TTL
+    return wrapCachedObject(cached.buf, cached.meta, true, cached.hits);
+  }
+
+  // The remote file is newer (or we didn't have a cache)
+  forceReindex = expired; // Only force clear background index if an existing cache entry was displaced
 
   const buf = await obj.arrayBuffer();
   const meta = obj.httpMetadata || {};
@@ -197,6 +227,7 @@ async function r2Get(env, key, ctx) {
   addToCache(key, buf, meta);
 
   // Warm RAM cache from Release/InRelease files (Async background task)
+  const isRelease = key.endsWith("InRelease") || key.endsWith("Release");
   if (isRelease) {
     const { p0, p1, p2 } = tokenizePath(key);
     if (p0 === "dists" && p1 && p2) {
