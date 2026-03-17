@@ -235,7 +235,10 @@ function warmRamCacheFromRelease(env, text, suiteRoot) {
     }
 
     if (hash.length === 64 && name.endsWith(".gz")) {
-      distroIndex[hash] = suiteRoot.slice(prefixLen) + "/" + name;
+      // Only write if we have a plain object; if it's a Promise, handleRequest will merge
+      if (!(distroIndex instanceof Promise)) {
+        distroIndex[hash] = suiteRoot.slice(prefixLen) + "/" + name;
+      }
     }
 
     pos = lineEnd === -1 ? text.length : lineEnd + 1;
@@ -273,12 +276,16 @@ function getContentType(key) {
  */
 function isNotModified(requestHeaders, obj) {
   const reqEtag = requestHeaders.get("if-none-match");
-  if (reqEtag && obj.etag && reqEtag === obj.etag) return true;
+  // RFC 7232: If-None-Match takes precedence over If-Modified-Since
+  if (reqEtag) {
+    return reqEtag === "*" || reqEtag === obj.etag;
+  }
 
   const reqIms = requestHeaders.get("if-modified-since");
   if (reqIms && obj.lastModified) {
     const clientDate = Date.parse(reqIms);
-    if (!isNaN(clientDate) && obj.lastModified <= clientDate) return true;
+    // obj.lastModified is already rounded to seconds in r2Get/r2Head
+    return !isNaN(clientDate) && obj.lastModified <= clientDate;
   }
   return false;
 }
@@ -330,11 +337,11 @@ async function serveR2(env, request, key, { transform, fetchKey, ctx, immutable 
     h["Content-Type"] = "text/plain; charset=utf-8";
     h["X-Debthin"] = "hit-decomp";
     if (!buf.byteLength) return new Response("", { headers: h });
+
+    // Create a fresh stream from the buffer and pipe through decompression
     const ds = new DecompressionStream("gzip");
-    const writer = ds.writable.getWriter();
-    writer.write(buf);
-    writer.close();
-    return new Response(ds.readable, { headers: h });
+    const decompressed = new Response(buf).body.pipeThrough(ds);
+    return new Response(decompressed, { headers: h });
   }
 
   h["Content-Type"] = obj.httpMetadata?.contentType || getContentType(key);
@@ -574,16 +581,14 @@ async function handleRequest(request, env, ctx) {
       if (sha256.length === 64 && isHex64(sha256)) {
         let distroIndex = _hashIndexes.get(distro);
 
-        // Check if we have a valid hash index, if not, fetch it from R2 and cache it
-        if (!distroIndex || (typeof distroIndex === 'object' && distroIndex instanceof Promise)) {
+        if (!distroIndex || distroIndex instanceof Promise) {
           if (!distroIndex) {
             const promise = r2Get(env, `dists/${distro}/by-hash-index.json`, ctx).then(async obj => {
-              if (obj) {
-                const json = JSON.parse(await obj.text());
-                const existing = _hashIndexes.get(distro);
-                return Object.assign({}, json, typeof existing === 'object' && !(existing instanceof Promise) ? existing : {});
-              }
-              return {};
+              const json = obj ? JSON.parse(await obj.text()) : {};
+              const current = _hashIndexes.get(distro);
+              // Merge: background-warmed hashes (current) take precedence over JSON
+              const freshData = (current instanceof Promise || !current) ? {} : current;
+              return Object.assign(json, freshData);
             }).catch(() => ({}));
             _hashIndexes.set(distro, promise);
             distroIndex = promise;
