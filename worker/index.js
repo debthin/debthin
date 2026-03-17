@@ -57,7 +57,8 @@ const _cacheKey = new Array(MAX_CACHE_SLOTS).fill(null); // key string per slot 
 const _cacheHits = new Int32Array(MAX_CACHE_SLOTS);    // hit counters
 const _cacheLastUsed = new Uint32Array(MAX_CACHE_SLOTS);   // serve counter at last access
 const _cacheBytes = new Int32Array(MAX_CACHE_SLOTS);    // buf.byteLength per slot
-const _cacheAddedAt = new Float64Array(MAX_CACHE_SLOTS); // Date.now() timestamp when cached
+const _cacheAddedAt = new Float64Array(MAX_CACHE_SLOTS); // _now timestamp when cached
+let _now = 0;          // Single Date.now() per request for validation
 let _cacheClock = 0;   // Uint32 serve counter; wraps at 2^32 (~4B hits) — safe for any isolate lifetime
 let _cacheSize = 0;   // total bytes across all occupied slots
 let _cacheFreeSlot = 0;   // next slot to use when cache is not yet full
@@ -105,7 +106,7 @@ function addToCache(key, buf, meta) {
   _cacheBuf[slot] = buf;
   _cacheMeta[slot] = meta;
   _cacheBytes[slot] = buf.byteLength;
-  _cacheAddedAt[slot] = Date.now();
+  _cacheAddedAt[slot] = _now;
   _cacheSize += buf.byteLength;
 
   // Byte-size ceiling: evict until under limit (rare — slot limit is the primary guard).
@@ -123,7 +124,7 @@ function getFromCache(key) {
 function updateCacheTTL(key) {
   const slot = _cacheIndex.get(key);
   if (slot !== undefined) {
-    _cacheAddedAt[slot] = Date.now();
+    _cacheAddedAt[slot] = _now;
   }
 }
 
@@ -159,7 +160,7 @@ function wrapCachedObject(arrayBuffer, meta, isCached = false, hits = 0) {
  */
 async function r2Head(env, key) {
   let cached = getFromCache(key);
-  if (cached && (Date.now() - cached.addedAt > INDEX_TTL)) {
+  if (cached && (_now - cached.addedAt > INDEX_TTL)) {
     // Check if the file has truly changed via a metadata HEAD request
     const obj = await env.DEBTHIN_BUCKET.head(key);
     if (!obj) return null; // File was deleted remotely
@@ -173,9 +174,9 @@ async function r2Head(env, key) {
     meta.lastModified = obj.uploaded ? Math.floor(obj.uploaded.getTime() / 1000) * 1000 : null;
     return wrapCachedObject(new ArrayBuffer(0), meta, false, 0);
   }
-  
+
   if (cached) return wrapCachedObject(new ArrayBuffer(0), cached.meta, true, cached.hits);
-  
+
   const obj = await env.DEBTHIN_BUCKET.head(key);
   if (!obj) return null;
   const meta = obj.httpMetadata || {};
@@ -196,8 +197,8 @@ async function r2Get(env, key, ctx) {
   let cached = getFromCache(key);
   let forceReindex = false;
 
-  const expired = cached && (Date.now() - cached.addedAt > INDEX_TTL);
-  
+  const expired = cached && (_now - cached.addedAt > INDEX_TTL);
+
   if (cached && !expired) {
     return wrapCachedObject(cached.buf, cached.meta, true, cached.hits);
   }
@@ -206,7 +207,7 @@ async function r2Get(env, key, ctx) {
   // If not cached, fetch normally.
   const fetchOpts = expired ? { onlyIf: { etagDoesNotMatch: cached.meta.etag } } : {};
   const obj = await env.DEBTHIN_BUCKET.get(key, fetchOpts);
-  
+
   if (!obj) return null; // File was deleted remotely
 
   // R2 conditional fetch failed precondition (not modified): it returns an object without a body getter
@@ -227,7 +228,7 @@ async function r2Get(env, key, ctx) {
   addToCache(key, buf, meta);
 
   // Warm RAM cache from Release/InRelease files (Async background task)
-  const isRelease = key.endsWith("InRelease") || key.endsWith("Release");
+  const isRelease = key.endsWith("InRelease") || key.endsWith("Release") || key.endsWith("Release.gpg");
   if (isRelease) {
     const { p0, p1, p2 } = tokenizePath(key);
     if (p0 === "dists" && p1 && p2) {
@@ -262,7 +263,7 @@ function warmRamCacheFromRelease(env, text, suiteRoot, forceReindex = false) {
 
   const distro = suiteRoot.split("/")[1];
   const prefixLen = 6 + distro.length + 1; // "dists/".length + distro.length + "/".length
-  
+
   if (forceReindex) {
     _hashIndexes.delete(distro);
   }
@@ -487,7 +488,8 @@ function parseURL(request) {
 
 export default {
   async fetch(request, env, ctx) {
-    const t0 = Date.now();
+    _now = Date.now();
+    const t0 = _now;
 
     let response;
     try {
