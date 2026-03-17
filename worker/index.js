@@ -57,11 +57,13 @@ const _cacheKey = new Array(MAX_CACHE_SLOTS).fill(null); // key string per slot 
 const _cacheHits = new Int32Array(MAX_CACHE_SLOTS);    // hit counters
 const _cacheLastUsed = new Uint32Array(MAX_CACHE_SLOTS);   // serve counter at last access
 const _cacheBytes = new Int32Array(MAX_CACHE_SLOTS);    // buf.byteLength per slot
+const _cacheAddedAt = new Float64Array(MAX_CACHE_SLOTS); // Date.now() timestamp when cached
 let _cacheClock = 0;   // Uint32 serve counter; wraps at 2^32 (~4B hits) — safe for any isolate lifetime
 let _cacheSize = 0;   // total bytes across all occupied slots
 let _cacheFreeSlot = 0;   // next slot to use when cache is not yet full
 
 const MAX_CACHE_SIZE = 96 * 1024 * 1024; // 96 MB byte-size ceiling (secondary guard)
+const INDEX_TTL = 3600000; // 1 hour in ms
 
 function _evictLRU() {
   // Linear scan for lowest lastUsed value — O(256), only runs when all slots occupied.
@@ -79,6 +81,7 @@ function _evictLRU() {
   _cacheHits[lruSlot] = 0;
   _cacheLastUsed[lruSlot] = 0;
   _cacheBytes[lruSlot] = 0;
+  _cacheAddedAt[lruSlot] = 0;
   return lruSlot;
 }
 
@@ -102,6 +105,7 @@ function addToCache(key, buf, meta) {
   _cacheBuf[slot] = buf;
   _cacheMeta[slot] = meta;
   _cacheBytes[slot] = buf.byteLength;
+  _cacheAddedAt[slot] = Date.now();
   _cacheSize += buf.byteLength;
 
   // Byte-size ceiling: evict until under limit (rare — slot limit is the primary guard).
@@ -113,7 +117,14 @@ function getFromCache(key) {
   if (slot === undefined) return null;
   _cacheHits[slot]++;
   _cacheLastUsed[slot] = _cacheClock = (_cacheClock + 1) >>> 0;
-  return { buf: _cacheBuf[slot], meta: _cacheMeta[slot], hits: _cacheHits[slot] };
+  return { buf: _cacheBuf[slot], meta: _cacheMeta[slot], hits: _cacheHits[slot], addedAt: _cacheAddedAt[slot] };
+}
+
+function updateCacheTTL(key) {
+  const slot = _cacheIndex.get(key);
+  if (slot !== undefined) {
+    _cacheAddedAt[slot] = Date.now();
+  }
 }
 
 /**
@@ -147,8 +158,24 @@ function wrapCachedObject(arrayBuffer, meta, isCached = false, hits = 0) {
  * @returns {Promise<Object|null>} A mock R2 object metadata wrapper, or null if not found.
  */
 async function r2Head(env, key) {
-  const cached = getFromCache(key);
+  let cached = getFromCache(key);
+  if (cached && (Date.now() - cached.addedAt > INDEX_TTL)) {
+    // Check if the file has truly changed via a metadata HEAD request
+    const obj = await env.DEBTHIN_BUCKET.head(key);
+    if (!obj) return null; // File was deleted remotely
+    if (obj.etag === cached.meta.etag) {
+      updateCacheTTL(key); // Not modified, bump TTL
+      return wrapCachedObject(new ArrayBuffer(0), cached.meta, true, cached.hits);
+    }
+    // ETag mismatch: fall through to update cache metadata for HEAD
+    const meta = obj.httpMetadata || {};
+    meta.etag = obj.etag;
+    meta.lastModified = obj.uploaded ? Math.floor(obj.uploaded.getTime() / 1000) * 1000 : null;
+    return wrapCachedObject(new ArrayBuffer(0), meta, false, 0);
+  }
+  
   if (cached) return wrapCachedObject(new ArrayBuffer(0), cached.meta, true, cached.hits);
+  
   const obj = await env.DEBTHIN_BUCKET.head(key);
   if (!obj) return null;
   const meta = obj.httpMetadata || {};
@@ -166,10 +193,31 @@ async function r2Head(env, key) {
  * @returns {Promise<Object|null>} A mock R2 object containing the body and metadata, or null if not found.
  */
 async function r2Get(env, key, ctx) {
-  const cached = getFromCache(key);
-  if (cached) return wrapCachedObject(cached.buf, cached.meta, true, cached.hits);
-  const obj = await env.DEBTHIN_BUCKET.get(key);
-  if (!obj) return null;
+  let cached = getFromCache(key);
+  let forceReindex = false;
+
+  const expired = cached && (Date.now() - cached.addedAt > INDEX_TTL);
+  
+  if (cached && !expired) {
+    return wrapCachedObject(cached.buf, cached.meta, true, cached.hits);
+  }
+
+  // If expired, conditionally fetch passing onlyIf. 
+  // If not cached, fetch normally.
+  const fetchOpts = expired ? { onlyIf: { etagDoesNotMatch: cached.meta.etag } } : {};
+  const obj = await env.DEBTHIN_BUCKET.get(key, fetchOpts);
+  
+  if (!obj) return null; // File was deleted remotely
+
+  // R2 conditional fetch failed precondition (not modified): it returns an object without a body getter
+  // In Cloudflare Workers bindings, `R2Object` vs `R2ObjectBody`. We can test if `body` or `size` exists.
+  if (!obj.body) {
+    updateCacheTTL(key); // Not modified, bump TTL
+    return wrapCachedObject(cached.buf, cached.meta, true, cached.hits);
+  }
+
+  // The remote file is newer (or we didn't have a cache)
+  forceReindex = expired; // Only force clear background index if an existing cache entry was displaced
 
   const buf = await obj.arrayBuffer();
   const meta = obj.httpMetadata || {};
@@ -179,19 +227,20 @@ async function r2Get(env, key, ctx) {
   addToCache(key, buf, meta);
 
   // Warm RAM cache from Release/InRelease files (Async background task)
-  if (key.endsWith("InRelease") || key.endsWith("Release")) {
+  const isRelease = key.endsWith("InRelease") || key.endsWith("Release");
+  if (isRelease) {
     const { p0, p1, p2 } = tokenizePath(key);
     if (p0 === "dists" && p1 && p2) {
       const distroIndex = _hashIndexes.get(p1);
 
       // Skip expensive text decode and parsing if the cache is already warm
-      if (!distroIndex) {
+      if (!distroIndex || forceReindex) {
         const text = _textDecoder.decode(buf);
         const suiteRoot = `${p0}/${p1}/${p2}`;
         if (ctx) {
-          ctx.waitUntil(Promise.resolve(warmRamCacheFromRelease(env, text, suiteRoot)));
+          ctx.waitUntil(Promise.resolve(warmRamCacheFromRelease(env, text, suiteRoot, forceReindex)));
         } else {
-          warmRamCacheFromRelease(env, text, suiteRoot);
+          warmRamCacheFromRelease(env, text, suiteRoot, forceReindex);
         }
       }
     }
@@ -207,12 +256,17 @@ async function r2Get(env, key, ctx) {
  * @param {string} text - The raw text of the InRelease/Release file.
  * @param {string} suiteRoot - The base path of the suite (e.g., "dists/debian/trixie").
  */
-function warmRamCacheFromRelease(env, text, suiteRoot) {
+function warmRamCacheFromRelease(env, text, suiteRoot, forceReindex = false) {
   const sectionIdx = text.indexOf("\nSHA256:");
   if (sectionIdx === -1) return;
 
   const distro = suiteRoot.split("/")[1];
   const prefixLen = 6 + distro.length + 1; // "dists/".length + distro.length + "/".length
+  
+  if (forceReindex) {
+    _hashIndexes.delete(distro);
+  }
+
   let distroIndex = _hashIndexes.get(distro);
   if (!distroIndex) {
     distroIndex = {};
