@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { isHex64, getContentType, parseURL, tokenizePath, inReleaseToRelease } from '../worker/core/utils.js';
+import { isHex64, getContentType, parseURL, tokenizePath, inReleaseToRelease } from '../../worker/core/utils.js';
 
 test('utils/isHex64', () => {
   assert.equal(isHex64('0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'), true, 'valid 64 char hex lowercase');

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { isNotModified } from '../worker/core/r2.js';
+import { isNotModified } from '../../worker/core/r2.js';
 
 test('r2/isNotModified Strict ETags', () => {
   const reqObj = { etag: '"abcdef"' };

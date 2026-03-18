@@ -5,6 +5,15 @@
 
 export const INDEX_TTL = 3600000;
 
+/**
+ * Why a Uint32Array (Clock-based arrays) instead of a Doubly-Linked List?
+ * In a traditional LRU, doubly-linked lists require allocating new wrapper objects
+ * for every node, triggering V8 heap fragmentation and GC pauses.
+ * At cache limits of 128~256 items, iterating over a contiguous flat Uint32Array 
+ * fits entirely inside the CPU L1 cache. It provides exponentially faster real-world
+ * performance by completely bypassing memory indirection and object instantiation, 
+ * despite being O(N) theoretically rather than O(1).
+ */
 function createCache(maxSlots, maxSize) {
   const index = new Map();
   const bufArray = new Array(maxSlots).fill(null);

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { addToCache, getFromCache, hasInCache, updateCacheTTL, getCacheStats } from '../worker/core/cache.js';
+import { addToCache, getFromCache, hasInCache, updateCacheTTL, getCacheStats } from '../../worker/core/cache.js';
 
 test('cache/Dual-Silo Segregation Checks', () => {
   // Push into Meta cache

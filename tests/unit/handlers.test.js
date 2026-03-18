@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { handleStaticAssets, handleUpstreamRedirect } from '../worker/handlers/index.js';
+import { handleStaticAssets, handleUpstreamRedirect } from '../../worker/handlers/index.js';
 
 test('handlers/handleUpstreamRedirect', () => {
   const protocol = 'https';
