@@ -3,7 +3,7 @@
  * Interfaces with the Bucket API bindings while managing the local metadata hydration flows and streaming transforms.
  */
 
-import { addToCache, getFromCache, hasInCache, updateCacheTTL, _now, INDEX_TTL } from './cache.js';
+import { addToCache, getFromCache, hasInCache, updateCacheTTL, INDEX_TTL } from './cache.js';
 import { tokenizePath, getContentType, inReleaseToRelease } from './utils.js';
 import { H_CACHED, H_IMMUTABLE, EMPTY_GZ_HASH, EMPTY_GZ, EMPTY_HASH } from './constants.js';
 
@@ -55,12 +55,13 @@ export function wrapCachedObject(arrayBuffer, meta, isCached = false, hits = 0) 
  * @returns {Promise<Object|null>} Wrapper exposing ETag and lastModified data values.
  */
 export async function r2Head(env, key) {
+  const now = Date.now();
   let cached = getFromCache(key);
-  if (cached && (_now - cached.addedAt > INDEX_TTL)) {
+  if (cached && (now - cached.addedAt > INDEX_TTL)) {
     const obj = await env.DEBTHIN_BUCKET.head(key);
     if (!obj) return null;
     if (obj.etag === cached.meta.etag) {
-      updateCacheTTL(key);
+      updateCacheTTL(key, now);
       return wrapCachedObject(new ArrayBuffer(0), cached.meta, true, cached.hits);
     }
     const meta = obj.httpMetadata || {};
@@ -89,17 +90,18 @@ export async function r2Head(env, key) {
  * @returns {Promise<Object|null>} An object matching the physical interface of an edge response payload.
  */
 export async function r2Get(env, key, ctx) {
+  const now = Date.now();
   let cached = getFromCache(key);
-  const expired = cached && (_now - cached.addedAt > INDEX_TTL);
+  const expired = cached && (now - cached.addedAt > INDEX_TTL);
 
   if (cached && !expired) {
     return wrapCachedObject(cached.buf, cached.meta, true, cached.hits);
   }
 
   if (_pendingGets.has(key)) {
-    try { await _pendingGets.get(key); } catch (e) {}
+    try { await _pendingGets.get(key); } catch (e) { }
     cached = getFromCache(key);
-    if (cached && (_now - cached.addedAt <= INDEX_TTL)) {
+    if (cached && (now - cached.addedAt <= INDEX_TTL)) {
       return wrapCachedObject(cached.buf, cached.meta, true, cached.hits);
     }
   }
@@ -111,7 +113,7 @@ export async function r2Get(env, key, ctx) {
     if (!obj) return null;
 
     if (!obj.body) {
-      updateCacheTTL(key);
+      updateCacheTTL(key, now);
       return wrapCachedObject(cached.buf, cached.meta, true, cached.hits);
     }
 
@@ -135,7 +137,7 @@ export async function r2Get(env, key, ctx) {
     }
 
     const buf = await obj.arrayBuffer();
-    addToCache(key, buf, meta);
+    addToCache(key, buf, meta, now);
 
     const isRelease = key.endsWith("InRelease") || key.endsWith("Release") || key.endsWith("Release.gpg");
     if (isRelease) {
@@ -203,9 +205,9 @@ export function warmRamCacheFromRelease(text, suiteRoot, forceReindex = false) {
     const name = line.slice(s2 + 1);
 
     if (hash === EMPTY_GZ_HASH) {
-      if (!hasInCache(`${suiteRoot}/${name}`)) addToCache(`${suiteRoot}/${name}`, EMPTY_GZ, { contentType: "application/x-gzip" });
+      if (!hasInCache(`${suiteRoot}/${name}`)) addToCache(`${suiteRoot}/${name}`, EMPTY_GZ, { contentType: "application/x-gzip" }, Date.now());
     } else if (hash === EMPTY_HASH) {
-      if (!hasInCache(`${suiteRoot}/${name}`)) addToCache(`${suiteRoot}/${name}`, new ArrayBuffer(0), { contentType: "text/plain; charset=utf-8" });
+      if (!hasInCache(`${suiteRoot}/${name}`)) addToCache(`${suiteRoot}/${name}`, new ArrayBuffer(0), { contentType: "text/plain; charset=utf-8" }, Date.now());
     }
 
     if (hash.length === 64 && name.endsWith(".gz")) {
@@ -219,7 +221,8 @@ export function warmRamCacheFromRelease(text, suiteRoot, forceReindex = false) {
 }
 
 /**
- * Evaluates HTTP conditional requests.
+ * Compares the HTTP `If-None-Match` and `If-Modified-Since` client headers against the currently valid source cache parameters.
+ * Permits the worker API to yield 304 results for existing client caches immediately.
  *
  * @param {Headers} requestHeaders - Inbound HTTP request headers containing If-None-Match or If-Modified-Since.
  * @param {Object} obj - The hydrated metadata representation pulled from the bucket or local memory.
@@ -228,7 +231,9 @@ export function warmRamCacheFromRelease(text, suiteRoot, forceReindex = false) {
 export function isNotModified(requestHeaders, obj) {
   const reqEtag = requestHeaders.get("if-none-match");
   if (reqEtag) {
-    return reqEtag === "*" || reqEtag === obj.etag;
+    const cleanReq = reqEtag.replace(/^W\//, '').replace(/"/g, '');
+    const cleanObj = obj.etag ? obj.etag.replace(/^W\//, '').replace(/"/g, '') : "";
+    return reqEtag === "*" || cleanReq === cleanObj;
   }
 
   const reqIms = requestHeaders.get("if-modified-since");
