@@ -410,8 +410,8 @@ const _hashIndexes = new Map();
 import rawConfig from '../config.json';
 
 const { DERIVED_CONFIG, CONFIG_JSON_STRING } = (() => {
-  const config = typeof rawConfig === "string" ? JSON.parse(rawConfig) : rawConfig.default || rawConfig;
-  const configString = typeof rawConfig === "string" ? rawConfig : JSON.stringify(config);
+  const config = rawConfig.default || rawConfig;
+  const configString = JSON.stringify(config);
 
   const derived = {};
   for (const [distro, c] of Object.entries(config)) {
