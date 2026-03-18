@@ -17,11 +17,13 @@
  * @returns {string} The parsed payload buffer.
  */
 export function inReleaseToRelease(text) {
-  const start = text.indexOf("\nOrigin:");
-  if (start === -1) return text;
-  const sigStart = text.indexOf("\n-----BEGIN PGP SIGNATURE-----");
-  const end = sigStart === -1 ? text.length : sigStart;
-  return text.slice(start + 1, end).trimEnd() + "\n";
+  let startIndex = text.indexOf("-----BEGIN PGP SIGNED MESSAGE-----\nHash: SHA256\n\n");
+  startIndex = startIndex !== -1 ? startIndex + 49 : 0;
+  
+  let endIndex = text.indexOf("\n-----BEGIN PGP SIGNATURE-----", startIndex);
+  if (endIndex === -1) endIndex = text.length;
+
+  return text.slice(startIndex, endIndex);
 }
 
 /**
