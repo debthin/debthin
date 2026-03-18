@@ -17,6 +17,12 @@ const _textDecoder = new TextDecoder();
 export const _hashIndexes = new Map();
 
 /**
+ * Global flight tracker for active network block pulls masking internal parallel cache misses.
+ * @type {Map<string, Promise>}
+ */
+const _pendingGets = new Map();
+
+/**
  * Extends an ArrayBuffer with a unified property surface matching the standard Cloudflare Edge Response format. 
  * This permits local memory cache retrievals to behave exactly like remote R2 fetch objects when passed to serveR2.
  *
@@ -74,61 +80,92 @@ export async function r2Head(env, key) {
 }
 
 /**
- * Pulls objects directly out of the R2 bucket pool using conditional ETag checks sequentially to reduce egress cost.
- * Automatically triggers background cache warming of Release manifests to continuously refresh by-hash lookup dictionaries.
+ * Pulls objects from the R2 bucket.
+ * Coalesces concurrent requests using _pendingGets.
  *
- * @param {Object} env - Worker binding limits object parameters.
- * @param {string} key - Requested path within R2 bucket.
- * @param {Object} ctx - Worker execution Context bounds loop variables mappings boundaries constraints properties map instances limits objects references format mapping parameters structure values lists block format targets definitions boundaries elements structures array limit strings sequence bounds string objects.
- * Wait, the parameter generation limit sequence triggered again. I will keep it clean.
- * @returns {Promise<Object|null>} Wrapped buffer object array reference.
+ * @param {Object} env - The Cloudflare worker bindings granting access to DEBTHIN_BUCKET.
+ * @param {string} key - The exact file path being requested from the upstream repository.
+ * @param {Object} ctx - The worker execution context used to push cache hydration into the background.
+ * @returns {Promise<Object|null>} An object matching the physical interface of an edge response payload.
  */
 export async function r2Get(env, key, ctx) {
   let cached = getFromCache(key);
-  let forceReindex = false;
-
   const expired = cached && (_now - cached.addedAt > INDEX_TTL);
 
   if (cached && !expired) {
     return wrapCachedObject(cached.buf, cached.meta, true, cached.hits);
   }
 
-  const fetchOpts = expired ? { onlyIf: { etagDoesNotMatch: cached.meta.etag } } : {};
-  const obj = await env.DEBTHIN_BUCKET.get(key, fetchOpts);
-
-  if (!obj) return null;
-
-  if (!obj.body) {
-    updateCacheTTL(key);
-    return wrapCachedObject(cached.buf, cached.meta, true, cached.hits);
+  if (_pendingGets.has(key)) {
+    try { await _pendingGets.get(key); } catch (e) {}
+    cached = getFromCache(key);
+    if (cached && (_now - cached.addedAt <= INDEX_TTL)) {
+      return wrapCachedObject(cached.buf, cached.meta, true, cached.hits);
+    }
   }
 
-  forceReindex = expired;
+  const fetchPromise = (async () => {
+    const fetchOpts = expired ? { onlyIf: { etagDoesNotMatch: cached.meta.etag } } : {};
+    const obj = await env.DEBTHIN_BUCKET.get(key, fetchOpts);
 
-  const buf = await obj.arrayBuffer();
-  const meta = obj.httpMetadata || {};
-  meta.etag = obj.etag;
-  meta.lastModified = obj.uploaded ? Math.floor(obj.uploaded.getTime() / 1000) * 1000 : null;
+    if (!obj) return null;
 
-  addToCache(key, buf, meta);
+    if (!obj.body) {
+      updateCacheTTL(key);
+      return wrapCachedObject(cached.buf, cached.meta, true, cached.hits);
+    }
 
-  const isRelease = key.endsWith("InRelease") || key.endsWith("Release") || key.endsWith("Release.gpg");
-  if (isRelease) {
-    const { p0, p1, p2 } = tokenizePath(key);
-    if (p0 === "dists" && p1 && p2) {
-      const distroIndex = _hashIndexes.get(p1);
-      if (!distroIndex || forceReindex) {
-        const text = _textDecoder.decode(buf);
-        const suiteRoot = `${p0}/${p1}/${p2}`;
-        if (ctx) {
-          ctx.waitUntil(Promise.resolve(warmRamCacheFromRelease(text, suiteRoot, forceReindex)));
-        } else {
-          warmRamCacheFromRelease(text, suiteRoot, forceReindex);
+    const forceReindex = expired;
+    const meta = obj.httpMetadata || {};
+    meta.etag = obj.etag;
+    meta.lastModified = obj.uploaded ? Math.floor(obj.uploaded.getTime() / 1000) * 1000 : null;
+
+    if (obj.size > 4 * 1024 * 1024) {
+      return {
+        get body() { return obj.body; },
+        httpMetadata: meta,
+        etag: meta.etag,
+        lastModified: meta.lastModified,
+        contentLength: obj.size,
+        isCached: false,
+        hits: 0,
+        async arrayBuffer() { return await new Response(obj.body).arrayBuffer(); },
+        async text() { return await new Response(obj.body).text(); }
+      };
+    }
+
+    const buf = await obj.arrayBuffer();
+    addToCache(key, buf, meta);
+
+    const isRelease = key.endsWith("InRelease") || key.endsWith("Release") || key.endsWith("Release.gpg");
+    if (isRelease) {
+      const { p0, p1, p2 } = tokenizePath(key);
+      if (p0 === "dists" && p1 && p2) {
+        const distroIndex = _hashIndexes.get(p1);
+        if (!distroIndex || forceReindex) {
+          const text = _textDecoder.decode(buf);
+          const suiteRoot = `${p0}/${p1}/${p2}`;
+          if (ctx) {
+            ctx.waitUntil(Promise.resolve(warmRamCacheFromRelease(text, suiteRoot, forceReindex)));
+          } else {
+            warmRamCacheFromRelease(text, suiteRoot, forceReindex);
+          }
         }
       }
     }
+    return wrapCachedObject(buf, meta, false, 0);
+  })();
+
+  _pendingGets.set(key, fetchPromise);
+
+  try {
+    const result = await fetchPromise;
+    return result;
+  } finally {
+    if (_pendingGets.get(key) === fetchPromise) {
+      _pendingGets.delete(key);
+    }
   }
-  return wrapCachedObject(buf, meta, false, 0);
 }
 
 /**
@@ -137,7 +174,7 @@ export async function r2Get(env, key, ctx) {
  *
  * @param {string} text - Raw Release manifest payload text values.
  * @param {string} suiteRoot - Active directory base reference limit bindings.
- * @param {boolean} [forceReindex=false] - Triggers deletion of the directory mapping values list blocks variables objects definition sequences properties endpoint boundary maps references limit parameter limits string format instances.
+ * @param {boolean} [forceReindex=false] - Triggers deletion of the directory mapping values.
  */
 export function warmRamCacheFromRelease(text, suiteRoot, forceReindex = false) {
   const sectionIdx = text.indexOf("\nSHA256:");
@@ -182,12 +219,11 @@ export function warmRamCacheFromRelease(text, suiteRoot, forceReindex = false) {
 }
 
 /**
- * Compares the HTTP `If-None-Match` and `If-Modified-Since` client headers against the currently valid source cache parameters.
- * Permits the worker API to yield 304 results for existing client caches immediately.
+ * Evaluates HTTP conditional requests.
  *
- * @param {Headers} requestHeaders - Standard inbound property collections limits configurations objects variables fields values properties string format parameters endpoint lists structures format boundaries list elements array parameters mappings bounds lists.
- * @param {Object} obj - Extracted cache state map block mappings limits reference constraints objects field arrays properties parameter lists definition boundaries references mapping limits variables format elements objects variables bounds strings context property limit map format.
- * @returns {boolean} Validity mapping value blocks endpoints limits list parameters.
+ * @param {Headers} requestHeaders - Inbound HTTP request headers containing If-None-Match or If-Modified-Since.
+ * @param {Object} obj - The hydrated metadata representation pulled from the bucket or local memory.
+ * @returns {boolean} Returns true if the client cache dictates skipping a full payload transfer.
  */
 export function isNotModified(requestHeaders, obj) {
   const reqEtag = requestHeaders.get("if-none-match");
@@ -204,14 +240,13 @@ export function isNotModified(requestHeaders, obj) {
 }
 
 /**
- * Aggregates cache bindings and R2 stream interfaces to return the finished edge body representation.
- * Processes transform configuration overrides internally logic streams arrays limits references structures bounds property variables maps mappings limits boundaries format block variable constraints properties lists parameters objects references.
+ * Serves an R2 object over HTTP.
  *
- * @param {Object} env - Execution bindings environments bounds properties formats strings elements object target mapping parameter arrays structures strings map objects array endpoints lists variables definition fields string bounds values limits targets objects limits parameter list bounds strings limits lists values instances limit constraints.
- * @param {Request} request - Standard properties payload requests formats limits lists maps strings reference bounds limits logic boundary elements limits endpoints context sequence field instances reference object limits logic bounds parameter boundary array limits arrays maps limits array field boundaries structure bounds mappings formats maps string targets formats definitions elements elements fields.
- * @param {string} key - Parameter bindings mapping strings fields properties parameters blocks structures format limit constraints target elements properties parameters parameters limit object strings.
- * @param {Object} [options] - Stream bindings maps formats variables block property element limits targets path mapping variables sequence mapped structure.
- * @returns {Promise<Response>} Edge format object payload sequence targets property variables values parameter format objects properties.
+ * @param {Object} env - The Cloudflare worker bindings granting access to DEBTHIN_BUCKET.
+ * @param {Request} request - The original inbound HTTP request object.
+ * @param {string} key - The bucket path to fetch.
+ * @param {Object} [options] - Optional transform configurations like 'decompress' or 'strip-pgp'.
+ * @returns {Promise<Response>} A fully formed HTTP Response ready for the client socket.
  */
 export async function serveR2(env, request, key, { transform, fetchKey, ctx, immutable } = {}) {
   const isHead = request.method === "HEAD";
@@ -240,13 +275,13 @@ export async function serveR2(env, request, key, { transform, fetchKey, ctx, imm
   }
 
   if (transform === "decompress") {
-    const buf = await obj.arrayBuffer();
     h["Content-Type"] = "text/plain; charset=utf-8";
     h["X-Debthin"] = "hit-decomp";
-    if (!buf.byteLength) return new Response("", { headers: h });
+    if (!obj.body) return new Response("", { headers: h });
 
     const ds = new DecompressionStream("gzip");
-    const decompressed = new Response(buf).body.pipeThrough(ds);
+    const stream = obj.body instanceof ReadableStream ? obj.body : new Response(obj.body).body;
+    const decompressed = stream.pipeThrough(ds);
     return new Response(decompressed, { headers: h });
   }
 

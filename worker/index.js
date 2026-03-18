@@ -78,6 +78,7 @@ export default {
     try {
       response = await handleRequest(request, env, ctx);
     } catch (err) {
+      console.error(err.stack || err);
       response = new Response("Internal Server Error", { status: 500 });
     }
 
