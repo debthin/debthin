@@ -55,7 +55,10 @@ The primary performance footprint proxy. All R2 objects are cached identically i
 
 ### Structure
 
-Fixed 256-slot bounds executing entirely in low-level typed array arrays to bypass JS memory and GC limits:
+Fixed 256-slot bounds executing entirely in low-level typed array arrays to bypass JS memory and GC limits.
+
+**Why flat arrays instead of a doubly-linked list?**
+While a doubly-linked list offers theoretical O(1) LRU mutations, in V8/Node constraints at heavily restricted sizes (128-256 elements), allocating node wrapper objects triggers severe heap fragmentation and Garbage Collection blocks. A flat contiguous `Uint32Array` linearly scanned for eviction clocks fits flawlessly in the hardware CPU L1 cache, offering exponentially faster real-world execution times for small scales by entirely bypassing memory pointer indirection.
 
 | Array | Type | Purpose |
 |---|---|---|
