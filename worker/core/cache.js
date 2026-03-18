@@ -22,7 +22,11 @@ function createCache(maxSlots, maxSize) {
   function evict() {
     let lru = 0, lruTime = usedArray[0];
     for (let i = 1; i < maxSlots; i++) {
-      if (usedArray[i] < lruTime) { lruTime = usedArray[i]; lru = i; }
+      if (usedArray[i] < lruTime) { 
+        lruTime = usedArray[i]; lru = i; 
+      } else if (usedArray[i] === lruTime && hitsArray[i] < hitsArray[lru]) {
+        lru = i;
+      }
     }
     index.delete(keyArray[lru]);
     size -= bytesArray[lru];
@@ -51,6 +55,7 @@ function createCache(maxSlots, maxSize) {
         keyArray[slot] = key;
         hitsArray[slot] = 0;
         usedArray[slot] = clock = (clock + 1) >>> 0;
+        if (clock === 0) usedArray.fill(0);
       }
       bufArray[slot] = buf;
       metaArray[slot] = meta;
@@ -65,6 +70,7 @@ function createCache(maxSlots, maxSize) {
       if (slot === undefined) return null;
       hitsArray[slot]++;
       usedArray[slot] = clock = (clock + 1) >>> 0;
+      if (clock === 0) usedArray.fill(0);
       return { buf: bufArray[slot], meta: metaArray[slot], hits: hitsArray[slot], addedAt: addedArray[slot] };
     },
     has: (key) => index.has(key),

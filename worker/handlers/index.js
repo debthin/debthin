@@ -2,7 +2,7 @@
  * @fileoverview Request handler routes.
  */
 
-import { serveR2, _hashIndexes, r2Get } from '../core/r2.js';
+import { serveR2, _hashIndexes, r2Get, isNotModified } from '../core/r2.js';
 import { isHex64 } from '../core/utils.js';
 import { H_CACHED, H_IMMUTABLE, EMPTY_GZ, EMPTY_GZ_HASH, EMPTY_HASH } from '../core/constants.js';
 import { getCacheStats } from '../core/cache.js';
@@ -27,8 +27,14 @@ export async function handleStaticAssets(rawPath, env, request, CONFIG_JSON_STRI
     return new Response("User-agent: *\nAllow: /$\nDisallow: /\n", { headers: hr });
   }
   if (rawPath === "config.json") {
+    const etag = `W/"${CONFIG_JSON_STRING.length}"`;
+    if (isNotModified(request.headers, { etag })) {
+      return new Response(null, { status: 304, headers: { ...H_CACHED, "ETag": etag } });
+    }
+
     const hc = new Headers(H_CACHED);
     hc.set("Content-Type", "application/json; charset=utf-8");
+    hc.set("ETag", etag);
     hc.set("X-Debthin", "hit-synthetic");
     hc.set("X-Cache", "HIT");
     hc.set("X-Cache-Hits", "0");
@@ -98,8 +104,11 @@ export async function handleByHash(request, env, ctx, distro, sha256) {
           const json = obj ? JSON.parse(await obj.text()) : {};
           const current = _hashIndexes.get(distro);
           const freshData = (current instanceof Promise || !current) ? {} : current;
-          return Object.assign(json, freshData);
-        }).catch(() => ({}));
+          return Object.assign(Object.create(null), json, freshData);
+        }).catch(() => {
+          if (_hashIndexes.get(distro) === promise) _hashIndexes.delete(distro);
+          return {};
+        });
         _hashIndexes.set(distro, promise);
         distroIndex = promise;
       }

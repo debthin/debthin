@@ -148,7 +148,10 @@ export async function r2Get(env, key, ctx) {
           const text = _textDecoder.decode(buf);
           const suiteRoot = `${p0}/${p1}/${p2}`;
           if (ctx) {
-            ctx.waitUntil(Promise.resolve(warmRamCacheFromRelease(text, suiteRoot, forceReindex)));
+            ctx.waitUntil(new Promise(resolve => setTimeout(() => {
+              warmRamCacheFromRelease(text, suiteRoot, forceReindex);
+              resolve();
+            }, 0)));
           } else {
             warmRamCacheFromRelease(text, suiteRoot, forceReindex);
           }
@@ -276,6 +279,7 @@ export async function serveR2(env, request, key, { transform, fetchKey, ctx, imm
   if (transform === "strip-pgp") {
     h["Content-Type"] = "text/plain; charset=utf-8";
     h["X-Debthin"] = "hit-derived";
+    delete h["ETag"];
     return new Response(inReleaseToRelease(await obj.text()), { headers: h });
   }
 
