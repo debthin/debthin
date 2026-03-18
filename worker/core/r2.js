@@ -186,7 +186,6 @@ export function warmRamCacheFromRelease(text, suiteRoot, forceReindex = false) {
   if (sectionIdx === -1) return;
 
   const distro = suiteRoot.split("/")[1];
-  const prefixLen = 6 + distro.length + 1;
 
   if (forceReindex) {
     _hashIndexes.delete(distro);
@@ -215,7 +214,7 @@ export function warmRamCacheFromRelease(text, suiteRoot, forceReindex = false) {
 
     if (hash.length === 64 && name.endsWith(".gz")) {
       if (!(distroIndex instanceof Promise)) {
-        distroIndex[hash] = suiteRoot.slice(prefixLen) + "/" + name;
+        distroIndex[hash] = name;
       }
     }
 
