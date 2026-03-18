@@ -142,6 +142,13 @@ async function runTests() {
         const packagesCache = await fetchAndAnalyze("Packages.gz - Isolate Cache Verification", `${distro}/dists/${testSuite}/${component}/binary-${arch}/Packages.gz`, 200, ["hit", "hit-isolate-cache"]);
         const cacheVerifyResults = [inReleaseCache, packagesCache];
         
+        // --- Headless Component Verification ---
+        const headlessResults = await Promise.all([
+            fetchAndAnalyze("Headless Packages.gz - Read & R2 Hit", `${distro}/dists/${testSuite}/headless/binary-${arch}/Packages.gz`, 200, ["hit", "hit-isolate-cache"]),
+            fetchAndAnalyze("Headless Packages (decompression)", `${distro}/dists/${testSuite}/headless/binary-${arch}/Packages`, 200, ["hit-decomp", "hit-decomp-bypassed"])
+        ]);
+        if (headlessResults.some(r => !r.ok)) allPassed = false;
+        
         // --- 304 Not Modified Caching Verification ---
         if (inReleaseCache.etag) {
            const eTagHit = await fetchAndAnalyze("InRelease - ETag 304 Not Modified", `${distro}/dists/${testSuite}/InRelease`, 304, ["hit", "hit-isolate-cache"], 'manual', { headers: { 'If-None-Match': inReleaseCache.etag }});
