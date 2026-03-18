@@ -213,7 +213,7 @@ export function warmRamCacheFromRelease(text, suiteRoot, forceReindex = false) {
       if (!hasInCache(`${suiteRoot}/${name}`)) addToCache(`${suiteRoot}/${name}`, new ArrayBuffer(0), { contentType: "text/plain; charset=utf-8" }, Date.now());
     }
 
-    if (hash.length === 64 && name.endsWith(".gz")) {
+    if (hash.length === 64 && name.endsWith("/Packages.gz")) {
       if (!(distroIndex instanceof Promise)) {
         distroIndex[hash] = suiteRoot.slice(prefixLen) + "/" + name;
       }

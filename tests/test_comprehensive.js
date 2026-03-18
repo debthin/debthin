@@ -130,8 +130,10 @@ async function runTests() {
                 fetchAndAnalyze(`Suite Alias resolution (${testAlias} -> ${testSuite})`, `${distro}/dists/${testAlias}/InRelease`, 200, ["hit", "hit-isolate-cache"])
             ] : []),
 
-            // Native pool/ URL pass-through (should 301 to native upstream repository host)
-            fetchAndAnalyze("Native /pool/ upstream 301 routing", `${distro}/pool/main/b/bash/bash.deb`, 301)
+            // Native pool/ and i18n/ URL pass-through (should 301 to native upstream repository host)
+            fetchAndAnalyze("Native /pool/ upstream 301 routing", `${distro}/pool/main/b/bash/bash.deb`, 301),
+            fetchAndAnalyze("Native /i18n/ Translation upstream 301 routing", `${distro}/dists/${testSuite}/${component}/i18n/Translation-en`, 301),
+            fetchAndAnalyze("Native /i18n/ by-hash upstream 301 routing", `${distro}/dists/${testSuite}/${component}/i18n/by-hash/SHA256/1111111111111111111111111111111111111111111111111111111111111111`, 301)
         ]);
         
         // --- Explicit Isolate Cache Verification ---

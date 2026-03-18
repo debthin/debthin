@@ -139,6 +139,9 @@ gen_release() {
         echo "Description: $description"
         echo "SHA256:"
         cat "$sha256_file"
+        if [[ -s "$inrelease_cache" ]]; then
+            grep -E "^ [a-f0-9]{64} +[0-9]+ +[^/]+/i18n/Translation-[a-zA-Z0-9_-]+\.(gz|bz2)$" "$inrelease_cache" || true
+        fi
     } > "$dist_dir/Release"
 
     echo "  Release: $distro/$suite" >&2
