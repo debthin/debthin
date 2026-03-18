@@ -153,7 +153,7 @@ export async function handleDistributionHashIndex(request, env, ctx, distro, sui
   const { components, arches } = distroConfig;
 
   // Packages & Hashes (dists/debian/.../binary-amd64/...)
-  if (p3 && components.has(p2) && p3.startsWith("binary-") && arches.has(p3.slice(7))) {
+  if (p3 && (components.has(p2) || p2 === "headless") && p3.startsWith("binary-") && arches.has(p3.slice(7))) {
     if (p4 === "Release") {
       const hbr = new Headers(H_CACHED);
       hbr.set("Content-Type", "text/plain; charset=utf-8");
