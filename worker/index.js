@@ -57,16 +57,20 @@ async function handleRequest(request, env, ctx) {
   // Parse nested dists/ paths using our lightweight allocator-free tokenizer
   let suitePath = rest;
   let tokens = tokenizePath(rest);
-  const { p0, p1 } = tokens;
 
   // Attempt canonical suite resolution mapping (e.g. "stable" -> "bookworm")
-  if (p0 === "dists" && p1 && !suites.has(p1)) {
-    const canonical = aliasMap.get(p1);
+  if (tokens.p0 === "dists" && tokens.p1 && !suites.has(tokens.p1)) {
+    const canonical = aliasMap.get(tokens.p1);
     if (canonical) {
       tokens.p1 = canonical;
       const tailIdx = rest.indexOf("/", 6);
       suitePath = "dists/" + canonical + (tailIdx === -1 ? "" : rest.slice(tailIdx));
     }
+  }
+
+  // Redirect ALL i18n requests (including Translation files and their by-hash lookups) directly to upstream
+  if (tokens.p0 === "dists" && tokens.p1 && tokens.p3 === "i18n") {
+    return handleUpstreamRedirect(protocol, upstream, suitePath);
   }
 
   // Map active Release, Packages, and by-hash lookups through the proxy handlers
