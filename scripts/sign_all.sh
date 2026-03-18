@@ -112,7 +112,6 @@ gen_release() {
         rm -f "$tmp_raw"
 
         printf " %s %s %s\n" "$sha256_gz"  "$size_gz"  "$rel"                              >> "$sha256_file"
-        printf " %s %s %s\n" "$sha256_gz"  "$size_gz"  "$reldir/by-hash/SHA256/$sha256_gz" >> "$sha256_file"
         printf " %s %s %s\n" "$sha256_raw" "$size_raw" "$relbase"                          >> "$sha256_file"
 
         # Per-arch Release entry (generated on the fly by the worker, but still hashed)
