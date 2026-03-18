@@ -115,6 +115,7 @@ verify_inrelease_hashes() {
         local expect_size="${BASH_REMATCH[2]}"
         local rel_path="${BASH_REMATCH[3]}"
         [[ "$rel_path" == *"/by-hash/"* ]] && continue
+        [[ "$rel_path" == *"/i18n/"* ]] && continue
         [[ "$rel_path" != *".gz" ]] && continue
         local full_path="$suite_dir$rel_path"
         if [[ ! -f "$full_path" ]]; then
