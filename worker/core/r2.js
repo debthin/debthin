@@ -99,7 +99,7 @@ export async function r2Get(env, key, ctx) {
   }
 
   if (_pendingGets.has(key)) {
-    try { await _pendingGets.get(key); } catch (e) { }
+    try { await _pendingGets.get(key); } catch (e) { console.error(e.stack || e); }
     cached = getFromCache(key);
     if (cached && (now - cached.addedAt <= INDEX_TTL)) {
       return wrapCachedObject(cached.buf, cached.meta, true, cached.hits);
