@@ -1,4 +1,3 @@
-import { setNow } from './core/cache.js';
 import { tokenizePath, parseURL } from './core/utils.js';
 import { handleStaticAssets, handleUpstreamRedirect, handleDistributionHashIndex } from './handlers/index.js';
 import { DERIVED_CONFIG, CONFIG_JSON_STRING } from './core/config.js';
@@ -72,12 +71,12 @@ async function handleRequest(request, env, ctx) {
 export default {
   async fetch(request, env, ctx) {
     const _now = Date.now();
-    setNow(_now);
 
     let response;
     try {
       response = await handleRequest(request, env, ctx);
     } catch (err) {
+      console.error(err.stack || err);
       response = new Response("Internal Server Error", { status: 500 });
     }
 
