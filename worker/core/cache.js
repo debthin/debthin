@@ -122,3 +122,12 @@ export function updateCacheTTL(key) {
 export function hasInCache(key) {
   return _cacheIndex.has(key);
 }
+
+/**
+ * Returns cache utilization metrics for health checks.
+ *
+ * @returns {Object} JSON format cache limits.
+ */
+export function getCacheStats() {
+  return { items: _cacheIndex.size, bytes: _cacheSize };
+}
