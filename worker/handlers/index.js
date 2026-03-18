@@ -5,6 +5,7 @@
 import { serveR2, _hashIndexes, r2Get } from '../core/r2.js';
 import { isHex64 } from '../core/utils.js';
 import { H_CACHED, H_IMMUTABLE, EMPTY_GZ, EMPTY_GZ_HASH, EMPTY_HASH } from '../core/constants.js';
+import { getCacheStats } from '../core/cache.js';
 
 /**
  * Handles explicit requests for static repository assets assigned to the path execution root.
@@ -16,7 +17,7 @@ import { H_CACHED, H_IMMUTABLE, EMPTY_GZ, EMPTY_GZ_HASH, EMPTY_HASH } from '../c
  * @param {string} CONFIG_JSON_STRING - The JSON configuration string.
  * @returns {Promise<Response>} The HTTP Response object.
  */
-export function handleStaticAssets(rawPath, env, request, CONFIG_JSON_STRING) {
+export async function handleStaticAssets(rawPath, env, request, CONFIG_JSON_STRING) {
   if (rawPath === "robots.txt") {
     const hr = new Headers(H_CACHED);
     hr.set("Content-Type", "text/plain; charset=utf-8");
@@ -32,6 +33,18 @@ export function handleStaticAssets(rawPath, env, request, CONFIG_JSON_STRING) {
     hc.set("X-Cache", "HIT");
     hc.set("X-Cache-Hits", "0");
     return new Response(CONFIG_JSON_STRING, { headers: hc });
+  }
+  if (rawPath === "health") {
+    let r2 = "OK";
+    try { await env.DEBTHIN_BUCKET.head("healthcheck-ping"); } catch (e) { r2 = "ERROR"; }
+    const stats = { 
+      status: r2 === "OK" ? "OK" : "DEGRADED", 
+      r2, 
+      cache: { ...getCacheStats(), distributions: _hashIndexes.size }, 
+      time: Date.now() 
+    };
+    const hh = new Headers({ "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store", "X-Debthin": "hit-synthetic" });
+    return new Response(JSON.stringify(stats, null, 2) + "\n", { headers: hh, status: r2 === "OK" ? 200 : 503 });
   }
   return serveR2(env, request, rawPath === "" ? "index.html" : rawPath);
 }
