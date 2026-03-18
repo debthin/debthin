@@ -149,7 +149,7 @@ export async function r2Get(env, key, ctx) {
           const suiteRoot = `${p0}/${p1}/${p2}`;
           if (ctx) {
             ctx.waitUntil(new Promise(resolve => setTimeout(() => {
-              warmRamCacheFromRelease(text, suiteRoot, forceReindex);
+              try { warmRamCacheFromRelease(text, suiteRoot, forceReindex); } catch (e) { console.error(e.stack || e); }
               resolve();
             }, 0)));
           } else {
@@ -272,19 +272,28 @@ export async function serveR2(env, request, key, { transform, fetchKey, ctx, imm
   if (obj.lastModified) h["Last-Modified"] = new Date(obj.lastModified).toUTCString();
   if (isHead && obj.isCached) h["Content-Length"] = obj.contentLength.toString();
 
+  h["Content-Type"] = (transform === "strip-pgp" || transform === "decompress") 
+    ? "text/plain; charset=utf-8" 
+    : (obj.httpMetadata?.contentType || getContentType(key));
+
   if (isNotModified(request.headers, obj)) {
     return new Response(null, { status: 304, headers: h });
   }
 
   if (transform === "strip-pgp") {
-    h["Content-Type"] = "text/plain; charset=utf-8";
     h["X-Debthin"] = "hit-derived";
     delete h["ETag"];
     return new Response(inReleaseToRelease(await obj.text()), { headers: h });
   }
 
   if (transform === "decompress") {
-    h["Content-Type"] = "text/plain; charset=utf-8";
+    const acceptsGzip = request.headers.get("accept-encoding")?.includes("gzip");
+    if (acceptsGzip) {
+      h["X-Debthin"] = "hit-decomp-bypassed";
+      h["Content-Encoding"] = "gzip";
+      return new Response(obj.body, { headers: h });
+    }
+
     h["X-Debthin"] = "hit-decomp";
     if (!obj.body) return new Response("", { headers: h });
 
@@ -294,6 +303,5 @@ export async function serveR2(env, request, key, { transform, fetchKey, ctx, imm
     return new Response(decompressed, { headers: h });
   }
 
-  h["Content-Type"] = obj.httpMetadata?.contentType || getContentType(key);
   return new Response(obj.body, { headers: h });
 }
