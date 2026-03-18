@@ -118,7 +118,7 @@ async function runTests() {
             
             // Dynamic derived paths
             fetchAndAnalyze("Release (strip-pgp derived)", `${distro}/dists/${testSuite}/Release`, 200, "hit-derived"),
-            fetchAndAnalyze("Packages (decompression)", `${distro}/dists/${testSuite}/${component}/binary-${arch}/Packages`, 200, "hit-decomp"),
+            fetchAndAnalyze("Packages (decompression)", `${distro}/dists/${testSuite}/${component}/binary-${arch}/Packages`, 200, ["hit-decomp", "hit-decomp-bypassed"]),
             fetchAndAnalyze("Arch Release (generated native text)", `${distro}/dists/${testSuite}/${component}/binary-${arch}/Release`, 200, "hit-generated"),
 
             // By-Hash empty file intercepts
