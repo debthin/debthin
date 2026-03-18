@@ -1,0 +1,19 @@
+-----BEGIN PGP SIGNED MESSAGE-----
+Hash: SHA256
+
+Origin: Debian
+Label: Debian
+Suite: stable
+Codename: bookworm
+Date: Sat, 10 Jun 2023 09:47:33 UTC
+Architectures: amd64 arm64 armel armhf i386 mips64el mipsel ppc64el s390x
+Components: main contrib non-free non-free-firmware
+Description: Debian x.y Released 10 June 2023
+SHA256:
+ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 0 main/binary-amd64/Packages.gz
+ 46d6b633fb01bc43fb2764f691605dcabdeecacae21f37eaf9be3babb43202e1 1337 main/binary-amd64/Packages.lz4
+ 761aa55eb09fedd08dd85ba46a7ece43e59503464522971239aaed2d03cc094e 42 contrib/binary-amd64/Packages.gz
+-----BEGIN PGP SIGNATURE-----
+
+iQIzBAEBCAAdFiEE...
+-----END PGP SIGNATURE-----
