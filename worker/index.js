@@ -29,13 +29,24 @@ async function handleRequest(request, env, ctx) {
 
   // Validate the requested distribution against our active config namespace
   const first = rawPath.slice(0, slash);
-  if (!DERIVED_CONFIG[first]) {
+  let distroConfig = DERIVED_CONFIG[first];
+
+  if (!distroConfig) {
+    let fallbackHost;
+    for (const key in DERIVED_CONFIG) {
+      if (first.startsWith(key)) {
+        fallbackHost = DERIVED_CONFIG[key].upstream.split("/")[0];
+        break;
+      }
+    }
+    if (fallbackHost) {
+      return handleUpstreamRedirect(protocol, fallbackHost, rawPath);
+    }
     return new Response("Not found\n", { status: 404 });
   }
 
   const distro = first;
   const rest = rawPath.slice(slash + 1);
-  const distroConfig = DERIVED_CONFIG[distro];
   const { upstream, aliasMap, suites } = distroConfig;
 
   // Immediately redirect apt pool binary requests to the original upstream
