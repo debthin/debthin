@@ -20,14 +20,17 @@ function createCache(maxSlots, maxSize) {
   let freeSlot = 0;
 
   function evict() {
-    let lru = 0, lruTime = usedArray[0];
-    for (let i = 1; i < maxSlots; i++) {
-      if (usedArray[i] < lruTime) { 
-        lruTime = usedArray[i]; lru = i; 
-      } else if (usedArray[i] === lruTime && hitsArray[i] < hitsArray[lru]) {
-        lru = i;
+    let lru = -1, lruTime = Infinity;
+    for (let i = 0; i < maxSlots; i++) {
+      if (keyArray[i] !== null) {
+        if (usedArray[i] < lruTime) { 
+          lruTime = usedArray[i]; lru = i; 
+        } else if (usedArray[i] === lruTime && lru !== -1 && hitsArray[i] < hitsArray[lru]) {
+          lru = i;
+        }
       }
     }
+    if (lru === -1) return -1;
     index.delete(keyArray[lru]);
     size -= bytesArray[lru];
     bufArray[lru] = null;
