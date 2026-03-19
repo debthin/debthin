@@ -76,13 +76,13 @@ def make_client(account_id: str, access_key: str, secret_key: str):
     )
 
 
-def list_r2_keys(client, bucket: str) -> set:
-    keys = set()
+def list_r2_objects(client, bucket: str) -> dict:
+    objects = {}
     paginator = client.get_paginator("list_objects_v2")
     for page in paginator.paginate(Bucket=bucket):
         for obj in page.get("Contents", []):
-            keys.add(obj["Key"])
-    return keys
+            objects[obj["Key"]] = obj.get("ETag", "").strip('"')
+    return objects
 
 
 UPLOAD_WORKERS = 16
@@ -135,32 +135,45 @@ def sync(directory: Path, account_id: str, access_key: str,
         count = len(json.loads(data))
         print(f"  Hash index {key}: {count} entries", file=sys.stderr)
 
-    total = len(uploads)
-    print(f"Uploading {total} objects to R2 bucket '{bucket}' ({workers} workers)...", file=sys.stderr)
+    print("Fetching existing R2 objects...", file=sys.stderr)
+    existing_objects = list_r2_objects(client, bucket)
 
-    if "config.json" in uploads:
-        size = len(uploads["config.json"])
-        print(f"  Found config.json ({size} bytes) in upload queue", file=sys.stderr)
+    jobs = []
+    skipped = 0
+    for key, data in sorted(uploads.items()):
+        md5_hash = hashlib.md5(data).hexdigest()
+        if key in existing_objects and existing_objects[key] == md5_hash:
+            skipped += 1
+            continue
+        jobs.append((client, bucket, key, data, dry_run))
 
-    jobs = [(client, bucket, key, data, dry_run) for key, data in sorted(uploads.items())]
-    errors = []
-    done = 0
-    with ThreadPoolExecutor(max_workers=workers) as pool:
-        for key, size, err in pool.map(_put_one, jobs):
-            done += 1
-            if err:
-                errors.append(f"{key}: {err}")
-                print(f"  ERROR {key}: {err}", file=sys.stderr)
-            elif done % 50 == 0 or done == total:
-                print(f"  {done}/{total} uploaded", file=sys.stderr)
+    if skipped > 0:
+        print(f"Skipped {skipped} unchanged objects natively.", file=sys.stderr)
 
-    if errors:
-        raise RuntimeError(f"{len(errors)} upload(s) failed:\n" + "\n".join(errors))
+    total_jobs = len(jobs)
+    if total_jobs > 0:
+        print(f"Uploading {total_jobs} objects to R2 bucket '{bucket}' ({workers} workers)...", file=sys.stderr)
+        if "config.json" in uploads and [j for j in jobs if j[2] == "config.json"]:
+            size = len(uploads["config.json"])
+            print(f"  Found config.json ({size} bytes) in upload queue", file=sys.stderr)
+    if total_jobs > 0:
+        errors = []
+        done = 0
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            for key, size, err in pool.map(_put_one, jobs):
+                done += 1
+                if err:
+                    errors.append(f"{key}: {err}")
+                    print(f"  ERROR {key}: {err}", file=sys.stderr)
+                elif done % 50 == 0 or done == total_jobs:
+                    print(f"  {done}/{total_jobs} uploaded", file=sys.stderr)
+
+        if errors:
+            raise RuntimeError(f"{len(errors)} upload(s) failed:\n" + "\n".join(errors))
 
     # Delete stale objects
     print("Checking for stale objects...", file=sys.stderr)
-    existing = list_r2_keys(client, bucket)
-    stale = sorted(existing - set(uploads.keys()))
+    stale = sorted(set(existing_objects.keys()) - set(uploads.keys()))
 
     if stale:
         print(f"Deleting {len(stale)} stale objects...", file=sys.stderr)
