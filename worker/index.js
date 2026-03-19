@@ -4,6 +4,17 @@ import { DERIVED_CONFIG, CONFIG_JSON_STRING } from './core/config.js';
 
 // ── Main Entry ───────────────────────────────────────────────────────────────
 
+/**
+ * Validates and routes incoming Edge HTTP requests.
+ * Evaluates HTTP method validity, query string blocks, directory traversal deterrence,
+ * suite configuration matching, and canonical alias redirection before
+ * falling back to the proxy layer handlers.
+ * 
+ * @param {Request} request - The inbound HTTP request.
+ * @param {Object} env - Cloudflare environment bindings.
+ * @param {Object} ctx - Worker execution context for waitUntil jobs.
+ * @returns {Promise<Response>} The evaluated HTTP Response or proxy instruction.
+ */
 async function handleRequest(request, env, ctx) {
   // Reject unsupported HTTP methods and query strings
   if (request.method !== "GET" && request.method !== "HEAD") {
@@ -84,6 +95,16 @@ async function handleRequest(request, env, ctx) {
 }
 
 export default {
+  /**
+   * Primary invocation entrypoint for the Cloudflare fetch event lifecycle.
+   * Traps internal request handling errors and injects analytical caching metric headers
+   * like X-Timer and X-Served-By before resolving back to the edge node.
+   * 
+   * @param {Request} request - The inbound HTTP request.
+   * @param {Object} env - Cloudflare environment bindings.
+   * @param {Object} ctx - Worker execution context.
+   * @returns {Promise<Response>} The final formulated HTTP Response.
+   */
   async fetch(request, env, ctx) {
     const _now = Date.now();
 
