@@ -9,7 +9,7 @@ import { parsePackages, reduceToLatest, filterPackages, serializePackages, reduc
 
 const PROXY_CACHE_TTL_MS = 60 * 60 * 1000;
 const CACHE_HEADERS = { "Cache-Control": "public, max-age=3600" };
-const MAX_PAYLOAD_SIZE = 25 * 1024 * 1024; // 25 MB hard limit
+const MAX_PAYLOAD_SIZE = 2 * 1024 * 1024; // 2 MB hard limit
 
 const PERMANENT_BLOCKLIST = new Set([
   "archive.ubuntu.com",
