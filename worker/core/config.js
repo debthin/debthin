@@ -7,7 +7,7 @@
  * - CONFIG_JSON_STRING: The raw original configuration string.
  */
 
-import configData from '../../config.json';
+import configData from '../../config.json' with { type: 'json' };
 
 /**
  * Parses the layout dictionary locally caching configuration settings.
