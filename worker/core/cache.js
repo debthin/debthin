@@ -23,6 +23,7 @@ function createCache(maxSlots, maxSize) {
   const usedArray = new Uint32Array(maxSlots);
   const bytesArray = new Int32Array(maxSlots);
   const addedArray = new Float64Array(maxSlots);
+  const pinnedArray = new Uint8Array(maxSlots);
 
   let clock = 0;
   let size = 0;
@@ -31,7 +32,7 @@ function createCache(maxSlots, maxSize) {
   function evict() {
     let lru = -1, lruTime = Infinity;
     for (let i = 0; i < maxSlots; i++) {
-      if (keyArray[i] !== null) {
+      if (keyArray[i] !== null && pinnedArray[i] === 0) {
         if (usedArray[i] < lruTime) { 
           lruTime = usedArray[i]; lru = i; 
         } else if (usedArray[i] === lruTime && lru !== -1 && hitsArray[i] < hitsArray[lru]) {
@@ -49,11 +50,12 @@ function createCache(maxSlots, maxSize) {
     usedArray[lru] = 0;
     bytesArray[lru] = 0;
     addedArray[lru] = 0;
+    pinnedArray[lru] = 0;
     return lru;
   }
 
   return {
-    add: (key, buf, meta, now) => {
+    add: (key, buf, meta, now, pinned = false) => {
       let slot = index.get(key);
       if (slot !== undefined) {
         size -= bytesArray[slot];
@@ -62,6 +64,7 @@ function createCache(maxSlots, maxSize) {
           slot = freeSlot++;
         } else {
           slot = evict();
+          if (slot === -1) return; // Cache is completely full of pinned items, abort gracefully
         }
         index.set(key, slot);
         keyArray[slot] = key;
@@ -73,6 +76,7 @@ function createCache(maxSlots, maxSize) {
       metaArray[slot] = meta;
       bytesArray[slot] = buf.byteLength;
       addedArray[slot] = now;
+      pinnedArray[slot] = pinned ? 1 : 0;
       size += buf.byteLength;
 
       while (size > maxSize && index.size > 0) evict();
@@ -101,8 +105,8 @@ function selectCache(key) {
   return key.includes('Packages') ? dataCache : metaCache;
 }
 
-export function addToCache(key, buf, meta, now) {
-  selectCache(key).add(key, buf, meta, now);
+export function addToCache(key, buf, meta, now, pinned = false) {
+  selectCache(key).add(key, buf, meta, now, pinned);
 }
 
 export function getFromCache(key) {
