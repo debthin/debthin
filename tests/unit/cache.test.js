@@ -52,3 +52,22 @@ test('cache/TTL Updates', () => {
   const cached = getFromCache('dists/ubuntu/Release');
   assert.equal(cached.addedAt, 20000);
 });
+
+test('cache/Pinning Eviction Evasion', () => {
+  // Add an unpinned item
+  addToCache('unpinned-item', new ArrayBuffer(10), { etag: 'unpinned' }, 100, false);
+  
+  // Add a pinned item
+  addToCache('pinned-item', new ArrayBuffer(10), { etag: 'pinned' }, 100, true);
+  
+  // Spam 256 generic items to completely flood the 256-slot meta cache and trigger LRU eviction
+  for(let i = 0; i < 257; i++) {
+    addToCache(`spam-${i}`, new ArrayBuffer(10), { etag: `s${i}` }, 200 + i);
+  }
+  
+  // The unpinned item was the oldest and unprotected, so it must be gone.
+  assert.equal(hasInCache('unpinned-item'), false, 'Unpinned item should be evicted under pressure');
+  
+  // The pinned item is fundamentally shielded from the LRU loop, so it must remain cached.
+  assert.equal(hasInCache('pinned-item'), true, 'Pinned item MUST survive full cache displacement');
+});

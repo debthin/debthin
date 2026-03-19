@@ -208,9 +208,9 @@ export function warmRamCacheFromRelease(text, suiteRoot, forceReindex = false) {
     const name = line.slice(s2 + 1);
 
     if (hash === EMPTY_GZ_HASH) {
-      if (!hasInCache(`${suiteRoot}/${name}`)) addToCache(`${suiteRoot}/${name}`, EMPTY_GZ, { contentType: "application/x-gzip" }, Date.now());
+      if (!hasInCache(`${suiteRoot}/${name}`)) addToCache(`${suiteRoot}/${name}`, EMPTY_GZ, { contentType: "application/x-gzip" }, Date.now(), true);
     } else if (hash === EMPTY_HASH) {
-      if (!hasInCache(`${suiteRoot}/${name}`)) addToCache(`${suiteRoot}/${name}`, new ArrayBuffer(0), { contentType: "text/plain; charset=utf-8" }, Date.now());
+      if (!hasInCache(`${suiteRoot}/${name}`)) addToCache(`${suiteRoot}/${name}`, new ArrayBuffer(0), { contentType: "text/plain; charset=utf-8" }, Date.now(), true);
     }
 
     if (hash.length === 64 && name.endsWith("/Packages.gz")) {
