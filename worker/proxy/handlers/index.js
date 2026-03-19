@@ -8,15 +8,21 @@ import { extractInReleaseHash, verifyHash, proxyCacheBase } from '../utils.js';
 import { parsePackages, reduceToLatest, filterPackages, serializePackages, reduceStreamToLatest } from '../packages.js';
 
 const PROXY_CACHE_TTL_MS = 60 * 60 * 1000;
+const CACHE_HEADERS = { "Cache-Control": "public, max-age=3600" };
+const MAX_PAYLOAD_SIZE = 25 * 1024 * 1024; // 25 MB hard limit
+
+const PERMANENT_BLOCKLIST = new Set([
+  "archive.ubuntu.com",
+  "security.ubuntu.com",
+  "ports.ubuntu.com",
+  "deb.debian.org",
+  "security.debian.org",
+  "ftp.debian.org",
+  "kali.download"
+]);
 
 /**
  * Handles generating and mapping proxy Release manifests natively locally.
- *
- * @param {Request} request - The original bound client HTTP execution parameters.
- * @param {Object} env - The Cloudflare infrastructure runtime constraints.
- * @param {Object} ctx - Isolated thread execution wrapper parameters.
- * @param {Object} parsed - Actively resolved coordinate path constraints.
- * @returns {Promise<Response>} Manifest text payload.
  */
 async function handleProxyMetadata(request, env, ctx, parsed, blockKey) {
   const { host, suite, component, type, pin, arch } = parsed;
@@ -33,7 +39,9 @@ async function handleProxyMetadata(request, env, ctx, parsed, blockKey) {
       if ((await fetch(`https://${host}/dists/${suite}/InRelease`, { method: "HEAD" })).ok) up = true;
       else if ((await fetch(`https://${host}/dists/${suite}/Release`, { method: "HEAD" })).ok) up = true;
       else if ((await fetch(`http://${host}/dists/${suite}/InRelease`, { method: "HEAD" })).ok) up = true;
-    } catch (e) {}
+    } catch (e) {
+      // DNS/network exception cleanly trapped
+    }
 
     if (!up) {
       ctx.waitUntil(env.DEBTHIN_BUCKET.put(blockKey, "404", { httpMetadata: { contentType: "text/plain" } }));
@@ -53,20 +61,20 @@ async function handleProxyMetadata(request, env, ctx, parsed, blockKey) {
         ].join("\n") + "\n";
         
     const buf = new TextEncoder().encode(body);
-    await env.DEBTHIN_BUCKET.put(cacheKey, buf, { httpMetadata: { contentType: "text/plain; charset=utf-8" } });
+    const meta = { contentType: "text/plain; charset=utf-8" };
+    
+    // Asynchronous background R2 writing mapped natively
+    ctx.waitUntil(env.DEBTHIN_BUCKET.put(cacheKey, buf, { httpMetadata: meta }));
+    
+    // Return early skipping serveR2 to avoid race conditions!
+    return new Response(body, { headers: { ...meta, ...CACHE_HEADERS, "X-Debthin": "proxy-release" } });
   }
 
   return serveR2(env, request, cacheKey, { ctx });
 }
 
 /**
- * Triggers full cryptographic verifications and payload deserialization parsing blocks against upstream endpoints.
- *
- * @param {Request} request - The original bound client HTTP execution parameters.
- * @param {Object} env - The Cloudflare infrastructure runtime constraints.
- * @param {Object} ctx - Isolated thread execution wrapper parameters.
- * @param {Object} parsed - Actively resolved coordinate path constraints.
- * @returns {Promise<Response>} Stripped APT packages list.
+ * Triggers full cryptographic verifications and payload deserialization parsing blocks.
  */
 async function handleProxyPackages(request, env, ctx, parsed, blockKey) {
   const { host, suite, component, pin, arch, gz } = parsed;
@@ -81,7 +89,9 @@ async function handleProxyPackages(request, env, ctx, parsed, blockKey) {
     let irResp;
     try {
       irResp = await fetch(`https://${host}/dists/${suite}/InRelease`, { headers: irHeaders });
-    } catch(e) {}
+    } catch (e) {
+      // Trap DNS failures identically
+    }
 
     if (!irResp || (!irResp.ok && irResp.status !== 304)) {
       if (!obj) {
@@ -90,10 +100,10 @@ async function handleProxyPackages(request, env, ctx, parsed, blockKey) {
       }
     } else if (irResp.status === 304) {
       if (obj) {
-        const fullObj = await env.DEBTHIN_BUCKET.get(cacheKey);
-        if (fullObj) {
-          ctx.waitUntil(env.DEBTHIN_BUCKET.put(cacheKey, fullObj.body, { httpMetadata: fullObj.httpMetadata }));
-        }
+        ctx.waitUntil((async () => {
+          const fullObj = await env.DEBTHIN_BUCKET.get(cacheKey);
+          if (fullObj) await env.DEBTHIN_BUCKET.put(cacheKey, fullObj.body, { httpMetadata: fullObj.httpMetadata });
+        })().catch(() => {}));
       }
     } else if (irResp.ok) {
       const irText       = await irResp.text();
@@ -107,13 +117,34 @@ async function handleProxyPackages(request, env, ctx, parsed, blockKey) {
 
       if (!pkgUrl) return new Response("Bad Gateway\n", { status: 502 });
 
-      let pkgResp = await fetch(`https://${host}${pkgUrl}`);
-      if (!pkgResp.ok) pkgResp = await fetch(`http://${host}${pkgUrl}`);
+      let pkgResp;
+      try {
+        pkgResp = await fetch(`https://${host}${pkgUrl}`);
+        if (!pkgResp.ok) pkgResp = await fetch(`http://${host}${pkgUrl}`);
+      } catch (e) {
+        // DNS trapped securely
+      }
 
-      if (!pkgResp.ok) {
+      if (!pkgResp || !pkgResp.ok) {
         if (!obj) return new Response("Bad Gateway\n", { status: 502 });
       } else {
-        const pkgBuf = await pkgResp.arrayBuffer();
+        const cl = parseInt(pkgResp.headers.get("content-length") || "0", 10);
+        if (cl > MAX_PAYLOAD_SIZE) {
+          ctx.waitUntil(env.DEBTHIN_BUCKET.put(blockKey, "too-large", { httpMetadata: { contentType: "text/plain" } }));
+          return new Response("Upstream repository too large\n", { status: 502 });
+        }
+
+        let pkgBuf;
+        try {
+          pkgBuf = await pkgResp.arrayBuffer();
+        } catch (e) {
+          if (!obj) return new Response("Bad Gateway\n", { status: 502 });
+        }
+
+        if (pkgBuf && pkgBuf.byteLength > MAX_PAYLOAD_SIZE) {
+          ctx.waitUntil(env.DEBTHIN_BUCKET.put(blockKey, "too-large", { httpMetadata: { contentType: "text/plain" } }));
+          return new Response("Upstream repository too large\n", { status: 502 });
+        }
 
         if (hashEntry && await verifyHash(pkgBuf, hashEntry) === false) {
           return new Response("Bad Gateway\n", { status: 502 });
@@ -122,20 +153,37 @@ async function handleProxyPackages(request, env, ctx, parsed, blockKey) {
         let readable = new Response(pkgBuf).body;
         if (isGz) readable = readable.pipeThrough(new DecompressionStream("gzip"));
 
-        const filtered = filterPackages(await reduceStreamToLatest(readable, pin));
+        let filtered;
+        try {
+          filtered = filterPackages(await reduceStreamToLatest(readable, pin));
+        } catch (e) {
+          if (!obj) return new Response("Internal Server Error\n", { status: 500 });
+        }
         
         const prefix = `pkg/${host}/`;
-        for (const fields of filtered.values()) {
-          if (fields["filename"]) fields["filename"] = prefix + fields["filename"];
+        if (filtered) {
+          for (const fields of filtered.values()) {
+            if (fields["filename"]) fields["filename"] = prefix + fields["filename"];
+          }
+
+          const cs = new CompressionStream("gzip");
+          const w2 = cs.writable.getWriter();
+          w2.write(new TextEncoder().encode(serializePackages(filtered)));
+          w2.close();
+          const resultGz = await new Response(cs.readable).arrayBuffer();
+
+          const meta = { contentType: "application/x-gzip" };
+          ctx.waitUntil(env.DEBTHIN_BUCKET.put(cacheKey, resultGz, { httpMetadata: meta }));
+
+          // Serve immediately dynamically skipping read-sync paths
+          if (gz) {
+            return new Response(resultGz, { headers: { ...meta, ...CACHE_HEADERS } });
+          } else {
+            // Re-decompress for raw mapping natively
+            const rawBody = new Response(resultGz).body.pipeThrough(new DecompressionStream("gzip"));
+            return new Response(rawBody, { headers: { "Content-Type": "text/plain; charset=utf-8", ...CACHE_HEADERS } });
+          }
         }
-
-        const cs = new CompressionStream("gzip");
-        const w2 = cs.writable.getWriter();
-        w2.write(new TextEncoder().encode(serializePackages(filtered)));
-        w2.close();
-        const resultGz = await new Response(cs.readable).arrayBuffer();
-
-        await env.DEBTHIN_BUCKET.put(cacheKey, resultGz, { httpMetadata: { contentType: "application/x-gzip" } });
       }
     } else {
       if (!obj) return new Response("Bad Gateway\n", { status: 502 });
@@ -147,16 +195,13 @@ async function handleProxyPackages(request, env, ctx, parsed, blockKey) {
 
 /**
  * Global dynamic dispatcher allocating proxy paths strictly toward separated evaluation functions neutrally.
- * Implements a global blocklist timeout caching failing origin hosts explicitly natively.
- *
- * @param {Request} request - Raw inbound request edge hook.
- * @param {Object} env - Bound Cloudflare bucket configurations.
- * @param {Object} ctx - Event boundaries parameters natively enabling background pushes.
- * @param {Object} parsed - Destructured path mapping constraints uniquely routing domains.
- * @returns {Promise<Response>} Resolved package files or HTTP response blocks manually mapping native architectures.
  */
 export async function handleProxyRepository(request, env, ctx, parsed) {
   const { host, suite, type } = parsed;
+
+  if (PERMANENT_BLOCKLIST.has(host)) {
+    return new Response("Not found (Host Permanently Blocked)\n", { status: 404 });
+  }
 
   const blockKey = `proxy/${host}/${suite}/.blocklist`;
   const isBlocked = await r2Head(env, blockKey);
@@ -165,8 +210,7 @@ export async function handleProxyRepository(request, env, ctx, parsed) {
   }
 
   if (type === "inrelease" || type === "release" || type === "arch-release") {
-    const res = await handleProxyMetadata(request, env, ctx, parsed, blockKey);
-    return res;
+    return await handleProxyMetadata(request, env, ctx, parsed, blockKey);
   }
 
   if (type === "release-gpg") {
@@ -174,7 +218,7 @@ export async function handleProxyRepository(request, env, ctx, parsed) {
   }
 
   if (type === "packages") {
-    return handleProxyPackages(request, env, ctx, parsed, blockKey);
+    return await handleProxyPackages(request, env, ctx, parsed, blockKey);
   }
 
   return new Response("Bad Request\n", { status: 400 });
