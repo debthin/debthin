@@ -16,18 +16,24 @@ sequenceDiagram
     participant Public as R2 Public Domain
 
     Client->>Edge: Request Metadata (e.g., /streams/v1/images.json)
-    Edge->>R2: list(prefix="images/debian/", include="customMetadata")
-    R2-->>Edge: Returns Object Array (Paths, Sizes, SHA256)
-    Edge-->>Client: Dynamically Generates JSON / CSV
+    Edge->>Edge: Consult Local LRU Isolate
+    alt Cache Fresh
+        Edge-->>Client: Instantly Return JSON/CSV (HIT)
+    else Cache Stale / Miss
+        Edge-->>Client: Serve Stale Content (SWR) OR Block (MISS)
+        Edge-xR2: Background Worker: list(prefix="images/debian/")
+        R2--xEdge: Return Paginated Array (Paths, Sizes, SHA256)
+        Edge-xEdge: Compute JSON/CSV & Cache Natively in RAM
+    end
     
     Client->>Edge: Request Binary (e.g., /images/.../rootfs.tar.xz)
-    Edge-->>Client: HTTP 301 Redirect -> r2-public.debthin.org
+    Edge-->>Client: HTTP 301 Redirect -> PUBLIC_R2_URL
     Client->>Public: Download File directly
 ```
 
 ## 3. Core Responsibilities
 
-The Worker is designed to be stateless and fast, adhering to three primary responsibilities:
+The Worker is designed to be stateless and fast, adhering to four primary responsibilities:
 
 ### A. Dynamic Protocol Translation
 Different hypervisors expect different protocols. The Worker reads the raw directory structure of the R2 bucket (`/images/{os}/{release}/{arch}/{variant}/{version}/`) and translates it into:
@@ -38,9 +44,12 @@ Different hypervisors expect different protocols. The Worker reads the raw direc
 When GitHub Actions build multiple architectures simultaneously (e.g., `amd64` and `arm64`), they upload files concurrently. If the CI pipeline attempted to write the `images.json` index, they would overwrite each other. 
 By generating the index dynamically at the edge via an S3 `list` operation, the Worker guarantees a perfectly accurate, real-time reflection of the bucket with zero risk of file corruption.
 
-### C. Bandwidth Optimization (The 301 Pattern)
+### C. Background Generative Caching (SWR)
+To circumvent V8 isolate cold-starts and strict CPU limits on 100k+ object buckets, the Worker leverages the `ctx.waitUntil` primitive. Inbound requests immediately serve available data from RAM utilizing a **Stale-While-Revalidate (SWR)** philosophy. Concurrently, the Worker spins up a background thread that executes an asynchronous R2 pagination loop, refreshing all internal indexes (`images.json`, `index-system`) natively for future traffic.
+
+### D. Bandwidth Optimization (The 301 Pattern)
 Cloudflare Workers have execution time limits and charge for CPU time. R2 public buckets offer free, unmetered egress. 
-To optimize costs, the Worker **never** proxies the actual 32MB container binaries. If a client requests a binary file, the Worker instantly returns an `HTTP 301 Moved Permanently`, redirecting the client to download directly from the unmetered R2 public domain.
+To optimize costs, the Worker **never** proxies the actual 32MB container binaries. If a client requests a binary file, the Worker instantly returns an `HTTP 301 Moved Permanently`, redirecting the client to download directly from the unmetered `env.PUBLIC_R2_URL` payload binding environment setting.
 
 ## 4. State & Hashing Strategy
 
@@ -54,12 +63,20 @@ Incus requires a `sha256` hash for every binary in its `images.json` manifest. B
 
 | Route | Client | Action | Cache Strategy |
 | :--- | :--- | :--- | :--- |
-| `/meta/1.0/index-system` | Classic LXC (`lxc-create`) | Generates flat CSV index mapping. | Edge RAM (1 Hour) |
-| `/streams/v1/index.json` | Incus (`incus remote add`) | Serves static JSON pointer file. | Edge RAM (24 Hours) |
-| `/streams/v1/images.json` | Incus (`incus launch`) | Generates Simplestreams JSON tree. | Edge RAM (1 Hour) |
-| `/images/*` | All Clients | `HTTP 301` to public R2 endpoint. | Uncached (Instant redirect) |
+| `/meta/1.0/index-system` | Classic LXC (`lxc-create`) | Generates flat CSV index mapping. | V8 Isolate SWR Engine |
+| `/streams/v1/index.json` | Incus (`incus remote add`) | Serves static JSON pointer file. | V8 Isolate SWR Trigger |
+| `/streams/v1/images.json` | Incus (`incus launch`) | Generates Simplestreams JSON tree. | V8 Isolate SWR Engine |
+| `/images/*` | All Clients | `HTTP 301` to public runtime R2 endpoint. | Fast Lambda Redirect |
+| `/`, `/robots.txt` | Spiders / Viewers | Active generic edge termination bounds. | V8 Isolate Memory |
 
-## 6. Performance & Scaling
+## 6. Safety, Limits, and Fault Tolerances
 
-* **Cost:** Because the R2 bucket handles the heavy binary egress for free, and the Worker relies heavily on `Cache-Control` headers, millions of container downloads can be served under the Cloudflare Free Tier.
-* **Maintenance:** The system requires zero database maintenance. Adding a new Debian release (e.g., `forky`) to the mirror automatically populates it in the LXC/Incus indexes the moment the CI pipeline uploads the first file to the R2 bucket.
+* **Circuit Breakers:** A runaway R2 loop is strictly capped at `100` pages dynamically to prevent CPU time threshold terminations scaling linearly.
+* **Corrupt Metadata Handlers:** Extracted nodes uploaded without requisite `.customMetadata.sha256` signatures are surgically bypassed by the iterator rather than manifesting as fatal literal gaps preventing client segmentation panics.
+* **Domain Isolation:** The worker executes clean encapsulation. It imports generic configurations internally from `core/` to inherently bypass cross-contamination risks across the core upstream `debthin` proxy sequence logic.
+* **HEAD Optimizations:** `HEAD` bandwidth dynamically exercises the full caching sequence but correctly evaluates memory allocations natively stripping stream outputs (`null`) conserving aggressive RAM bindings.
+
+## 7. Performance & Scaling
+
+* **Cost:** Because the R2 bucket handles the heavy binary egress for free, and the generative index cache drops native load loops asynchronously via the Stale-While-Revalidate sequence, millions of concurrent downloads compute natively on standard Cloudflare Free Tiers.
+* **Maintenance:** The generative tier mandates zero active maintenance overhead. Integrating a new Linux iteration to the storage layer natively triggers edge manifestation upon the subsequent background SWR trigger block globally.
