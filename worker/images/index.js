@@ -15,9 +15,10 @@ import {
  *
  * @param {Request} request - The inbound HTTP request.
  * @param {Object} env - Cloudflare environment bindings.
+ * @param {Object} ctx - Worker execution context.
  * @returns {Promise<Response>} The constructed runtime Response.
  */
-async function handleRequest(request, env) {
+async function handleRequest(request, env, ctx) {
     if (request.method !== "GET" && request.method !== "HEAD") {
         return new Response("Method Not Allowed\n", { status: 405, headers: { "Allow": "GET, HEAD" } });
     }
@@ -58,17 +59,17 @@ async function handleRequest(request, env) {
 
     // 1. Classic LXC (lxc-create -t download)
     if (rawPath === "meta/1.0/index-system") {
-        return await handleLxcIndex(request, env.IMAGES_BUCKET);
+        return await handleLxcIndex(request, env.IMAGES_BUCKET, ctx);
     }
 
     // 2. Incus/LXD Pointer
     if (rawPath === "streams/v1/index.json") {
-        return await handleIncusPointer(request);
+        return await handleIncusPointer(request, env.IMAGES_BUCKET, ctx);
     }
 
     // 3. Incus/LXD Database
     if (rawPath === "streams/v1/images.json") {
-        return await handleIncusIndex(request, env.IMAGES_BUCKET);
+        return await handleIncusIndex(request, env.IMAGES_BUCKET, ctx);
     }
 
     // 4. Direct Downloads (Redirect to unmetered R2)
@@ -94,7 +95,7 @@ export default {
 
         let response;
         try {
-            response = await handleRequest(request, env);
+            response = await handleRequest(request, env, ctx);
         } catch (err) {
             console.error(err.stack || err);
             response = new Response("Internal Server Error", { status: 500 });

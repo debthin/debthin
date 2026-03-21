@@ -36,15 +36,19 @@ const mockEnv = {
     }
 };
 
+const mockCtx = {
+    waitUntil: (promise) => { promise.catch(() => {}); }
+};
+
 test('images/Method Rejection (POST)', async () => {
     const req = new Request('https://images.debthin.org/streams/v1/index.json', { method: 'POST' });
-    const res = await worker.fetch(req, mockEnv, {});
+    const res = await worker.fetch(req, mockEnv, mockCtx);
     assert.equal(res.status, 405);
 });
 
 test('images/Query String Rejection', async () => {
     const req = new Request('https://images.debthin.org/streams/v1/index.json?foo=bar');
-    const res = await worker.fetch(req, mockEnv, {});
+    const res = await worker.fetch(req, mockEnv, mockCtx);
     assert.equal(res.status, 400);
 });
 
@@ -53,7 +57,7 @@ test('images/Health Endpoint & Cache Purge', async () => {
     listCallCount = 0;
 
     const req = new Request('https://images.debthin.org/health');
-    const res = await worker.fetch(req, mockEnv, {});
+    const res = await worker.fetch(req, mockEnv, mockCtx);
     assert.equal(res.status, 200);
     const json = await res.json();
     assert.equal(json.status, "OK");
@@ -63,7 +67,7 @@ test('images/Health Endpoint & Cache Purge', async () => {
 test('images/LXC Index Generation (Caching logic)', async () => {
     // Call 1: Miss, Generates text
     const req1 = new Request('https://images.debthin.org/meta/1.0/index-system');
-    const res1 = await worker.fetch(req1, mockEnv, {});
+    const res1 = await worker.fetch(req1, mockEnv, mockCtx);
     assert.equal(res1.status, 200);
     assert.equal(res1.headers.get("X-Cache"), "MISS");
     
@@ -74,7 +78,7 @@ test('images/LXC Index Generation (Caching logic)', async () => {
 
     // Call 2: Hit entirely from LRU
     const req2 = new Request('https://images.debthin.org/meta/1.0/index-system');
-    const res2 = await worker.fetch(req2, mockEnv, {});
+    const res2 = await worker.fetch(req2, mockEnv, mockCtx);
     assert.equal(res2.status, 200);
     assert.equal(res2.headers.get("X-Cache"), "HIT");
     assert.equal(res2.headers.get("X-Cache-Hits"), "1");
@@ -83,15 +87,22 @@ test('images/LXC Index Generation (Caching logic)', async () => {
     const req3 = new Request('https://images.debthin.org/meta/1.0/index-system', {
         headers: { "If-None-Match": res2.headers.get("ETag") }
     });
-    const res3 = await worker.fetch(req3, mockEnv, {});
+    const res3 = await worker.fetch(req3, mockEnv, mockCtx);
     assert.equal(res3.status, 304);
     assert.equal(res3.headers.get("X-Cache-Hits"), "2");
+
+    // Call 4: HEAD Optimization
+    const reqHead = new Request('https://images.debthin.org/meta/1.0/index-system', { method: 'HEAD' });
+    const resHead = await worker.fetch(reqHead, mockEnv, mockCtx);
+    assert.equal(resHead.status, 200);
+    assert.equal(await resHead.text(), ""); // Body stripped cleanly
 
     // R2 List was only executed ONCE
     assert.equal(listCallCount, 1);
 });
 
 test('images/Incus Images Index (Concurrency coalescing)', async () => {
+    indexCache.purge(); // Clean cache from previous tests
     listCallCount = 0; // Reset
     
     // Simulate 3 concurrent connections requesting the large manifest tree
@@ -101,7 +112,7 @@ test('images/Incus Images Index (Concurrency coalescing)', async () => {
         new Request('https://images.debthin.org/streams/v1/images.json')
     ];
 
-    const responses = await Promise.all(reqs.map(req => worker.fetch(req, mockEnv, {})));
+    const responses = await Promise.all(reqs.map(req => worker.fetch(req, mockEnv, mockCtx)));
     
     // First connection triggered the MISS
     assert.equal(responses[0].headers.get("X-Cache"), "MISS");
@@ -119,32 +130,32 @@ test('images/Incus Images Index (Concurrency coalescing)', async () => {
 
 test('images/Static Binary Redirect', async () => {
     const req = new Request('https://images.debthin.org/images/debian/bookworm/amd64/default/20231010_01:23/rootfs.tar.xz');
-    const res = await worker.fetch(req, mockEnv, {});
+    const res = await worker.fetch(req, mockEnv, mockCtx);
     assert.equal(res.status, 301);
 });
 
 test('images/Static Binary Redirect (Custom URL)', async () => {
     const envWithUrl = { ...mockEnv, PUBLIC_R2_URL: 'https://custom-r2.example.com' };
     const req = new Request('https://images.debthin.org/images/debian/bookworm/amd64/default/20231010_01:23/rootfs.tar.xz');
-    const res = await worker.fetch(req, envWithUrl, {});
+    const res = await worker.fetch(req, envWithUrl, mockCtx);
     assert.equal(res.status, 301);
     assert.equal(res.headers.get('Location'), 'https://custom-r2.example.com/images/debian/bookworm/amd64/default/20231010_01:23/rootfs.tar.xz');
 });
 
 test('images/Root and Robots.txt Routes', async () => {
     const reqRobots = new Request('https://images.debthin.org/robots.txt');
-    const resRobots = await worker.fetch(reqRobots, mockEnv, {});
+    const resRobots = await worker.fetch(reqRobots, mockEnv, mockCtx);
     assert.equal(resRobots.status, 200);
     assert.ok((await resRobots.text()).includes('Disallow: /'));
 
     const reqRoot = new Request('https://images.debthin.org/');
-    const resRoot = await worker.fetch(reqRoot, mockEnv, {});
+    const resRoot = await worker.fetch(reqRoot, mockEnv, mockCtx);
     assert.equal(resRoot.status, 200);
     assert.ok((await resRoot.text()).includes('debthin container registry'));
 });
 
 test('images/Not Found Fallback', async () => {
     const req = new Request('https://images.debthin.org/random/path.txt');
-    const res = await worker.fetch(req, mockEnv, {});
+    const res = await worker.fetch(req, mockEnv, mockCtx);
     assert.equal(res.status, 404);
 });
