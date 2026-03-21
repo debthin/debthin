@@ -79,6 +79,16 @@ echo "$BUILD_MATRIX" | while read -r DISTRO SUITE ARCH; do
 
     echo ""
     echo "[BUILD] Constructing $DISTRO $SUITE for $ARCH..."
+
+    # Check cross-compilation dependencies natively protecting debootstrap routines
+    HOST_ARCH=$(dpkg --print-architecture 2>/dev/null || uname -m | sed -e 's/x86_64/amd64/' -e 's/aarch64/arm64/')
+    if [ "$ARCH" != "$HOST_ARCH" ]; then
+        if ! ls /usr/bin/qemu-*-static >/dev/null 2>&1; then
+            echo "ERROR: Cross-compiling $ARCH on $HOST_ARCH natively requires QEMU user emulation bounds."
+            echo "Please run: sudo apt install qemu-user-static binfmt-support"
+            exit 1
+        fi
+    fi
     
     # Define the output directory based on our R2 edge architecture
     OUT_DIR="${OUTPUT_BASE}/${DISTRO}/${SUITE}/${ARCH}/default/${BUILD_DATE}"
