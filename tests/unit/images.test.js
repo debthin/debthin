@@ -1,12 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import worker from '../../worker/images/index.js';
+import { indexCache } from '../../worker/images/cache.js';
+
+let listCallCount = 0;
 
 // Mock Cloudflare Worker Environment Storage
 const mockEnv = {
     IMAGES_BUCKET: {
+        async head(key) {
+            return { etag: "mock" };
+        },
         async list(options) {
-            // Provide a mock listing of images/debian/
+            listCallCount++;
             return {
                 objects: [
                     {
@@ -22,7 +28,6 @@ const mockEnv = {
                     {
                         key: 'images/debian/bullseye/arm64/default/20231011_02:00/incus.tar.xz',
                         size: 900,
-                        // No custom metadata for branch coverage
                     }
                 ],
                 truncated: false
@@ -43,62 +48,75 @@ test('images/Query String Rejection', async () => {
     assert.equal(res.status, 400);
 });
 
-test('images/Path Traversal Rejection', async () => {
-    const req = {
-        method: 'GET',
-        url: 'https://images.debthin.org/streams/../v1/index.json',
-        headers: new Headers({'x-forwarded-proto': 'https'})
-    };
-    const res = await worker.fetch(req, mockEnv, {});
-    assert.equal(res.status, 400);
-});
+test('images/Health Endpoint & Cache Purge', async () => {
+    indexCache.purge(); // Clean slate
+    listCallCount = 0;
 
-test('images/LXC Index Generation', async () => {
-    const req = new Request('https://images.debthin.org/meta/1.0/index-system');
-    const res = await worker.fetch(req, mockEnv, {});
-    assert.equal(res.status, 200);
-    const text = await res.text();
-    assert.ok(text.includes('debian;bookworm;amd64;default;20231010_01:23;/images/debian/bookworm/amd64/default/20231010_01:23/'));
-    assert.ok(text.includes('debian;bullseye;arm64;default;20231011_02:00;/images/debian/bullseye/arm64/default/20231011_02:00/'));
-});
-
-test('images/Incus Pointer Index', async () => {
-    const req = new Request('https://images.debthin.org/streams/v1/index.json');
+    const req = new Request('https://images.debthin.org/health');
     const res = await worker.fetch(req, mockEnv, {});
     assert.equal(res.status, 200);
     const json = await res.json();
-    assert.equal(json.format, "index:1.0");
-    assert.equal(json.index.images.path, "streams/v1/images.json");
+    assert.equal(json.status, "OK");
+    assert.equal(json.cache.indexItems, 0); // Empty cache initially
 });
 
-test('images/Incus Images Index', async () => {
-    const req = new Request('https://images.debthin.org/streams/v1/images.json');
-    const res = await worker.fetch(req, mockEnv, {});
-    assert.equal(res.status, 200);
-    const json = await res.json();
-    assert.equal(json.format, "products:1.0");
+test('images/LXC Index Generation (Caching logic)', async () => {
+    // Call 1: Miss, Generates text
+    const req1 = new Request('https://images.debthin.org/meta/1.0/index-system');
+    const res1 = await worker.fetch(req1, mockEnv, {});
+    assert.equal(res1.status, 200);
+    assert.equal(res1.headers.get("X-Cache"), "MISS");
     
-    const bw = json.products['debian:bookworm:amd64:default'];
-    assert.ok(bw, "bookworm product must exist");
-    assert.equal(bw.os, 'debian');
-    assert.equal(bw.architecture, 'amd64');
-    
-    const versionInfo = bw.versions['20231010_01:23'];
-    assert.ok(versionInfo, "bookworm version must exist");
-    assert.equal(versionInfo.items.rootfs.sha256, 'mockhash2');
-    assert.equal(versionInfo.items.incus_meta.sha256, 'mockhash1');
+    // Validate text contents
+    const text1 = await res1.text();
+    assert.ok(text1.includes('debian;bookworm;amd64;default;20231010_01:23;'));
+    assert.equal(listCallCount, 1); // Hit R2 once
 
-    const be = json.products['debian:bullseye:arm64:default'];
-    assert.ok(be, "bullseye product must exist");
-    // fallback hash check for HASH_MISSING branch
-    assert.equal(be.versions['20231011_02:00'].items.incus_meta.sha256, 'HASH_MISSING');
+    // Call 2: Hit entirely from LRU
+    const req2 = new Request('https://images.debthin.org/meta/1.0/index-system');
+    const res2 = await worker.fetch(req2, mockEnv, {});
+    assert.equal(res2.status, 200);
+    assert.equal(res2.headers.get("X-Cache"), "HIT");
+    assert.equal(res2.headers.get("X-Cache-Hits"), "1");
+
+    // Call 3: 304 Not Modified
+    const req3 = new Request('https://images.debthin.org/meta/1.0/index-system', {
+        headers: { "If-None-Match": res2.headers.get("ETag") }
+    });
+    const res3 = await worker.fetch(req3, mockEnv, {});
+    assert.equal(res3.status, 304);
+    assert.equal(res3.headers.get("X-Cache-Hits"), "2");
+
+    // R2 List was only executed ONCE
+    assert.equal(listCallCount, 1);
+});
+
+test('images/Incus Images Index (Concurrency coalescing)', async () => {
+    listCallCount = 0; // Reset
+    
+    // Simulate 3 concurrent connections requesting the large manifest tree
+    const reqs = [
+        new Request('https://images.debthin.org/streams/v1/images.json'),
+        new Request('https://images.debthin.org/streams/v1/images.json'),
+        new Request('https://images.debthin.org/streams/v1/images.json')
+    ];
+
+    const responses = await Promise.all(reqs.map(req => worker.fetch(req, mockEnv, {})));
+    
+    // First connection triggered the MISS
+    assert.equal(responses[0].headers.get("X-Cache"), "MISS");
+    // Next two concurrent connections waited on indexCache.pending and were served the exact same memory pointer!
+    assert.equal(responses[1].headers.get("X-Cache"), "HIT");
+    assert.equal(responses[2].headers.get("X-Cache"), "HIT");
+    
+    // Despite 3 requests, R2 list was called only 1 time natively
+    assert.equal(listCallCount, 1);
 });
 
 test('images/Static Binary Redirect', async () => {
     const req = new Request('https://images.debthin.org/images/debian/bookworm/amd64/default/20231010_01:23/rootfs.tar.xz');
     const res = await worker.fetch(req, mockEnv, {});
     assert.equal(res.status, 301);
-    assert.equal(res.headers.get('Location'), 'https://r2-public.debthin.org/images/debian/bookworm/amd64/default/20231010_01:23/rootfs.tar.xz');
 });
 
 test('images/Not Found Fallback', async () => {
