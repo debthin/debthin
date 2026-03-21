@@ -1,0 +1,140 @@
+image:
+  distribution: "debian"
+  release: "trixie"
+  architecture: "amd64"
+  description: "Debian Trixie (debthin.org Minimal)"
+
+source:
+  downloader: "debootstrap"
+  url: "http://debthin.org/debian"
+  # Bypass host-side key checks during the initial debootstrap pull
+  skip_verification: true
+
+files:
+  # 1. Copy the key downloaded by our wrapper script into the container
+  - path: /etc/apt/keyrings/debthin.gpg
+    generator: copy
+    source: ./debthin-keyring-binary.gpg
+    mode: 0644
+
+  # 2. Configure sources.list to mandate the custom mirror and GPG key
+  - path: /etc/apt/sources.list
+    generator: dump
+    content: |-
+      deb [signed-by=/etc/apt/keyrings/debthin.gpg] http://debthin.org/debian trixie main
+      deb http://deb.debian.org/debian-security trixie-security main
+
+  # 3. Inject our dpkg exclusions early to keep it slim
+  - path: /etc/dpkg/dpkg.cfg.d/01_nodoc
+    generator: dump
+    content: |-
+      path-exclude /usr/share/doc/*
+      path-include /usr/share/doc/*/copyright
+      path-exclude /usr/share/man/*
+      path-exclude /usr/share/groff/*
+      path-exclude /usr/share/info/*
+      path-exclude /usr/share/lintian/*
+
+  - path: /etc/dpkg/dpkg.cfg.d/01_nolocale
+    generator: dump
+    content: |-
+      path-exclude /usr/share/locale/*
+      path-include /usr/share/locale/en/*
+
+  - path: /etc/dpkg/dpkg.cfg.d/01_nobloat
+    generator: dump
+    content: |-
+      path-exclude /usr/lib/x86_64-linux-gnu/gconv/*
+      path-exclude /usr/lib/udev/hwdb.d/*
+      path-exclude /usr/lib/systemd/hwdb/*
+      path-exclude /etc/udev/hwdb.d/*
+
+  # 4. No translations in apt, compress lists
+  - path: /etc/apt/apt.conf.d/99thin
+    generator: dump
+    content: |-
+      // Strip translation files, keep indexes compressed, don't build binary caches
+      Acquire::Languages "none";
+      Acquire::GzipIndexes "true";
+      Acquire::CompressionTypes::Order:: "gz";
+      Dir::Cache::pkgcache "";
+      Dir::Cache::srcpkgcache "";
+  - path: /etc/apt/apt.conf.d/01norecommends
+    generator: dump
+    content: |-
+      APT::Install-Recommends "false";
+      APT::Install-Suggests "false";
+
+  # 5. Basic networkd DHCP config
+  - path: /etc/systemd/network/10-eth0.network
+    generator: dump
+    content: |-
+      [Match]
+      Name=eth0
+      [Network]
+      DHCP=yes
+
+  - path: /etc/hostname
+    generator: hostname
+
+  - path: /etc/hosts
+    generator: hosts
+
+  - path: /etc/tmpfiles.d/resolv.conf
+    generator: dump
+    content: |-
+      L+ /etc/resolv.conf - - - - ../run/systemd/resolve/stub-resolv.conf
+
+packages:
+  manager: apt
+  update: true
+  cleanup: true
+  sets:
+    - action: remove
+      packages:
+        - udev
+    - action: install
+      packages:
+        - systemd-resolved
+        - curl
+
+actions:
+  - trigger: post-packages
+    action: |-
+      #!/bin/sh
+      set -e
+
+      # Purge any residual files
+      rm -rf /usr/share/doc/* /usr/share/man/* /usr/share/locale/* /var/cache/apt/archives/*.deb
+      rm -rf /usr/lib/x86_64-linux-gnu/gconv/* /usr/lib/udev/hwdb.d/*
+
+      # Wipe the APT binary caches
+      rm -f /var/cache/apt/*.bin
+
+      # Kill the compiled hardware database binary
+      rm -f /usr/lib/udev/hwdb.bin /etc/udev/hwdb.bin
+
+      rm -rf /var/lib/apt/lists/*
+
+      # Enable systemd-networkd and systemd-resolved
+      systemctl enable systemd-networkd.service
+      systemctl enable systemd-resolved.service
+
+      # Set serious systemd journal limits while retaining persistence
+      mkdir -p /etc/systemd/journald.conf.d
+      cat << 'EOF' > /etc/systemd/journald.conf.d/00-container-limits.conf
+      [Journal]
+      SystemMaxUse=50M
+      SystemKeepFree=0
+      EOF
+
+targets:
+  lxc:
+    config:
+      - type: all
+        content: |-
+          lxc.include = LXC_TEMPLATE_CONFIG/debian.common.conf
+          lxc.arch = amd64
+      - type: user
+        content: |-
+          lxc.include = LXC_TEMPLATE_CONFIG/debian.userns.conf
