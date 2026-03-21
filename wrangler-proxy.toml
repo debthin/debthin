@@ -4,4 +4,4 @@ compatibility_date = "2026-03-18"
 
 [[r2_buckets]]
 binding = "DEBTHIN_BUCKET"
-bucket_name = "debthin"
+bucket_name = "debthin-proxy"
