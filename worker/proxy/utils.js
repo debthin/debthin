@@ -82,8 +82,6 @@ export async function verifyHash(buf, { subtle, expected }) {
  * @param {string} component - Origin component layout.
  * @param {string|null} pin - Target framework pinning restriction constraints natively parsed.
  * @param {string} arch - Exact execution binary architecture bounding layout.
- * @returns {string} Fully qualified R2 cache segment limit.
- * // Let's rewrite doc string.
  * @returns {string} The fully qualified R2 cache key index.
  */
 export const proxyCacheBase = (host, suite, component, pin, arch) =>
