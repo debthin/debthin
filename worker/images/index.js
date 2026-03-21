@@ -4,7 +4,8 @@ import {
     handleLxcIndex,
     handleIncusPointer,
     handleIncusIndex,
-    handleImageRedirect
+    handleImageRedirect,
+    warmAllIndexes
 } from './handlers/index.js';
 
 // ── Main Entry ───────────────────────────────────────────────────────────────
@@ -92,6 +93,11 @@ export default {
      */
     async fetch(request, env, ctx) {
         const _now = Date.now();
+
+        // Trigger global background warm-up on any incoming route natively
+        if (ctx && typeof ctx.waitUntil === 'function') {
+            ctx.waitUntil(warmAllIndexes(env.IMAGES_BUCKET).catch(e => console.error("Warmup Error:", e)));
+        }
 
         let response;
         try {
