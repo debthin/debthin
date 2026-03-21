@@ -59,6 +59,7 @@ export function LRUCache(maxSlots, maxSize, ttlMs = 3600000) {
 
   return {
     ttl: ttlMs,
+    pending: new Map(),
     add: (key, buf, meta, now, pinned = false) => {
       let slot = index.get(key);
       if (slot !== undefined) {
@@ -130,6 +131,7 @@ export function LRUCache(maxSlots, maxSize, ttlMs = 3600000) {
         size = 0;
         freeSlot = 0;
         clock = 0;
+        // Do not clear the pending map during purge, to prevent crashing concurrent flights.
       }
     },
     getStats: () => ({ items: index.size, bytes: size, limit: maxSize })

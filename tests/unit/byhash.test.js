@@ -17,8 +17,8 @@ test('r2/warmRamCacheFromRelease evaluates SHA256 indices', () => {
   
   const distroIndex = _hashIndexes.get('debian');
   assert.ok(distroIndex !== undefined, 'Distro index should be created');
-  assert.equal(distroIndex['e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'], 'bookworm/main/binary-amd64/Packages.gz');
-  assert.equal(distroIndex['761aa55eb09fedd08dd85ba46a7ece43e59503464522971239aaed2d03cc094e'], 'bookworm/contrib/binary-amd64/Packages.gz');
+  assert.equal(distroIndex['e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'], 'main/binary-amd64/Packages.gz');
+  assert.equal(distroIndex['761aa55eb09fedd08dd85ba46a7ece43e59503464522971239aaed2d03cc094e'], 'contrib/binary-amd64/Packages.gz');
   
   // It shouldn't map non .gz files according to limits logic
   assert.equal(distroIndex['46d6b633fb01bc43fb2764f691605dcabdeecacae21f37eaf9be3babb43202e1'], undefined);
@@ -38,7 +38,7 @@ test('handlers/handleByHash routes valid indexes dynamically', async () => {
   const env = {
     DEBTHIN_BUCKET: {
       get: async (key) => {
-        if (key === 'dists/debian/bookworm/contrib/binary-amd64/Packages.gz') {
+        if (key === 'dists/debian/contrib/binary-amd64/Packages.gz') {
            return {
              body: new ArrayBuffer(5),
              arrayBuffer: async () => new ArrayBuffer(5),

@@ -32,7 +32,7 @@ test('r2/isNotModified Last-Modified bounds', () => {
 
 import { warmRamCacheFromRelease, _hashIndexes } from '../../worker/debthin/indexes.js';
 
-test('r2/warmRamCacheFromRelease - hashes only Packages.gz', () => {
+test('r2/warmRamCacheFromRelease - hashes components mapping securely', () => {
   const mockParams = "\nSHA256:\n" +
     " ac39ce295e2578367767006b7a1ef7728a4ba747707aacec48a30d843fe1ecaf 1234 main/binary-amd64/Packages.gz\n" +
     " b3a12ae12d5259e24143b202aecd675a094f91ab01bc9cb308dacd74285b5755 5678 main/Contents-amd64.gz\n" +
@@ -41,7 +41,7 @@ test('r2/warmRamCacheFromRelease - hashes only Packages.gz', () => {
   warmRamCacheFromRelease(mockParams, "dists/debian/bookworm", true);
   
   const idx = _hashIndexes.get("debian");
-  assert.ok(idx["ac39ce295e2578367767006b7a1ef7728a4ba747707aacec48a30d843fe1ecaf"], "Packages.gz should be hashed");
-  assert.equal(idx["b3a12ae12d5259e24143b202aecd675a094f91ab01bc9cb308dacd74285b5755"], undefined, "Contents-amd64.gz should NOT be hashed");
-  assert.equal(idx["c22d03bdd4c7619e1e39e73b4a7b9dfdf1cc1141ed9b10913fbcac58b3a943d0"], undefined, "Translation-en.gz should NOT be hashed");
+  assert.equal(idx["ac39ce295e2578367767006b7a1ef7728a4ba747707aacec48a30d843fe1ecaf"], "main/binary-amd64/Packages.gz", "Packages.gz should be hashed");
+  assert.equal(idx["b3a12ae12d5259e24143b202aecd675a094f91ab01bc9cb308dacd74285b5755"], "main/Contents-amd64.gz", "Contents-amd64.gz should be hashed directly without arbitrary package restrictions");
+  assert.equal(idx["c22d03bdd4c7619e1e39e73b4a7b9dfdf1cc1141ed9b10913fbcac58b3a943d0"], "main/i18n/Translation-en.gz", "Translation-en.gz should also be hashed generically via extension");
 });

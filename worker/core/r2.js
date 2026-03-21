@@ -12,12 +12,6 @@
 const _textDecoder = new TextDecoder();
 
 /**
- * Global flight tracker for active network block pulls masking internal parallel cache misses.
- * @type {Map<string, Promise>}
- */
-const _pendingGets = new Map();
-
-/**
  * Extends an ArrayBuffer with a unified property surface matching the standard Cloudflare Edge Response format. 
  * This permits local memory cache retrievals to behave exactly like remote R2 fetch objects when passed to serveR2.
  *
@@ -95,8 +89,8 @@ export async function r2Get(env, key, cache, ctx, { onDiskMiss } = {}) {
     return wrapCachedObject(cached.buf, cached.meta, true, cached.hits);
   }
 
-  if (_pendingGets.has(key)) {
-    try { await _pendingGets.get(key); } catch (e) { console.error(e.stack || e); }
+  if (cache.pending.has(key)) {
+    try { await cache.pending.get(key); } catch (e) { console.error(e.stack || e); }
     cached = cache.get(key);
     if (cached && (now - cached.addedAt <= cache.ttl)) {
       return wrapCachedObject(cached.buf, cached.meta, true, cached.hits);
@@ -149,14 +143,14 @@ export async function r2Get(env, key, cache, ctx, { onDiskMiss } = {}) {
     return wrapCachedObject(buf, meta, false, 0);
   })();
 
-  _pendingGets.set(key, fetchPromise);
+  cache.pending.set(key, fetchPromise);
 
   try {
     const result = await fetchPromise;
     return result;
   } finally {
-    if (_pendingGets.get(key) === fetchPromise) {
-      _pendingGets.delete(key);
+    if (cache.pending.get(key) === fetchPromise) {
+      cache.pending.delete(key);
     }
   }
 }

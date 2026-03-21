@@ -56,7 +56,6 @@ export function warmRamCacheFromRelease(payload, suiteRoot, forceReindex = false
   if (sectionIdx === -1) return;
 
   const distro = suiteRoot.split("/")[1];
-  const prefixLen = 6 + distro.length + 1; // "dists/" + distro + "/"
 
   if (forceReindex) {
     _hashIndexes.delete(distro);
@@ -83,9 +82,9 @@ export function warmRamCacheFromRelease(payload, suiteRoot, forceReindex = false
       if (!dataCache.has(`${suiteRoot}/${name}`)) dataCache.add(`${suiteRoot}/${name}`, new ArrayBuffer(0), { contentType: "text/plain; charset=utf-8" }, Date.now(), true);
     }
 
-    if (hash.length === 64 && name.endsWith("/Packages.gz")) {
+    if (hash.length === 64 && name.endsWith(".gz")) {
       if (!(distroIndex instanceof Promise)) {
-        distroIndex[hash] = suiteRoot.slice(prefixLen) + "/" + name;
+        distroIndex[hash] = name;
       }
     }
 

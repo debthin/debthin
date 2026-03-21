@@ -208,7 +208,7 @@ export async function handleDistributionHashIndex(request, env, ctx, distro, sui
   const { components, arches } = distroConfig;
 
   // Packages & Hashes (dists/debian/.../binary-amd64/...)
-  if (p3 && (components.has(p2) || p2 === "headless") && p3.startsWith("binary-") && arches.has(p3.slice(7))) {
+  if (p3 && components.has(p2) && p3.startsWith("binary-") && arches.has(p3.slice(7))) {
      const resp = await serveComponents(env, request, r2Key, p1, p2, p3, p4);
      if (resp) return resp;
   }
