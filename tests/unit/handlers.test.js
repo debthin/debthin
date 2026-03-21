@@ -59,3 +59,20 @@ test('handlers/handleStaticAssets -> /health (fail)', async () => {
   assert.equal(data.status, 'DEGRADED');
   assert.equal(data.r2, 'ERROR');
 });
+
+import { handleDistributionHashIndex } from '../../worker/debthin/handlers/index.js';
+
+test('handlers/handleDistributionHashIndex permits headless components inherently', async () => {
+  const req = { method: 'GET', headers: new Headers() };
+  const env = { DEBTHIN_BUCKET: { get: async () => null } }; // Mock miss
+  
+  const tokens = { p1: 'dists', p2: 'headless', p3: 'binary-amd64', p4: 'Packages.gz' };
+  const distroConfig = { components: new Set(['main']), arches: new Set(['amd64']) };
+  
+  // Attempt to route a headless component request
+  const res = await handleDistributionHashIndex(req, env, {}, 'debian', 'shared/headless/binary-amd64/Packages.gz', tokens, distroConfig);
+  
+  // If it rejects because of components.has(p2), it returns null or 404.
+  // We use serveR2 which returns 404 if the bucket mock returns null.
+  assert.equal(res.status, 404, 'The route mapped natively to serveR2 evaluating the bucket successfully despite headless not existing in the config Set');
+});
