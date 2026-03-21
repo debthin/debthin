@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import worker from '../../worker/proxy.js';
+import worker from '../../worker/proxy/index.js';
 
 test('proxy/Method Rejection (POST)', async () => {
   const req = new Request('https://debthin.org/dists/apt.grafana.com/stable/InRelease', { method: 'POST' });

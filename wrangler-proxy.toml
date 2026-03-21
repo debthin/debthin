@@ -1,5 +1,5 @@
 name = "debthin-proxy"
-main = "worker/proxy.js"
+main = "worker/proxy/index.js"
 compatibility_date = "2024-01-01"
 
 [[r2_buckets]]
