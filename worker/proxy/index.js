@@ -10,10 +10,10 @@
  * rewrites Filename fields, and proxies actual .deb downloads.
  */
 
-import { parseURL } from './core/utils.js';
-import { handleUpstreamRedirect } from './debthin/handlers/index.js';
-import { parseProxySuitePath } from './proxy/utils.js';
-import { handleProxyRepository } from './proxy/handlers/index.js';
+import { parseURL } from '../core/utils.js';
+import { handleUpstreamRedirect } from '../debthin/handlers/index.js';
+import { parseProxySuitePath } from './utils.js';
+import { handleProxyRepository } from './handlers/index.js';
 
 // ── Main Entry ───────────────────────────────────────────────────────────────
 

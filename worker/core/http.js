@@ -10,7 +10,7 @@
 import { r2Head, r2Get } from './r2.js';
 import { getContentType } from './utils.js';
 import { inReleaseToRelease } from '../debthin/utils.js';
-import { H_CACHED, H_IMMUTABLE } from '../debthin/constants.js';
+import { H_CACHED, H_IMMUTABLE } from './constants.js';
 
 const _textDecoder = new TextDecoder();
 

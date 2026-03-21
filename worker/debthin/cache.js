@@ -4,7 +4,7 @@
  */
 
 import { LRUCache } from '../core/cache.js';
-import { CACHE_TTL_MS } from './constants.js';
+import { CACHE_TTL_MS } from '../core/constants.js';
 
 export const metaCache = LRUCache(256, 4 * 1024 * 1024, CACHE_TTL_MS);
 export const dataCache = LRUCache(128, 92 * 1024 * 1024, CACHE_TTL_MS);

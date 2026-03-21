@@ -6,7 +6,7 @@ import { r2Get } from '../../core/r2.js';
 import { serveR2, isNotModified } from '../../core/http.js';
 import { getDistroIndex, setDistroIndex, getDistroIndexCount, warmRamCacheFromRelease } from '../indexes.js';
 import { isHex64 } from '../../core/utils.js';
-import { H_CACHED, H_IMMUTABLE, EMPTY_GZ, EMPTY_GZ_HASH, EMPTY_HASH } from '../constants.js';
+import { H_CACHED, H_IMMUTABLE, EMPTY_GZ, EMPTY_GZ_HASH, EMPTY_HASH } from '../../core/constants.js';
 import { getCacheStats, metaCache, dataCache } from '../cache.js';
 
 /**

@@ -1,5 +1,5 @@
 name = "debthin"
-main = "worker/index.js"
+main = "worker/debthin/index.js"
 compatibility_date = "2026-03-18"
 
 [[r2_buckets]]
