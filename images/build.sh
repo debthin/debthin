@@ -90,18 +90,10 @@ echo "$BUILD_MATRIX" | while read -r DISTRO SUITE ARCH; do
     mkdir -p "$OUT_DIR"
 
     # 3b. Dynamically Patch the YAML
-    # Inject the ASCII keyring natively as an in-memory YAML dump to bypass isolated 'sudo' host filesystem mount drops failing the copy generator
     YAML_RUN="${TMP_DIR}/current_build.yaml"
     
-    KEY_DUMP="${TMP_DIR}/key_dump"
-    echo "      content: |-" > "$KEY_DUMP"
-    sed "s/^/        /" "${REPO_ROOT}/static/debthin-keyring.gpg" >> "$KEY_DUMP"
-    
     sed "s/architecture: .*/architecture: \"${ARCH}\"/" "$YAML_SRC" | \
-    sed "s/lxc.arch = .*/lxc.arch = ${ARCH}/" | \
-    sed "s|generator: copy|generator: dump|g" | \
-    sed -e "/source: .*debthin-keyring/{r ${KEY_DUMP}" -e "d;}" | \
-    sed "s|/etc/apt/keyrings/debthin.gpg|/etc/apt/keyrings/debthin.asc|g" > "$YAML_RUN"
+    sed "s/lxc.arch = .*/lxc.arch = ${ARCH}/" > "$YAML_RUN"
 
     CACHE_DIR="${REPO_ROOT}/.cache/distrobuilder"
     mkdir -p "$CACHE_DIR"
@@ -110,15 +102,18 @@ echo "$BUILD_MATRIX" | while read -r DISTRO SUITE ARCH; do
     cd "$TMP_DIR" || exit 1
 
     # 3c. Run Distrobuilder
-    # Build Classic LXC format
-    sudo distrobuilder build-lxc "$YAML_RUN" "$OUT_DIR" --cache-dir="$CACHE_DIR"
+    # Build Classic LXC format redirecting stdout to cleanly mask child debootstrap spam out of terminal logs
+    sudo distrobuilder build-lxc "$YAML_RUN" "$OUT_DIR" --cache-dir="$CACHE_DIR" > /dev/null
     
     # Build Incus format
-    sudo distrobuilder build-incus "$YAML_RUN" "$OUT_DIR" --cache-dir="$CACHE_DIR"
+    sudo distrobuilder build-incus "$YAML_RUN" "$OUT_DIR" --cache-dir="$CACHE_DIR" > /dev/null
+
+    # Build standard Docker/Podman OCI image format dynamically
+    sudo distrobuilder pack-oci "$YAML_RUN" "${OUT_DIR}/oci.tar" --cache-dir="$CACHE_DIR" > /dev/null
 
     # 3d. Generate local hashes
     echo "Calculating SHA256 hashes..."
-    cd "$OUT_DIR"
+    cd "$OUT_DIR" || exit 1
     
     SHA_CMD="sha256sum"
     if ! command -v sha256sum >/dev/null 2>&1; then
@@ -126,7 +121,7 @@ echo "$BUILD_MATRIX" | while read -r DISTRO SUITE ARCH; do
     fi
     
     # Hash only physical bins organically protecting tests catching split builds safely
-    EXISTING_BINS=$(ls -1 rootfs.tar.xz meta.tar.xz incus.tar.xz rootfs.squashfs 2>/dev/null || true)
+    EXISTING_BINS=$(ls -1 rootfs.tar.xz meta.tar.xz incus.tar.xz rootfs.squashfs oci.tar 2>/dev/null || true)
     if [ -n "$EXISTING_BINS" ]; then
         # shellcheck disable=SC2086
         $SHA_CMD $EXISTING_BINS > hashes.txt
