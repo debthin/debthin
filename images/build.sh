@@ -90,13 +90,18 @@ echo "$BUILD_MATRIX" | while read -r DISTRO SUITE ARCH; do
     mkdir -p "$OUT_DIR"
 
     # 3b. Dynamically Patch the YAML
-    # We pipeline absolute path overrides and architectures safely against BSD loops
+    # Inject the ASCII keyring natively as an in-memory YAML dump to bypass isolated 'sudo' host filesystem mount drops failing the copy generator
     YAML_RUN="${TMP_DIR}/current_build.yaml"
-    GPG_KEY_PATH="${REPO_ROOT}/static/debthin-keyring-binary.gpg"
+    
+    KEY_DUMP="${TMP_DIR}/key_dump"
+    echo "      content: |-" > "$KEY_DUMP"
+    sed "s/^/        /" "${REPO_ROOT}/static/debthin-keyring.gpg" >> "$KEY_DUMP"
     
     sed "s/architecture: .*/architecture: \"${ARCH}\"/" "$YAML_SRC" | \
     sed "s/lxc.arch = .*/lxc.arch = ${ARCH}/" | \
-    sed "s|source: \.\/debthin-keyring-binary.gpg|source: ${GPG_KEY_PATH}|" > "$YAML_RUN"
+    sed "s|generator: copy|generator: dump|g" | \
+    sed -e "/source: .*debthin-keyring/{r ${KEY_DUMP}" -e "d;}" | \
+    sed "s|/etc/apt/keyrings/debthin.gpg|/etc/apt/keyrings/debthin.asc|g" > "$YAML_RUN"
 
     CACHE_DIR="${REPO_ROOT}/.cache/distrobuilder"
     mkdir -p "$CACHE_DIR"
