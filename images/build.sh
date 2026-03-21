@@ -107,11 +107,15 @@ echo "$BUILD_MATRIX" | while read -r DISTRO SUITE ARCH; do
     cd "$TMP_DIR" || exit 1
 
     # 3c. Run Distrobuilder
-    # Build Classic LXC format redirecting stdout to cleanly mask child debootstrap spam out of terminal logs
-    sudo distrobuilder build-lxc "$YAML_RUN" "$OUT_DIR" --cache-dir="$CACHE_DIR" > /dev/null
+    # Build core directory first cutting redundant debootstrap downloads directly
+    sudo distrobuilder build-dir "$YAML_RUN" "${OUT_DIR}/rootfs" --cache-dir="$CACHE_DIR"
     
-    # Build Incus format
-    sudo distrobuilder build-incus "$YAML_RUN" "$OUT_DIR" --cache-dir="$CACHE_DIR" > /dev/null
+    # Pack the isolated formats from the single rootfs
+    sudo distrobuilder pack-lxc "$YAML_RUN" "${OUT_DIR}/rootfs" "$OUT_DIR"
+    sudo distrobuilder pack-incus "$YAML_RUN" "${OUT_DIR}/rootfs" "$OUT_DIR"
+
+    # Cleanup the uncompressed staging directory securely
+    sudo rm -rf "${OUT_DIR}/rootfs"
 
     # 3d. Generate local hashes
     echo "Calculating SHA256 hashes..."
