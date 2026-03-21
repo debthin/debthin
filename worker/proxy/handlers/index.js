@@ -202,7 +202,7 @@ async function handleProxyPackages(request, env, ctx, parsed, blockKey) {
         // FAST 304 REVALIDATION natively! 
         // We write 5 bytes to *.meta rather than downloading and uploading a 10MB index!
         ctx.waitUntil(env.DEBTHIN_BUCKET.put(metaKey, "valid", { httpMetadata: { contentType: "text/plain" } }));
-        proxyMetaCache.purge(metaKey); // invalidate local tracker to sync edge network
+        proxyMetaCache.add(metaKey, new ArrayBuffer(5), { contentType: "text/plain", lastModified: Date.now() }, Date.now());
       }
     } else if (irResp.ok) {
       try {
@@ -245,8 +245,16 @@ export async function handleProxyRepository(request, env, ctx, parsed) {
 
   const blockKey = `proxy/${host}/${suite}/.blocklist`;
   const isBlocked = await r2Head(env, blockKey, proxyMetaCache);
-  if (isBlocked && Date.now() - isBlocked.lastModified < PROXY_CACHE_TTL_MS) {
-    return new Response("Not found (Upstream Blocked)\n", { status: 404 });
+
+  if (isBlocked) {
+    if (isBlocked.httpMetadata && isBlocked.httpMetadata.status === 404) {
+      // Safely bypasses latency limits mapping native negative resolutions
+    } else if (isBlocked.lastModified && Date.now() - isBlocked.lastModified < PROXY_CACHE_TTL_MS) {
+      return new Response("Not found (Upstream Blocked)\n", { status: 404 });
+    }
+  } else {
+    // Store negative blocklist checks securely locally preserving execution limits unconditionally!
+    proxyMetaCache.add(blockKey, new ArrayBuffer(0), { status: 404, lastModified: Date.now() }, Date.now());
   }
 
   if (type === "inrelease" || type === "release" || type === "arch-release") {
