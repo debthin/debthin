@@ -1,20 +1,15 @@
 /**
  * @fileoverview Cloudflare R2 bucket orchestrator.
- * Interfaces with the Bucket API bindings while managing the local metadata hydration flows and streaming transforms.
+ * Interfaces with the Bucket API bindings while managing the local metadata hydration flows.
+ * 
+ * Exports:
+ * - wrapCachedObject: Adapts raw ArrayBuffers natively matching the CF Edge runtime object interface.
+ * - r2Head: Lightweight upstream metadata validations mapped directly across runtime components.
+ * - r2Get: Orchestrates bucket extraction seamlessly binding to concurrent memory coalescence locks.
  */
 
-import { addToCache, getFromCache, hasInCache, updateCacheTTL, INDEX_TTL } from './cache.js';
-import { tokenizePath, getContentType, inReleaseToRelease } from './utils.js';
-import { H_CACHED, H_IMMUTABLE, EMPTY_GZ_HASH, EMPTY_GZ, EMPTY_HASH } from './constants.js';
 
 const _textDecoder = new TextDecoder();
-
-/**
- * Lazily populated index map caching upstream file architectures. 
- * Enables the worker to selectively bypass R2 lookups for by-hash target queries.
- * @type {Map<string, Object|Promise>}
- */
-export const _hashIndexes = new Map();
 
 /**
  * Global flight tracker for active network block pulls masking internal parallel cache misses.
@@ -54,14 +49,14 @@ export function wrapCachedObject(arrayBuffer, meta, isCached = false, hits = 0) 
  * @param {string} key - R2 destination file path limit.
  * @returns {Promise<Object|null>} Wrapper exposing ETag and lastModified data values.
  */
-export async function r2Head(env, key) {
+export async function r2Head(env, key, cache) {
   const now = Date.now();
-  let cached = getFromCache(key);
-  if (cached && (now - cached.addedAt > INDEX_TTL)) {
+  let cached = cache.get(key);
+  if (cached && (now - cached.addedAt > cache.ttl)) {
     const obj = await env.DEBTHIN_BUCKET.head(key);
     if (!obj) return null;
     if (obj.etag === cached.meta.etag) {
-      updateCacheTTL(key, now);
+      cache.updateTTL(key, now);
       return wrapCachedObject(new ArrayBuffer(0), cached.meta, true, cached.hits);
     }
     const meta = obj.httpMetadata || {};
@@ -86,13 +81,15 @@ export async function r2Head(env, key) {
  *
  * @param {Object} env - The Cloudflare worker bindings granting access to DEBTHIN_BUCKET.
  * @param {string} key - The exact file path being requested from the upstream repository.
- * @param {Object} ctx - The worker execution context used to push cache hydration into the background.
+ * @param {Object} [ctx] - The worker execution context used to push cache hydration into the background.
+ * @param {Object} [options] - Injectable callbacks.
+ * @param {Function} [options.onDiskMiss] - Hook to notify the orchestrator of cache updates.
  * @returns {Promise<Object|null>} An object matching the physical interface of an edge response payload.
  */
-export async function r2Get(env, key, ctx) {
+export async function r2Get(env, key, cache, ctx, { onDiskMiss } = {}) {
   const now = Date.now();
-  let cached = getFromCache(key);
-  const expired = cached && (now - cached.addedAt > INDEX_TTL);
+  let cached = cache.get(key);
+  const expired = cached && (now - cached.addedAt > cache.ttl);
 
   if (cached && !expired) {
     return wrapCachedObject(cached.buf, cached.meta, true, cached.hits);
@@ -100,8 +97,8 @@ export async function r2Get(env, key, ctx) {
 
   if (_pendingGets.has(key)) {
     try { await _pendingGets.get(key); } catch (e) { console.error(e.stack || e); }
-    cached = getFromCache(key);
-    if (cached && (now - cached.addedAt <= INDEX_TTL)) {
+    cached = cache.get(key);
+    if (cached && (now - cached.addedAt <= cache.ttl)) {
       return wrapCachedObject(cached.buf, cached.meta, true, cached.hits);
     }
   }
@@ -113,11 +110,10 @@ export async function r2Get(env, key, ctx) {
     if (!obj) return null;
 
     if (!obj.body) {
-      updateCacheTTL(key, now);
+      cache.updateTTL(key, now);
       return wrapCachedObject(cached.buf, cached.meta, true, cached.hits);
     }
 
-    const forceReindex = expired;
     const meta = obj.httpMetadata || {};
     meta.etag = obj.etag;
     meta.lastModified = obj.uploaded ? Math.floor(obj.uploaded.getTime() / 1000) * 1000 : null;
@@ -137,27 +133,19 @@ export async function r2Get(env, key, ctx) {
     }
 
     const buf = await obj.arrayBuffer();
-    addToCache(key, buf, meta, now);
+    cache.add(key, buf, meta, now);
 
-    const isRelease = key.endsWith("InRelease") || key.endsWith("Release") || key.endsWith("Release.gpg");
-    if (isRelease) {
-      const { p0, p1, p2 } = tokenizePath(key);
-      if (p0 === "dists" && p1 && p2) {
-        const distroIndex = _hashIndexes.get(p1);
-        if (!distroIndex || forceReindex) {
-          const text = _textDecoder.decode(buf);
-          const suiteRoot = `${p0}/${p1}/${p2}`;
-          if (ctx) {
-            ctx.waitUntil(new Promise(resolve => setTimeout(() => {
-              try { warmRamCacheFromRelease(text, suiteRoot, forceReindex); } catch (e) { console.error(e.stack || e); }
-              resolve();
-            }, 0)));
-          } else {
-            warmRamCacheFromRelease(text, suiteRoot, forceReindex);
-          }
-        }
+    if (onDiskMiss) {
+      if (ctx && ctx.waitUntil) {
+        ctx.waitUntil(new Promise(resolve => setTimeout(() => {
+          try { onDiskMiss(buf, expired); } catch (e) { console.error(e.stack || e); }
+          resolve();
+        }, 0)));
+      } else {
+        onDiskMiss(buf, expired);
       }
     }
+
     return wrapCachedObject(buf, meta, false, 0);
   })();
 
@@ -171,137 +159,4 @@ export async function r2Get(env, key, ctx) {
       _pendingGets.delete(key);
     }
   }
-}
-
-/**
- * Parses a textual Debian Release manifest to locate the SHA256 checksum segment.
- * Iterates over each line block building memory map references correlating checksum signatures to target filenames.
- *
- * @param {string} text - Raw Release manifest payload text values.
- * @param {string} suiteRoot - Active directory base reference limit bindings.
- * @param {boolean} [forceReindex=false] - Triggers deletion of the directory mapping values.
- */
-export function warmRamCacheFromRelease(text, suiteRoot, forceReindex = false) {
-  const sectionIdx = text.indexOf("\nSHA256:");
-  if (sectionIdx === -1) return;
-
-  const distro = suiteRoot.split("/")[1];
-  const prefixLen = 6 + distro.length + 1;
-
-  if (forceReindex) {
-    _hashIndexes.delete(distro);
-  }
-
-  let distroIndex = _hashIndexes.get(distro);
-  if (!distroIndex) {
-    distroIndex = {};
-    _hashIndexes.set(distro, distroIndex);
-  }
-
-  let pos = text.indexOf("\n", sectionIdx + 1) + 1;
-  while (pos > 0 && pos < text.length && text.charCodeAt(pos) === 32) {
-    const lineEnd = text.indexOf("\n", pos);
-    const line = lineEnd === -1 ? text.slice(pos) : text.slice(pos, lineEnd);
-    const s1 = line.indexOf(" ", 1);
-    const s2 = line.indexOf(" ", s1 + 1);
-    const hash = line.slice(1, s1);
-    const name = line.slice(s2 + 1);
-
-    if (hash === EMPTY_GZ_HASH) {
-      if (!hasInCache(`${suiteRoot}/${name}`)) addToCache(`${suiteRoot}/${name}`, EMPTY_GZ, { contentType: "application/x-gzip" }, Date.now(), true);
-    } else if (hash === EMPTY_HASH) {
-      if (!hasInCache(`${suiteRoot}/${name}`)) addToCache(`${suiteRoot}/${name}`, new ArrayBuffer(0), { contentType: "text/plain; charset=utf-8" }, Date.now(), true);
-    }
-
-    if (hash.length === 64 && name.endsWith("/Packages.gz")) {
-      if (!(distroIndex instanceof Promise)) {
-        distroIndex[hash] = suiteRoot.slice(prefixLen) + "/" + name;
-      }
-    }
-
-    pos = lineEnd === -1 ? text.length : lineEnd + 1;
-  }
-}
-
-/**
- * Compares the HTTP `If-None-Match` and `If-Modified-Since` client headers against the currently valid source cache parameters.
- * Permits the worker API to yield 304 results for existing client caches immediately.
- *
- * @param {Headers} requestHeaders - Inbound HTTP request headers containing If-None-Match or If-Modified-Since.
- * @param {Object} obj - The hydrated metadata representation pulled from the bucket or local memory.
- * @returns {boolean} Returns true if the client cache dictates skipping a full payload transfer.
- */
-export function isNotModified(requestHeaders, obj) {
-  const reqEtag = requestHeaders.get("if-none-match");
-  if (reqEtag) {
-    const cleanReq = reqEtag.replace(/^W\//, '').replace(/"/g, '');
-    const cleanObj = obj.etag ? obj.etag.replace(/^W\//, '').replace(/"/g, '') : "";
-    return reqEtag === "*" || cleanReq === cleanObj;
-  }
-
-  const reqIms = requestHeaders.get("if-modified-since");
-  if (reqIms && obj.lastModified) {
-    const clientDate = Date.parse(reqIms);
-    return !isNaN(clientDate) && obj.lastModified <= clientDate;
-  }
-  return false;
-}
-
-/**
- * Serves an R2 object over HTTP.
- *
- * @param {Object} env - The Cloudflare worker bindings granting access to DEBTHIN_BUCKET.
- * @param {Request} request - The original inbound HTTP request object.
- * @param {string} key - The bucket path to fetch.
- * @param {Object} [options] - Optional transform configurations like 'decompress' or 'strip-pgp'.
- * @returns {Promise<Response>} A fully formed HTTP Response ready for the client socket.
- */
-export async function serveR2(env, request, key, { transform, fetchKey, ctx, immutable } = {}) {
-  const isHead = request.method === "HEAD";
-  const obj = isHead && !transform ? await r2Head(env, fetchKey ?? key) : await r2Get(env, fetchKey ?? key, ctx);
-  if (!obj) return new Response("Not found\n", { status: 404, headers: { ...H_CACHED, "X-Cache": "MISS" } });
-
-  const base = immutable ? H_IMMUTABLE : H_CACHED;
-  const h = {
-    ...base,
-    "X-Debthin": obj.isCached ? "hit-isolate-cache" : "hit",
-    "X-Cache": obj.isCached ? "HIT" : "MISS",
-    "X-Cache-Hits": obj.hits.toString(),
-  };
-  if (obj.etag) h["ETag"] = obj.etag;
-  if (obj.lastModified) h["Last-Modified"] = new Date(obj.lastModified).toUTCString();
-  if (isHead && obj.isCached) h["Content-Length"] = obj.contentLength.toString();
-
-  h["Content-Type"] = (transform === "strip-pgp" || transform === "decompress") 
-    ? "text/plain; charset=utf-8" 
-    : (obj.httpMetadata?.contentType || getContentType(key));
-
-  if (isNotModified(request.headers, obj)) {
-    return new Response(null, { status: 304, headers: h });
-  }
-
-  if (transform === "strip-pgp") {
-    h["X-Debthin"] = "hit-derived";
-    delete h["ETag"];
-    return new Response(inReleaseToRelease(await obj.text()), { headers: h });
-  }
-
-  if (transform === "decompress") {
-    const acceptsGzip = request.headers.get("accept-encoding")?.includes("gzip");
-    if (acceptsGzip) {
-      h["X-Debthin"] = "hit-decomp-bypassed";
-      h["Content-Encoding"] = "gzip";
-      return new Response(obj.body, { headers: h });
-    }
-
-    h["X-Debthin"] = "hit-decomp";
-    if (!obj.body) return new Response("", { headers: h });
-
-    const ds = new DecompressionStream("gzip");
-    const stream = obj.body instanceof ReadableStream ? obj.body : new Response(obj.body).body;
-    const decompressed = stream.pipeThrough(ds);
-    return new Response(decompressed, { headers: h });
-  }
-
-  return new Response(obj.body, { headers: h });
 }

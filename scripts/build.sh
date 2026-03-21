@@ -246,7 +246,7 @@ while read -r distro suite; do
         if [[ ${#inputs[@]} -gt 0 ]]; then
             out_file="dist_output/dists/$distro/$suite/headless/$bin_arch/Packages.gz"
             
-            local needs_head=0
+            needs_head=0
             if [[ ! -f "$out_file" ]]; then
                 needs_head=1
             elif [[ "scripts/merge_packages.py" -nt "$out_file" ]]; then

@@ -1,5 +1,5 @@
-import { tokenizePath, parseURL } from './core/utils.js';
-import { handleStaticAssets, handleUpstreamRedirect, handleDistributionHashIndex } from './handlers/index.js';
+import { parseURL, tokenizePath } from './core/utils.js';
+import { handleStaticAssets, handleUpstreamRedirect, handleDistributionHashIndex } from './debthin/handlers/index.js';
 import { DERIVED_CONFIG, CONFIG_JSON_STRING } from './core/config.js';
 
 // ── Main Entry ───────────────────────────────────────────────────────────────

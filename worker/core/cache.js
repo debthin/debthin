@@ -1,9 +1,12 @@
 /**
  * @fileoverview TypedArray LRU isolate cache.
- * Splits allocations distinctly into Meta (thousands of tiny index files) and Data (chunky Packages.gz binaries).
+ * Provides contiguous high-performance RAM boundaries minimizing V8 garbage collection overheads natively.
+ * 
+ * Exports:
+ * - LRUCache: Mathematical struct abstraction operating flat Arrays for maximum eviction speed.
  */
 
-export const INDEX_TTL = 3600000;
+
 
 /**
  * Why a Uint32Array (Clock-based arrays) instead of a Doubly-Linked List?
@@ -14,16 +17,16 @@ export const INDEX_TTL = 3600000;
  * performance by completely bypassing memory indirection and object instantiation, 
  * despite being O(N) theoretically rather than O(1).
  */
-function createCache(maxSlots, maxSize) {
+export function LRUCache(maxSlots, maxSize, ttlMs = 3600000) {
   const index = new Map();
-  const bufArray = new Array(maxSlots).fill(null);
-  const metaArray = new Array(maxSlots).fill(null);
-  const keyArray = new Array(maxSlots).fill(null);
-  const hitsArray = new Int32Array(maxSlots);
-  const usedArray = new Uint32Array(maxSlots);
-  const bytesArray = new Int32Array(maxSlots);
-  const addedArray = new Float64Array(maxSlots);
-  const pinnedArray = new Uint8Array(maxSlots);
+  let bufArray = new Array(maxSlots).fill(null);
+  let metaArray = new Array(maxSlots).fill(null);
+  let keyArray = new Array(maxSlots).fill(null);
+  let hitsArray = new Int32Array(maxSlots);
+  let usedArray = new Uint32Array(maxSlots);
+  let bytesArray = new Int32Array(maxSlots);
+  let addedArray = new Float64Array(maxSlots);
+  let pinnedArray = new Uint8Array(maxSlots);
 
   let clock = 0;
   let size = 0;
@@ -55,6 +58,7 @@ function createCache(maxSlots, maxSize) {
   }
 
   return {
+    ttl: ttlMs,
     add: (key, buf, meta, now, pinned = false) => {
       let slot = index.get(key);
       if (slot !== undefined) {
@@ -63,7 +67,11 @@ function createCache(maxSlots, maxSize) {
         if (freeSlot < maxSlots) {
           slot = freeSlot++;
         } else {
-          slot = evict();
+          slot = -1;
+          for (let i = 0; i < maxSlots; i++) {
+            if (keyArray[i] === null) { slot = i; break; }
+          }
+          if (slot === -1) slot = evict();
           if (slot === -1) return; // Cache is completely full of pinned items, abort gracefully
         }
         index.set(key, slot);
@@ -94,38 +102,37 @@ function createCache(maxSlots, maxSize) {
       const slot = index.get(key);
       if (slot !== undefined) addedArray[slot] = now;
     },
+    purge: (key) => {
+      if (key !== undefined) {
+        const slot = index.get(key);
+        if (slot !== undefined) {
+          index.delete(key);
+          size -= bytesArray[slot];
+          bufArray[slot] = null;
+          metaArray[slot] = null;
+          keyArray[slot] = null;
+          hitsArray[slot] = 0;
+          usedArray[slot] = 0;
+          bytesArray[slot] = 0;
+          addedArray[slot] = 0;
+          pinnedArray[slot] = 0;
+        }
+      } else {
+        index.clear();
+        bufArray = new Array(maxSlots).fill(null);
+        metaArray = new Array(maxSlots).fill(null);
+        keyArray = new Array(maxSlots).fill(null);
+        hitsArray = new Int32Array(maxSlots);
+        usedArray = new Uint32Array(maxSlots);
+        bytesArray = new Int32Array(maxSlots);
+        addedArray = new Float64Array(maxSlots);
+        pinnedArray = new Uint8Array(maxSlots);
+        size = 0;
+        freeSlot = 0;
+        clock = 0;
+      }
+    },
     getStats: () => ({ items: index.size, bytes: size, limit: maxSize })
   };
 }
 
-const metaCache = createCache(256, 4 * 1024 * 1024);
-const dataCache = createCache(128, 92 * 1024 * 1024);
-
-function selectCache(key) {
-  return key.includes('Packages') ? dataCache : metaCache;
-}
-
-export function addToCache(key, buf, meta, now, pinned = false) {
-  selectCache(key).add(key, buf, meta, now, pinned);
-}
-
-export function getFromCache(key) {
-  return selectCache(key).get(key);
-}
-
-export function updateCacheTTL(key, now) {
-  selectCache(key).updateTTL(key, now);
-}
-
-export function hasInCache(key) {
-  return selectCache(key).has(key);
-}
-
-export function getCacheStats() {
-  const m = metaCache.getStats();
-  const d = dataCache.getStats();
-  return { 
-    metaItems: m.items, metaBytes: m.bytes,
-    dataItems: d.items, dataBytes: d.bytes 
-  };
-}

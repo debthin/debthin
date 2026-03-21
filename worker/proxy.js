@@ -11,7 +11,7 @@
  */
 
 import { parseURL } from './core/utils.js';
-import { handleUpstreamRedirect } from './handlers/index.js';
+import { handleUpstreamRedirect } from './debthin/handlers/index.js';
 import { parseProxySuitePath } from './proxy/utils.js';
 import { handleProxyRepository } from './proxy/handlers/index.js';
 
@@ -24,7 +24,7 @@ import { handleProxyRepository } from './proxy/handlers/index.js';
  * @param {Request} request - The inbound HTTP request.
  * @param {Object} env - Cloudflare environment bindings.
  * @param {Object} ctx - Worker execution context for waitUntil jobs.
- * @returns {Promise<Response>} The evaluated HTTP Response resolving proxy execution commands safely securely.
+ * @returns {Promise<Response>} The evaluated HTTP Response resolving proxy execution commands.
  */
 async function handleRequest(request, env, ctx) {
   // Reject unsupported HTTP methods and query strings

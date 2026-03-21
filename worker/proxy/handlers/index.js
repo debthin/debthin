@@ -3,9 +3,11 @@
  * Distributes endpoint traffic across logically split metadata and packaging targets.
  */
 
-import { serveR2, r2Head } from '../../core/r2.js';
+import { r2Head } from '../../core/r2.js';
+import { serveR2 } from '../../core/http.js';
 import { extractInReleaseHash, verifyHash, proxyCacheBase } from '../utils.js';
 import { parsePackages, reduceToLatest, filterPackages, serializePackages, reduceStreamToLatest } from '../packages.js';
+import { metaCache, dataCache } from '../../debthin/cache.js';
 
 const PROXY_CACHE_TTL_MS = 60 * 60 * 1000;
 const CACHE_HEADERS = { "Cache-Control": "public, max-age=3600" };
@@ -30,7 +32,7 @@ async function handleProxyMetadata(request, env, ctx, parsed, blockKey) {
     ? proxyCacheBase(host, suite, component, pin, arch) + "/Release"
     : `proxy/${host}/${suite}/${type === "inrelease" ? "InRelease" : "Release"}`;
 
-  const obj = await r2Head(env, cacheKey);
+  const obj = await r2Head(env, cacheKey, metaCache);
   const fresh = obj && obj.lastModified && (Date.now() - obj.lastModified < PROXY_CACHE_TTL_MS);
 
   if (!fresh) {
@@ -70,7 +72,7 @@ async function handleProxyMetadata(request, env, ctx, parsed, blockKey) {
     return new Response(body, { headers: { ...meta, ...CACHE_HEADERS, "X-Debthin": "proxy-release" } });
   }
 
-  return serveR2(env, request, cacheKey, { ctx });
+  return serveR2(env, request, cacheKey, metaCache, { ctx });
 }
 
 /**
@@ -81,7 +83,7 @@ async function handleProxyPackages(request, env, ctx, parsed, blockKey) {
   const cacheBase = proxyCacheBase(host, suite, component, pin, arch);
   const cacheKey = `${cacheBase}/Packages.gz`;
 
-  const obj = await r2Head(env, cacheKey);
+  const obj = await r2Head(env, cacheKey, dataCache);
   const fresh = obj && obj.lastModified && (Date.now() - obj.lastModified < PROXY_CACHE_TTL_MS);
 
   if (!fresh) {
@@ -122,7 +124,7 @@ async function handleProxyPackages(request, env, ctx, parsed, blockKey) {
         pkgResp = await fetch(`https://${host}${pkgUrl}`);
         if (!pkgResp.ok) pkgResp = await fetch(`http://${host}${pkgUrl}`);
       } catch (e) {
-        // DNS trapped securely
+        // DNS trapped
       }
 
       if (!pkgResp || !pkgResp.ok) {
@@ -190,7 +192,7 @@ async function handleProxyPackages(request, env, ctx, parsed, blockKey) {
     }
   }
 
-  return serveR2(env, request, cacheKey, { ctx, transform: gz ? undefined : "decompress" });
+  return serveR2(env, request, cacheKey, dataCache, { ctx, transform: gz ? undefined : "decompress" });
 }
 
 /**
@@ -204,7 +206,7 @@ export async function handleProxyRepository(request, env, ctx, parsed) {
   }
 
   const blockKey = `proxy/${host}/${suite}/.blocklist`;
-  const isBlocked = await r2Head(env, blockKey);
+  const isBlocked = await r2Head(env, blockKey, metaCache);
   if (isBlocked && Date.now() - isBlocked.lastModified < PROXY_CACHE_TTL_MS) {
     return new Response("Not found (Upstream Blocked)\n", { status: 404 });
   }
