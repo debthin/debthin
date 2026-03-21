@@ -9,7 +9,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 CONFIG_FILE="${REPO_ROOT}/config.json"
-TEMPLATE_DIR="${REPO_ROOT}/yaml-templates"
+TEMPLATE_DIR="${REPO_ROOT}/images/yaml-templates"
 OUTPUT_BASE="${REPO_ROOT}/images_output/images"
 TMP_DIR="${REPO_ROOT}/.build_tmp"
 
@@ -60,11 +60,6 @@ BUILD_MATRIX=$(jq -r '
 mkdir -p "$TMP_DIR"
 cd "$REPO_ROOT" || exit 1
 
-# Provide the binary keyring into the TMP isolate so YAML `./` paths resolve cleanly organically!
-if [ -f "static/debthin-keyring-binary.gpg" ]; then
-    cp "static/debthin-keyring-binary.gpg" "$TMP_DIR/debthin-keyring-binary.gpg"
-fi
-
 echo "$BUILD_MATRIX" | while read -r DISTRO SUITE ARCH; do
     
     # 3a. The Guardrail: Check if a template actually exists
@@ -95,11 +90,13 @@ echo "$BUILD_MATRIX" | while read -r DISTRO SUITE ARCH; do
     mkdir -p "$OUT_DIR"
 
     # 3b. Dynamically Patch the YAML
-    # We copy the base template to a temp file and swap the architecture values safely (supporting BSD and GNU sed)
+    # We pipeline absolute path overrides and architectures safely against BSD loops
     YAML_RUN="${TMP_DIR}/current_build.yaml"
-    sed "s/architecture: .*/architecture: \"${ARCH}\"/" "$YAML_SRC" > "${YAML_RUN}.tmp"
-    sed "s/lxc.arch = .*/lxc.arch = ${ARCH}/" "${YAML_RUN}.tmp" > "$YAML_RUN"
-    rm -f "${YAML_RUN}.tmp"
+    GPG_KEY_PATH="${REPO_ROOT}/static/debthin-keyring-binary.gpg"
+    
+    sed "s/architecture: .*/architecture: \"${ARCH}\"/" "$YAML_SRC" | \
+    sed "s/lxc.arch = .*/lxc.arch = ${ARCH}/" | \
+    sed "s|source: \.\/debthin-keyring-binary.gpg|source: ${GPG_KEY_PATH}|" > "$YAML_RUN"
 
     CACHE_DIR="${REPO_ROOT}/.cache/distrobuilder"
     mkdir -p "$CACHE_DIR"
