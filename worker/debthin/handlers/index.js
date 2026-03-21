@@ -45,11 +45,11 @@ export async function handleStaticAssets(rawPath, env, request, CONFIG_JSON_STRI
   if (rawPath === "health") {
     let r2 = "OK";
     try { await env.DEBTHIN_BUCKET.head("healthcheck-ping"); } catch (e) { r2 = "ERROR"; }
-    const stats = { 
-      status: r2 === "OK" ? "OK" : "DEGRADED", 
-      r2, 
-      cache: { ...getCacheStats(), distributions: getDistroIndexCount() }, 
-      time: Date.now() 
+    const stats = {
+      status: r2 === "OK" ? "OK" : "DEGRADED",
+      r2,
+      cache: { ...getCacheStats(), distributions: getDistroIndexCount() },
+      time: Date.now()
     };
     const hh = new Headers({ "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store", "X-Debthin": "hit-synthetic" });
     return new Response(JSON.stringify(stats, null, 2) + "\n", { headers: hh, status: r2 === "OK" ? 200 : 503 });
@@ -138,22 +138,23 @@ export async function handleByHash(request, env, ctx, distro, sha256) {
  * @returns {Promise<Response|null>} Processed route or null.
  */
 async function serveManifests(env, request, r2Key, p2, ctx) {
-    if (p2 === "InRelease" || p2 === "Release.gpg") {
-      return serveR2(env, request, r2Key, metaCache, { 
-        ctx, 
-        onDiskMiss: (buf, force) => warmRamCacheFromRelease(buf, r2Key, force) 
-      });
-    }
-    if (p2 === "Release") {
-      const fetchKey = r2Key.replace("Release", "InRelease");
-      return serveR2(env, request, r2Key, metaCache, { 
-        fetchKey, 
-        transform: "strip-pgp", 
-        ctx, 
-        onDiskMiss: (buf, force) => warmRamCacheFromRelease(buf, fetchKey, force) 
-      });
-    }
-    return null;
+  const suiteDir = r2Key.slice(0, r2Key.lastIndexOf("/"));
+  if (p2 === "InRelease" || p2 === "Release.gpg") {
+    return serveR2(env, request, r2Key, metaCache, {
+      ctx,
+      onDiskMiss: (buf, force) => warmRamCacheFromRelease(buf, suiteDir, force)
+    });
+  }
+  if (p2 === "Release") {
+    const fetchKey = r2Key.replace("Release", "InRelease");
+    return serveR2(env, request, r2Key, metaCache, {
+      fetchKey,
+      transform: "strip-pgp",
+      ctx,
+      onDiskMiss: (buf, force) => warmRamCacheFromRelease(buf, suiteDir, force)
+    });
+  }
+  return null;
 }
 
 /**
@@ -169,21 +170,21 @@ async function serveManifests(env, request, r2Key, p2, ctx) {
  * @returns {Promise<Response|null>} Processed route or null.
  */
 async function serveComponents(env, request, r2Key, p1, p2, p3, p4) {
-    if (p4 === "Release") {
-      const hbr = new Headers(H_CACHED);
-      hbr.set("Content-Type", "text/plain; charset=utf-8");
-      hbr.set("X-Debthin", "hit-generated");
-      hbr.set("X-Cache", "HIT");
-      hbr.set("X-Cache-Hits", "0");
-      return new Response(`Archive: ${p1}\nComponent: ${p2}\nArchitecture: ${p3.slice(7)}\n`, { headers: hbr });
-    }
-    if (p4 === "Packages") {
-      return serveR2(env, request, r2Key, dataCache, { fetchKey: r2Key + ".gz", transform: "decompress" });
-    }
-    if (p4 === "Packages.gz" || p4 === "Packages.lz4" || p4 === "Packages.xz") {
-      return serveR2(env, request, r2Key, dataCache);
-    }
-    return null;
+  if (p4 === "Release") {
+    const hbr = new Headers(H_CACHED);
+    hbr.set("Content-Type", "text/plain; charset=utf-8");
+    hbr.set("X-Debthin", "hit-generated");
+    hbr.set("X-Cache", "HIT");
+    hbr.set("X-Cache-Hits", "0");
+    return new Response(`Archive: ${p1}\nComponent: ${p2}\nArchitecture: ${p3.slice(7)}\n`, { headers: hbr });
+  }
+  if (p4 === "Packages") {
+    return serveR2(env, request, r2Key, dataCache, { fetchKey: r2Key + ".gz", transform: "decompress" });
+  }
+  if (p4 === "Packages.gz" || p4 === "Packages.lz4" || p4 === "Packages.xz") {
+    return serveR2(env, request, r2Key, dataCache);
+  }
+  return null;
 }
 
 /**
@@ -209,8 +210,8 @@ export async function handleDistributionHashIndex(request, env, ctx, distro, sui
 
   // Packages & Hashes (dists/debian/.../binary-amd64/...)
   if (p3 && (components.has(p2) || p2 === "headless") && p3.startsWith("binary-") && arches.has(p3.slice(7))) {
-     const resp = await serveComponents(env, request, r2Key, p1, p2, p3, p4);
-     if (resp) return resp;
+    const resp = await serveComponents(env, request, r2Key, p1, p2, p3, p4);
+    if (resp) return resp;
   }
 
   const byHashIdx = suitePath.indexOf("/by-hash/SHA256/");
