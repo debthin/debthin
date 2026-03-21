@@ -6,8 +6,8 @@
 import { r2Head } from '../../core/r2.js';
 import { serveR2 } from '../../core/http.js';
 import { extractInReleaseHash, verifyHash, proxyCacheBase } from '../utils.js';
-import { parsePackages, reduceToLatest, filterPackages, serializePackages, reduceStreamToLatest } from '../packages.js';
-import { metaCache, dataCache } from '../../debthin/cache.js';
+import { filterPackages, serializePackages, reduceStreamToLatest } from '../packages.js';
+import { proxyMetaCache, proxyDataCache } from '../cache.js';
 
 const PROXY_CACHE_TTL_MS = 60 * 60 * 1000;
 const CACHE_HEADERS = { "Cache-Control": "public, max-age=3600" };
@@ -32,17 +32,21 @@ async function handleProxyMetadata(request, env, ctx, parsed, blockKey) {
     ? proxyCacheBase(host, suite, component, pin, arch) + "/Release"
     : `proxy/${host}/${suite}/${type === "inrelease" ? "InRelease" : "Release"}`;
 
-  const obj = await r2Head(env, cacheKey, metaCache);
+  const obj = await r2Head(env, cacheKey, proxyMetaCache);
   const fresh = obj && obj.lastModified && (Date.now() - obj.lastModified < PROXY_CACHE_TTL_MS);
 
   if (!fresh) {
     let up = false;
     try {
-      if ((await fetch(`https://${host}/dists/${suite}/InRelease`, { method: "HEAD" })).ok) up = true;
-      else if ((await fetch(`https://${host}/dists/${suite}/Release`, { method: "HEAD" })).ok) up = true;
-      else if ((await fetch(`http://${host}/dists/${suite}/InRelease`, { method: "HEAD" })).ok) up = true;
+      // Execute HEAD probes concurrently, resolving immediately on the first success
+      await Promise.any([
+        fetch(`https://${host}/dists/${suite}/InRelease`, { method: "HEAD" }).then(r => r.ok ? r : Promise.reject()),
+        fetch(`https://${host}/dists/${suite}/Release`, { method: "HEAD" }).then(r => r.ok ? r : Promise.reject()),
+        fetch(`http://${host}/dists/${suite}/InRelease`, { method: "HEAD" }).then(r => r.ok ? r : Promise.reject())
+      ]);
+      up = true;
     } catch (e) {
-      // DNS/network exception cleanly trapped
+      // AggregateError trapped cleanly natively on 3 failures
     }
 
     if (!up) {
@@ -65,134 +69,168 @@ async function handleProxyMetadata(request, env, ctx, parsed, blockKey) {
     const buf = new TextEncoder().encode(body);
     const meta = { contentType: "text/plain; charset=utf-8" };
     
-    // Asynchronous background R2 writing mapped natively
     ctx.waitUntil(env.DEBTHIN_BUCKET.put(cacheKey, buf, { httpMetadata: meta }));
-    
-    // Return early skipping serveR2 to avoid race conditions!
     return new Response(body, { headers: { ...meta, ...CACHE_HEADERS, "X-Debthin": "proxy-release" } });
   }
 
-  return serveR2(env, request, cacheKey, metaCache, { ctx });
+  return serveR2(env, request, cacheKey, proxyMetaCache, { ctx });
+}
+
+// ── Packages Pipeline Sub-routines ──────────────────────────────────────────
+
+/**
+ * Verifies upstream liveness natively executing an InRelease HEAD check natively.
+ */
+async function checkUpstream304(host, suite, lastModified) {
+  const irHeaders = lastModified ? { "If-Modified-Since": new Date(lastModified).toUTCString() } : {};
+  try {
+    const irResp = await fetch(`https://${host}/dists/${suite}/InRelease`, { headers: irHeaders });
+    return irResp;
+  } catch (e) {
+    return null;
+  }
 }
 
 /**
- * Triggers full cryptographic verifications and payload deserialization parsing blocks.
+ * Fetches the upstream Packages block securely with size circuit breakers natively.
+ */
+async function fetchUpstreamPackages(host, pkgUrl, env, blockKey, ctx) {
+  let pkgResp;
+  try {
+    pkgResp = await fetch(`https://${host}${pkgUrl}`);
+    if (!pkgResp.ok) pkgResp = await fetch(`http://${host}${pkgUrl}`);
+  } catch (e) {
+    return null;
+  }
+
+  if (!pkgResp || !pkgResp.ok) return null;
+
+  const cl = parseInt(pkgResp.headers.get("content-length") || "0", 10);
+  if (cl > MAX_PAYLOAD_SIZE) {
+    ctx.waitUntil(env.DEBTHIN_BUCKET.put(blockKey, "too-large", { httpMetadata: { contentType: "text/plain" } }));
+    throw new Error("EXCEEDS_MAX_SIZE");
+  }
+
+  let pkgBuf;
+  try {
+    pkgBuf = await pkgResp.arrayBuffer();
+  } catch (e) {
+    return null;
+  }
+
+  if (pkgBuf && pkgBuf.byteLength > MAX_PAYLOAD_SIZE) {
+    ctx.waitUntil(env.DEBTHIN_BUCKET.put(blockKey, "too-large", { httpMetadata: { contentType: "text/plain" } }));
+    throw new Error("EXCEEDS_MAX_SIZE");
+  }
+
+  return pkgBuf;
+}
+
+/**
+ * Parses, reduces, and repackages an upstream buffer natively.
+ */
+async function processAndCachePackages(pkgBuf, hashEntry, isGz, pin, host, env, cacheKey, ctx, gz) {
+  if (hashEntry && await verifyHash(pkgBuf, hashEntry) === false) {
+    throw new Error("HASH_MISMATCH");
+  }
+
+  let readable = new Response(pkgBuf).body;
+  if (isGz) readable = readable.pipeThrough(new DecompressionStream("gzip"));
+
+  let filtered;
+  try {
+    filtered = filterPackages(await reduceStreamToLatest(readable, pin));
+  } catch (e) {
+    throw new Error("STREAM_PARSE_ERROR");
+  }
+
+  const prefix = `pkg/${host}/`;
+  for (const fields of filtered.values()) {
+    if (fields["filename"]) fields["filename"] = prefix + fields["filename"];
+  }
+
+  const cs = new CompressionStream("gzip");
+  const w2 = cs.writable.getWriter();
+  w2.write(new TextEncoder().encode(serializePackages(filtered)));
+  w2.close();
+  const resultGz = await new Response(cs.readable).arrayBuffer();
+
+  const meta = { contentType: "application/x-gzip" };
+  ctx.waitUntil(env.DEBTHIN_BUCKET.put(cacheKey, resultGz, { httpMetadata: meta }));
+
+  // Drop SWR meta pin for cheap 304 re-timestamping natively!
+  ctx.waitUntil(env.DEBTHIN_BUCKET.put(`${cacheKey}.meta`, "valid", { httpMetadata: { contentType: "text/plain" }}));
+
+  if (gz) {
+    return new Response(resultGz, { headers: { ...meta, ...CACHE_HEADERS } });
+  } else {
+    const rawBody = new Response(resultGz).body.pipeThrough(new DecompressionStream("gzip"));
+    return new Response(rawBody, { headers: { "Content-Type": "text/plain; charset=utf-8", ...CACHE_HEADERS } });
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Triggers full cryptographic verifications and payload deserialization parsing blocks natively.
  */
 async function handleProxyPackages(request, env, ctx, parsed, blockKey) {
   const { host, suite, component, pin, arch, gz } = parsed;
   const cacheBase = proxyCacheBase(host, suite, component, pin, arch);
   const cacheKey = `${cacheBase}/Packages.gz`;
+  const metaKey = `${cacheKey}.meta`;
 
-  const obj = await r2Head(env, cacheKey, dataCache);
-  const fresh = obj && obj.lastModified && (Date.now() - obj.lastModified < PROXY_CACHE_TTL_MS);
+  // Explicit SWR checking on the cheap meta pin avoiding giant fetches.
+  const metaObj = await r2Head(env, metaKey, proxyMetaCache);
+  const obj = await r2Head(env, cacheKey, proxyDataCache);
+  
+  // Use metadata tracking to evaluate freshness.
+  const evalModified = metaObj ? metaObj.lastModified : (obj ? obj.lastModified : null);
+  const fresh = evalModified && (Date.now() - evalModified < PROXY_CACHE_TTL_MS);
 
   if (!fresh) {
-    const irHeaders = obj && obj.lastModified ? { "If-Modified-Since": new Date(obj.lastModified).toUTCString() } : {};
-    let irResp;
-    try {
-      irResp = await fetch(`https://${host}/dists/${suite}/InRelease`, { headers: irHeaders });
-    } catch (e) {
-      // Trap DNS failures identically
-    }
+    const irResp = await checkUpstream304(host, suite, evalModified);
 
     if (!irResp || (!irResp.ok && irResp.status !== 304)) {
       if (!obj) {
         ctx.waitUntil(env.DEBTHIN_BUCKET.put(blockKey, "404", { httpMetadata: { contentType: "text/plain" } }));
         return new Response("Bad Gateway (Upstream Invalid)\n", { status: 502 });
       }
+      // Explicit fallback to stale obj on network failures seamlessly!
     } else if (irResp.status === 304) {
       if (obj) {
-        ctx.waitUntil((async () => {
-          const fullObj = await env.DEBTHIN_BUCKET.get(cacheKey);
-          if (fullObj) await env.DEBTHIN_BUCKET.put(cacheKey, fullObj.body, { httpMetadata: fullObj.httpMetadata });
-        })().catch(() => {}));
+        // FAST 304 REVALIDATION natively! 
+        // We write 5 bytes to *.meta rather than downloading and uploading a 10MB index!
+        ctx.waitUntil(env.DEBTHIN_BUCKET.put(metaKey, "valid", { httpMetadata: { contentType: "text/plain" } }));
+        proxyMetaCache.add(metaKey, new ArrayBuffer(5), { contentType: "text/plain", lastModified: Date.now() }, Date.now());
       }
     } else if (irResp.ok) {
-      const irText       = await irResp.text();
-      let pkgPath, hashEntry, pkgUrl, isGz = false;
-      
-      for (const ext of [".gz", ""]) {
-        const p = `${component}/binary-${arch}/Packages${ext}`;
-        const h = extractInReleaseHash(irText, p);
-        if (h) { pkgPath = p; hashEntry = h; pkgUrl = `/dists/${suite}/${p}`; isGz = ext === ".gz"; break; }
-      }
-
-      if (!pkgUrl) return new Response("Bad Gateway\n", { status: 502 });
-
-      let pkgResp;
       try {
-        pkgResp = await fetch(`https://${host}${pkgUrl}`);
-        if (!pkgResp.ok) pkgResp = await fetch(`http://${host}${pkgUrl}`);
-      } catch (e) {
-        // DNS trapped
+        const irText = await irResp.text();
+        let extract = null;
+        for (const ext of [".gz", ""]) {
+          const p = `${component}/binary-${arch}/Packages${ext}`;
+          const h = extractInReleaseHash(irText, p);
+          if (h) { extract = { pkgPath: p, hashEntry: h, pkgUrl: `/dists/${suite}/${p}`, isGz: ext === ".gz" }; break; }
+        }
+
+        if (!extract) throw new Error("BAD_UPSTREAM_MANIFEST");
+
+        const pkgBuf = await fetchUpstreamPackages(host, extract.pkgUrl, env, blockKey, ctx);
+        if (!pkgBuf) throw new Error("UPSTREAM_BIN_MISSING");
+
+        return await processAndCachePackages(pkgBuf, extract.hashEntry, extract.isGz, pin, host, env, cacheKey, ctx, gz);
+
+      } catch (err) {
+        if (err.message === "EXCEEDS_MAX_SIZE") return new Response("Upstream repository too large\n", { status: 502 });
+        if (!obj) return new Response("Bad Gateway or Internal Server Error\n", { status: err.message === "STREAM_PARSE_ERROR" ? 500 : 502 });
+        // Implicitly fall through to stale Cache serving cleanly below organically natively!
       }
-
-      if (!pkgResp || !pkgResp.ok) {
-        if (!obj) return new Response("Bad Gateway\n", { status: 502 });
-      } else {
-        const cl = parseInt(pkgResp.headers.get("content-length") || "0", 10);
-        if (cl > MAX_PAYLOAD_SIZE) {
-          ctx.waitUntil(env.DEBTHIN_BUCKET.put(blockKey, "too-large", { httpMetadata: { contentType: "text/plain" } }));
-          return new Response("Upstream repository too large\n", { status: 502 });
-        }
-
-        let pkgBuf;
-        try {
-          pkgBuf = await pkgResp.arrayBuffer();
-        } catch (e) {
-          if (!obj) return new Response("Bad Gateway\n", { status: 502 });
-        }
-
-        if (pkgBuf && pkgBuf.byteLength > MAX_PAYLOAD_SIZE) {
-          ctx.waitUntil(env.DEBTHIN_BUCKET.put(blockKey, "too-large", { httpMetadata: { contentType: "text/plain" } }));
-          return new Response("Upstream repository too large\n", { status: 502 });
-        }
-
-        if (hashEntry && await verifyHash(pkgBuf, hashEntry) === false) {
-          return new Response("Bad Gateway\n", { status: 502 });
-        }
-
-        let readable = new Response(pkgBuf).body;
-        if (isGz) readable = readable.pipeThrough(new DecompressionStream("gzip"));
-
-        let filtered;
-        try {
-          filtered = filterPackages(await reduceStreamToLatest(readable, pin));
-        } catch (e) {
-          if (!obj) return new Response("Internal Server Error\n", { status: 500 });
-        }
-        
-        const prefix = `pkg/${host}/`;
-        if (filtered) {
-          for (const fields of filtered.values()) {
-            if (fields["filename"]) fields["filename"] = prefix + fields["filename"];
-          }
-
-          const cs = new CompressionStream("gzip");
-          const w2 = cs.writable.getWriter();
-          w2.write(new TextEncoder().encode(serializePackages(filtered)));
-          w2.close();
-          const resultGz = await new Response(cs.readable).arrayBuffer();
-
-          const meta = { contentType: "application/x-gzip" };
-          ctx.waitUntil(env.DEBTHIN_BUCKET.put(cacheKey, resultGz, { httpMetadata: meta }));
-
-          // Serve immediately dynamically skipping read-sync paths
-          if (gz) {
-            return new Response(resultGz, { headers: { ...meta, ...CACHE_HEADERS } });
-          } else {
-            // Re-decompress for raw mapping natively
-            const rawBody = new Response(resultGz).body.pipeThrough(new DecompressionStream("gzip"));
-            return new Response(rawBody, { headers: { "Content-Type": "text/plain; charset=utf-8", ...CACHE_HEADERS } });
-          }
-        }
-      }
-    } else {
-      if (!obj) return new Response("Bad Gateway\n", { status: 502 });
     }
   }
 
-  return serveR2(env, request, cacheKey, dataCache, { ctx, transform: gz ? undefined : "decompress" });
+  // Serve strictly from R2 mappings generically
+  return serveR2(env, request, cacheKey, proxyDataCache, { ctx, transform: gz ? undefined : "decompress" });
 }
 
 /**
@@ -206,9 +244,17 @@ export async function handleProxyRepository(request, env, ctx, parsed) {
   }
 
   const blockKey = `proxy/${host}/${suite}/.blocklist`;
-  const isBlocked = await r2Head(env, blockKey, metaCache);
-  if (isBlocked && Date.now() - isBlocked.lastModified < PROXY_CACHE_TTL_MS) {
-    return new Response("Not found (Upstream Blocked)\n", { status: 404 });
+  const isBlocked = await r2Head(env, blockKey, proxyMetaCache);
+
+  if (isBlocked) {
+    if (isBlocked.httpMetadata && isBlocked.httpMetadata.status === 404) {
+      // Safely bypasses latency limits mapping native negative resolutions
+    } else if (isBlocked.lastModified && Date.now() - isBlocked.lastModified < PROXY_CACHE_TTL_MS) {
+      return new Response("Not found (Upstream Blocked)\n", { status: 404 });
+    }
+  } else {
+    // Store negative blocklist checks securely locally preserving execution limits unconditionally!
+    proxyMetaCache.add(blockKey, new ArrayBuffer(0), { status: 404, lastModified: Date.now() }, Date.now());
   }
 
   if (type === "inrelease" || type === "release" || type === "arch-release") {
