@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { isNotModified } from '../../worker/core/r2.js';
+import { isNotModified } from '../../worker/core/http.js';
 
 test('r2/isNotModified Strict ETags', () => {
   const reqObj = { etag: '"abcdef"' };
@@ -30,7 +30,7 @@ test('r2/isNotModified Last-Modified bounds', () => {
   assert.equal(isNotModified(headersMiss, reqObj), false, 'Client cache strictly older than file');
 });
 
-import { warmRamCacheFromRelease, _hashIndexes } from '../../worker/core/r2.js';
+import { warmRamCacheFromRelease, _hashIndexes } from '../../worker/debthin/indexes.js';
 
 test('r2/warmRamCacheFromRelease - hashes only Packages.gz', () => {
   const mockParams = "\nSHA256:\n" +

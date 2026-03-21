@@ -59,6 +59,30 @@ gen_release() {
         fi
     fi
 
+    local inrelease_cache=".tmp_cache/$distro/$suite/InRelease"
+
+    # Evaluate if Release generation natively needs execution depending on dependencies
+    local needs_release=0
+    if [[ ! -f "$dist_dir/Release" ]]; then
+        needs_release=1
+    elif [[ -f "$inrelease_cache" && "$inrelease_cache" -nt "$dist_dir/Release" ]]; then
+        needs_release=1
+    elif [[ "scripts/sign_all.sh" -nt "$dist_dir/Release" ]]; then
+        needs_release=1
+    else
+        while IFS= read -r -d '' f; do
+            if [[ "$f" -nt "$dist_dir/Release" ]]; then
+                needs_release=1
+                break
+            fi
+        done < <(find "$dist_dir" -type f -name "Packages.gz" -print0 2>/dev/null || true)
+    fi
+
+    if [[ $needs_release -eq 0 ]]; then
+        echo "  Skipping Release generation for $distro/$suite (unchanged)" >&2
+        return 0
+    fi
+
     # Fetch upstream InRelease for metadata fields (Date, Version, Changelogs, Suite)
     local inrelease_cache=".tmp_cache/$distro/$suite/InRelease"
     if [[ ! -f "$inrelease_cache" ]]; then
@@ -166,6 +190,12 @@ gpg "${GPG_ARGS[@]}" --output /dev/null - <<< "" 2>/dev/null || true
 while IFS= read -r release_file; do
     inrelease="${release_file%Release}InRelease"
     release_gpg="${release_file}.gpg"
+
+    if [[ -f "$inrelease" && -f "$release_gpg" && ! "$release_file" -nt "$inrelease" && ! "$release_file" -nt "$release_gpg" ]]; then
+        echo "  Skipping signing: $(basename "$(dirname "$release_file")")/Release (unchanged)" >&2
+        continue
+    fi
+
     gpg "${GPG_ARGS[@]}" --output "$inrelease" "$release_file"
     gpg "${GPG_ARGS[@]}" --detach-sign --output "$release_gpg" "$release_file"
     [[ -s "$inrelease" ]]  || { echo "ERROR: $inrelease empty after signing" >&2; exit 1; }

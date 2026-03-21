@@ -28,7 +28,7 @@ info() { echo "  INFO $*"; }
 warn() { echo "  WARN $*"; WARNINGS=$((WARNINGS+1)); }
 fail() { echo "  FAIL $*"; ERRORS=$((ERRORS+1)); }
 # JSON string escape (handles the subset we'll encounter in apt metadata)
-json_str() { printf '%s' "$1" | python3 -c "import json,sys; print(json.dumps(sys.stdin.read()), end='')"; }
+json_str() { jq -R -r '@json' <<< "$1"; }
 # Extract a field value from an InRelease file
 inrelease_field() { grep "^$2:" "$1" 2>/dev/null | head -1 | cut -d' ' -f2-; }
 # Components where zero packages is an error vs expected
@@ -48,8 +48,8 @@ check_file() {
         fail "missing: $f"
     elif [[ ! -s "$f" ]]; then
         fail "empty: $f"
-    elif [[ $(python3 -c "import os,sys; print(os.path.getsize(sys.argv[1]))" "$f") -lt $min_size ]]; then
-        fail "too small ($(python3 -c "import os,sys; print(os.path.getsize(sys.argv[1]))" "$f") bytes): $f"
+    elif [[ $(( $(wc -c < "$f") )) -lt $min_size ]]; then
+        fail "too small ($(( $(wc -c < "$f") )) bytes): $f"
     else
         pass "$f"
     fi
@@ -75,6 +75,21 @@ check_inrelease() {
     fi
     [[ $ok -eq 1 ]] && pass "$f ($hash_count hashes)"
 }
+# Cache for counting Packages.gz extraction executions
+declare -A PKG_COUNTS
+
+get_package_count() {
+    local f=$1
+    if [[ -v "PKG_COUNTS[$f]" ]]; then
+        echo "${PKG_COUNTS[$f]}"
+    else
+        local c
+        c=$(gunzip -c "$f" 2>/dev/null | grep -c "^Package:" || true)
+        PKG_COUNTS["$f"]=$c
+        echo "$c"
+    fi
+}
+
 check_packages_gz() {
     local f=$1
     # Derive component from path: .../dists/suite/component/binary-arch/Packages.gz
@@ -87,7 +102,7 @@ check_packages_gz() {
         fail "corrupt gzip: $f"; return
     fi
     local count
-    count=$(gunzip -c "$f" | grep -c "^Package:" || true)
+    count=$(get_package_count "$f")
     # Backports/proposed are legitimately empty - always INFO regardless of component
     local suite
     suite=$(basename "$(dirname "$(dirname "$(dirname "$f")")")")
@@ -124,7 +139,7 @@ verify_inrelease_hashes() {
         fi
         local actual_hash actual_size
         actual_hash=$(sha256sum "$full_path" | cut -d' ' -f1)
-        actual_size=$(python3 -c "import os,sys; print(os.path.getsize(sys.argv[1]))" "$full_path")
+        actual_size=$(( $(wc -c < "$full_path") ))
         if [[ "$actual_hash" != "$expect_hash" ]]; then
             fail "SHA256 mismatch: $rel_path"
         elif [[ "$actual_size" != "$expect_size" ]]; then
@@ -215,7 +230,7 @@ for distro_dir in "$DIST_OUTPUT"/dists/*; do
         while IFS= read -r -d '' f; do
             if [[ "$f" == */headless/* ]]; then continue; fi
             arch=$(basename "$(dirname "$f")" | sed 's/binary-//')
-            count=$(gunzip -c "$f" | grep -c "^Package:" || true)
+            count=$(get_package_count "$f")
             family_arch["$family/$arch"]=$(( ${family_arch["$family/$arch"]:-0} + count ))
             family_total["$family"]=$(( ${family_total["$family"]:-0} + count ))
             # Track unique arches
@@ -268,7 +283,7 @@ for distro_dir in "$DIST_OUTPUT"/dists/*; do
                 rel_path="${f#$CACHE_DIR/$distro/}"
                 suite="${rel_path%%/*}"
                 arch=$(basename "$(dirname "$f")" | sed 's/binary-//')
-                ucount=$(gunzip -c "$f" 2>/dev/null | grep -c "^Package:" || true)
+                ucount=$(get_package_count "$f")
                 upstream_suite_arch["$suite/$arch"]=$(( ${upstream_suite_arch["$suite/$arch"]:-0} + ucount ))
             done < <(find "$CACHE_DIR/$distro" -name "Packages.gz" -print0 2>/dev/null)
         fi
@@ -283,7 +298,7 @@ for distro_dir in "$DIST_OUTPUT"/dists/*; do
             while IFS= read -r -d '' f; do
                 if [[ "$f" == */headless/* ]]; then continue; fi
                 arch=$(basename "$(dirname "$f")" | sed 's/binary-//')
-                count=$(gunzip -c "$f" 2>/dev/null | grep -c "^Package:" || true)
+                count=$(get_package_count "$f")
                 suite_arch_json["$suite/$arch"]=$(( ${suite_arch_json["$suite/$arch"]:-0} + count ))
             done < <(find "$suite_dir" -name "Packages.gz" -print0 2>/dev/null)
         done

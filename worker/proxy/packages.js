@@ -79,7 +79,7 @@ export function reduceToLatest(stanzas, pin) {
  * 
  * @param {ReadableStream} readableStream - The uncompressed ASCII text flow.
  * @param {string|null} pin - Target framework pinning restriction constraints.
- * @returns {Promise<Map<string, Object>>} The reduced mapping of best package versions natively securely.
+ * @returns {Promise<Map<string, Object>>} The reduced mapping of best package versions.
  */
 export async function reduceStreamToLatest(readableStream, pin) {
   const decoder = new TextDecoderStream();

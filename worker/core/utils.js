@@ -1,51 +1,39 @@
 /**
  * @fileoverview String and URL parsing utilities.
  * Avoids heavy allocations by using manual indexOf sweeps and charCode bounds.
- *
+ * 
  * Exports:
- * - inReleaseToRelease: Strips PGP signatures.
- * - tokenizePath: Zero-allocation path chunker.
- * - parseURL: Lightweight request endpoint decoder.
- * - isHex64: SHA256 length and charCode validator.
- * - getContentType: Extension-based MIME type switch.
+ * - tokenizePath: Zero-allocation linear string segmenter mapping URL path domains to properties.
+ * - parseURL: Lightweight protocol and raw endpoint location extractor.
+ * - isHex64: Mathematical iterative sweep for rapid 64-character lowercase SHA256 hash checks.
+ * - getContentType: Fixed mapping correlating native extensions immediately to headers.
  */
-
-/**
- * Extracts the metadata body from an InRelease file by locating Origin and PGP boundaries.
- *
- * @param {string} text - Raw InRelease payload.
- * @returns {string} The parsed payload buffer.
- */
-export function inReleaseToRelease(text) {
-  let startIndex = text.indexOf("-----BEGIN PGP SIGNED MESSAGE-----\nHash: SHA256\n\n");
-  startIndex = startIndex !== -1 ? startIndex + 49 : 0;
-  
-  let endIndex = text.indexOf("\n-----BEGIN PGP SIGNATURE-----", startIndex);
-  if (endIndex === -1) endIndex = text.length;
-
-  return text.slice(startIndex, endIndex);
-}
 
 /**
  * Slices endpoint paths into zero-allocation dictionary properties.
+ * Extracts sections linearly up to the configured limit.
  *
  * @param {string} path - URL path segment.
- * @returns {Object} Keys p0-p4 mapped to sequential path chunks.
+ * @param {number} [maxParts=5] - Maximum number of components mapped natively.
+ * @returns {Object} Keys p0 to pN mapped to sequential path chunks.
  */
-export function tokenizePath(path) {
+export function tokenizePath(path, maxParts = 5) {
   const parts = {};
-  const s1 = path.indexOf("/");
-  if (s1 === -1) return parts;
+  const firstSlash = path.indexOf("/");
+  if (firstSlash === -1 || maxParts <= 0) return parts;
 
-  const s2 = path.indexOf("/", s1 + 1);
-  const s3 = s2 !== -1 ? path.indexOf("/", s2 + 1) : -1;
-  const s4 = s3 !== -1 ? path.indexOf("/", s3 + 1) : -1;
+  let currentIdx = -1;
 
-  parts.p0 = path.slice(0, s1);
-  parts.p1 = path.slice(s1 + 1, s2 !== -1 ? s2 : undefined);
-  if (s2 !== -1) parts.p2 = path.slice(s2 + 1, s3 !== -1 ? s3 : undefined);
-  if (s3 !== -1) parts.p3 = path.slice(s3 + 1, s4 !== -1 ? s4 : undefined);
-  if (s4 !== -1) parts.p4 = path.slice(s4 + 1);
+  for (let i = 0; i < maxParts; i++) {
+    if (i === maxParts - 1) {
+      parts[`p${i}`] = path.slice(currentIdx + 1);
+      break;
+    }
+    const nextIdx = path.indexOf("/", currentIdx + 1);
+    parts[`p${i}`] = path.slice(currentIdx + 1, nextIdx !== -1 ? nextIdx : undefined);
+    currentIdx = nextIdx;
+    if (currentIdx === -1) break;
+  }
 
   return parts;
 }

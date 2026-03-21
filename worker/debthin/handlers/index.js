@@ -2,10 +2,12 @@
  * @fileoverview Request handler routes.
  */
 
-import { serveR2, _hashIndexes, r2Get, isNotModified } from '../core/r2.js';
-import { isHex64 } from '../core/utils.js';
-import { H_CACHED, H_IMMUTABLE, EMPTY_GZ, EMPTY_GZ_HASH, EMPTY_HASH } from '../core/constants.js';
-import { getCacheStats } from '../core/cache.js';
+import { r2Get } from '../../core/r2.js';
+import { serveR2, isNotModified } from '../../core/http.js';
+import { getDistroIndex, setDistroIndex, getDistroIndexCount, warmRamCacheFromRelease } from '../indexes.js';
+import { isHex64 } from '../../core/utils.js';
+import { H_CACHED, H_IMMUTABLE, EMPTY_GZ, EMPTY_GZ_HASH, EMPTY_HASH } from '../constants.js';
+import { getCacheStats, metaCache, dataCache } from '../cache.js';
 
 /**
  * Handles explicit requests for static repository assets assigned to the path execution root.
@@ -43,16 +45,17 @@ export async function handleStaticAssets(rawPath, env, request, CONFIG_JSON_STRI
   if (rawPath === "health") {
     let r2 = "OK";
     try { await env.DEBTHIN_BUCKET.head("healthcheck-ping"); } catch (e) { r2 = "ERROR"; }
-    const stats = { 
-      status: r2 === "OK" ? "OK" : "DEGRADED", 
-      r2, 
-      cache: { ...getCacheStats(), distributions: _hashIndexes.size }, 
-      time: Date.now() 
+    const stats = {
+      status: r2 === "OK" ? "OK" : "DEGRADED",
+      r2,
+      cache: { ...getCacheStats(), distributions: getDistroIndexCount() },
+      time: Date.now()
     };
     const hh = new Headers({ "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store", "X-Debthin": "hit-synthetic" });
     return new Response(JSON.stringify(stats, null, 2) + "\n", { headers: hh, status: r2 === "OK" ? 200 : 503 });
   }
-  return serveR2(env, request, rawPath === "" ? "index.html" : rawPath);
+  const file = rawPath === "" ? "index.html" : rawPath;
+  return serveR2(env, request, file, metaCache);
 }
 
 /**
@@ -96,31 +99,91 @@ export async function handleByHash(request, env, ctx, distro, sha256) {
   }
 
   if (sha256.length === 64 && isHex64(sha256)) {
-    let distroIndex = _hashIndexes.get(distro);
+    let distroIndex = getDistroIndex(distro);
 
     if (!distroIndex || distroIndex instanceof Promise) {
       if (!distroIndex) {
-        const promise = r2Get(env, `dists/${distro}/by-hash-index.json`, ctx).then(async obj => {
+        const promise = r2Get(env, `dists/${distro}/by-hash-index.json`, metaCache, ctx).then(async obj => {
           const json = obj ? JSON.parse(await obj.text()) : {};
-          const current = _hashIndexes.get(distro);
+          const current = getDistroIndex(distro);
           const freshData = (current instanceof Promise || !current) ? {} : current;
           return Object.assign(Object.create(null), json, freshData);
         }).catch(() => {
-          if (_hashIndexes.get(distro) === promise) _hashIndexes.delete(distro);
+          if (getDistroIndex(distro) === promise) setDistroIndex(distro, null);
           return {};
         });
-        _hashIndexes.set(distro, promise);
+        setDistroIndex(distro, promise);
         distroIndex = promise;
       }
       distroIndex = await distroIndex;
-      _hashIndexes.set(distro, distroIndex);
+      setDistroIndex(distro, distroIndex);
     }
 
     const relPath = distroIndex[sha256];
-    if (relPath) return serveR2(env, request, `dists/${distro}/${relPath}`, { immutable: true });
+    if (relPath) return serveR2(env, request, `dists/${distro}/${relPath}`, relPath.includes("Packages") ? dataCache : metaCache, { immutable: true });
     return new Response("Not found\n", { status: 404 });
   }
 
+  return null;
+}
+
+/**
+ * Handles manifest retrieval for InRelease and Release metadata requests.
+ *
+ * @param {Object} env - The Cloudflare environment bindings.
+ * @param {Request} request - The inbound HTTP request.
+ * @param {string} r2Key - The target bucket evaluation path.
+ * @param {string} p2 - The matched token component string.
+ * @param {Object} ctx - The worker execution context.
+ * @returns {Promise<Response|null>} Processed route or null.
+ */
+async function serveManifests(env, request, r2Key, p2, ctx) {
+  const suiteDir = r2Key.slice(0, r2Key.lastIndexOf("/"));
+  if (p2 === "InRelease" || p2 === "Release.gpg") {
+    return serveR2(env, request, r2Key, metaCache, {
+      ctx,
+      onDiskMiss: (buf, force) => warmRamCacheFromRelease(buf, suiteDir, force)
+    });
+  }
+  if (p2 === "Release") {
+    const fetchKey = r2Key.replace("Release", "InRelease");
+    return serveR2(env, request, r2Key, metaCache, {
+      fetchKey,
+      transform: "strip-pgp",
+      ctx,
+      onDiskMiss: (buf, force) => warmRamCacheFromRelease(buf, suiteDir, force)
+    });
+  }
+  return null;
+}
+
+/**
+ * Delivers generated component binaries or handles generic decompression mapping.
+ *
+ * @param {Object} env - The Cloudflare environment bindings.
+ * @param {Request} request - The inbound HTTP request.
+ * @param {string} r2Key - The target bucket evaluation path.
+ * @param {string} p1 - First chunk representation.
+ * @param {string} p2 - Second chunk representation.
+ * @param {string} p3 - Third chunk representation.
+ * @param {string} p4 - Final payload locator index fragment.
+ * @returns {Promise<Response|null>} Processed route or null.
+ */
+async function serveComponents(env, request, r2Key, p1, p2, p3, p4) {
+  if (p4 === "Release") {
+    const hbr = new Headers(H_CACHED);
+    hbr.set("Content-Type", "text/plain; charset=utf-8");
+    hbr.set("X-Debthin", "hit-generated");
+    hbr.set("X-Cache", "HIT");
+    hbr.set("X-Cache-Hits", "0");
+    return new Response(`Archive: ${p1}\nComponent: ${p2}\nArchitecture: ${p3.slice(7)}\n`, { headers: hbr });
+  }
+  if (p4 === "Packages") {
+    return serveR2(env, request, r2Key, dataCache, { fetchKey: r2Key + ".gz", transform: "decompress" });
+  }
+  if (p4 === "Packages.gz" || p4 === "Packages.lz4" || p4 === "Packages.xz") {
+    return serveR2(env, request, r2Key, dataCache);
+  }
   return null;
 }
 
@@ -141,33 +204,14 @@ export async function handleByHash(request, env, ctx, distro, sha256) {
 export async function handleDistributionHashIndex(request, env, ctx, distro, suitePath, { p1, p2, p3, p4 }, distroConfig) {
   const r2Key = `dists/${distro}/${suitePath.slice(6)}`;
 
-  if (!p3) {
-    if (p2 === "InRelease" || p2 === "Release.gpg") {
-      return serveR2(env, request, r2Key, { ctx });
-    }
-    if (p2 === "Release") {
-      return serveR2(env, request, r2Key, { fetchKey: r2Key.replace("Release", "InRelease"), transform: "strip-pgp", ctx });
-    }
-  }
+  if (!p3) return serveManifests(env, request, r2Key, p2, ctx);
 
   const { components, arches } = distroConfig;
 
   // Packages & Hashes (dists/debian/.../binary-amd64/...)
   if (p3 && (components.has(p2) || p2 === "headless") && p3.startsWith("binary-") && arches.has(p3.slice(7))) {
-    if (p4 === "Release") {
-      const hbr = new Headers(H_CACHED);
-      hbr.set("Content-Type", "text/plain; charset=utf-8");
-      hbr.set("X-Debthin", "hit-generated");
-      hbr.set("X-Cache", "HIT");
-      hbr.set("X-Cache-Hits", "0");
-      return new Response(`Archive: ${p1}\nComponent: ${p2}\nArchitecture: ${p3.slice(7)}\n`, { headers: hbr });
-    }
-    if (p4 === "Packages") {
-      return serveR2(env, request, r2Key, { fetchKey: r2Key + ".gz", transform: "decompress" });
-    }
-    if (p4 === "Packages.gz" || p4 === "Packages.lz4" || p4 === "Packages.xz") {
-      return serveR2(env, request, r2Key);
-    }
+    const resp = await serveComponents(env, request, r2Key, p1, p2, p3, p4);
+    if (resp) return resp;
   }
 
   const byHashIdx = suitePath.indexOf("/by-hash/SHA256/");

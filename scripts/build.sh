@@ -144,14 +144,35 @@ run_filter_batch() {
 
     echo "  Allowed list for $distro/$suite: $allowed" >&2
 
+    # Check for script modifications recursively
+    local filter_script="scripts/filter.py"
+
     while IFS= read -r -d "" cachefile; do
         local outfile="${cachefile/.tmp_cache\/$distro\//dist_output\/dists\/$distro\/}"
-        mkdir -p "$(dirname "$outfile")"
-        printf "%s\t%s\n" "$cachefile" "$outfile"
+        
+        local needs_filter=0
+        if [[ ! -f "$outfile" ]]; then
+            needs_filter=1
+        elif [[ "$cachefile" -nt "$outfile" ]]; then
+            needs_filter=1
+        elif [[ "$allowed" -nt "$outfile" ]]; then
+            needs_filter=1
+        elif [[ "$filter_script" -nt "$outfile" ]]; then
+            needs_filter=1
+        fi
+
+        if [[ $needs_filter -eq 1 ]]; then
+            mkdir -p "$(dirname "$outfile")"
+            printf "%s\t%s\n" "$cachefile" "$outfile"
+        fi
     done < <(find ".tmp_cache/$distro/$suite" -name "Packages.gz" -print0 2>/dev/null | sort -z) > "$jobfile"
 
     local n; n=$(wc -l < "$jobfile")
-    if [[ $n -eq 0 ]]; then rm -f "$jobfile"; return 0; fi
+    if [[ $n -eq 0 ]]; then 
+        echo "  Skipping filtering for $distro/$suite (unchanged)" >&2
+        rm -f "$jobfile"
+        return 0 
+    fi
 
     echo "  Filtering $distro/$suite: $n jobs..." >&2
     python3 scripts/filter.py --allowed "$allowed" --batch "$jobfile" --stats
@@ -224,7 +245,25 @@ while read -r distro suite; do
         
         if [[ ${#inputs[@]} -gt 0 ]]; then
             out_file="dist_output/dists/$distro/$suite/headless/$bin_arch/Packages.gz"
-            python3 scripts/merge_packages.py "${inputs[@]}" -o "$out_file"
+            
+            needs_head=0
+            if [[ ! -f "$out_file" ]]; then
+                needs_head=1
+            elif [[ "scripts/merge_packages.py" -nt "$out_file" ]]; then
+                needs_head=1
+            else
+                for in_f in "${inputs[@]}"; do
+                    if [[ "$in_f" -nt "$out_file" ]]; then
+                        needs_head=1
+                        break
+                    fi
+                done
+            fi
+
+            if [[ $needs_head -eq 1 ]]; then
+                mkdir -p "$(dirname "$out_file")"
+                python3 scripts/merge_packages.py "${inputs[@]}" -o "$out_file"
+            fi
         fi
     done
 done < <(distro_suites)

@@ -9,7 +9,14 @@
  * - EMPTY_HASH: Known SHA256 of an empty file.
  * - EMPTY_GZ_HASH: Known SHA256 of an empty gzip payload.
  * - EMPTY_GZ: Pre-computed binary buffer of an empty gzip payload.
+ * - CACHE_TTL_MS: Global TTL lifetime boundaries in milliseconds.
  */
+
+/**
+ * Global cache Time-To-Live logic (1 Hour).
+ * @type {number}
+ */
+export const CACHE_TTL_MS = 3600000;
 
 /**
  * Standard HTTP security headers.
