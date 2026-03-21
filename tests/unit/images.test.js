@@ -109,6 +109,10 @@ test('images/Incus Images Index (Concurrency coalescing)', async () => {
     assert.equal(responses[1].headers.get("X-Cache"), "HIT");
     assert.equal(responses[2].headers.get("X-Cache"), "HIT");
     
+    // Validate that missing sha256 payloads are actively discarded instead of stringified
+    const json = await responses[0].json();
+    assert.equal(json.products['debian:bullseye:arm64:default'], undefined);
+    
     // Despite 3 requests, R2 list was called only 1 time natively
     assert.equal(listCallCount, 1);
 });
@@ -117,6 +121,26 @@ test('images/Static Binary Redirect', async () => {
     const req = new Request('https://images.debthin.org/images/debian/bookworm/amd64/default/20231010_01:23/rootfs.tar.xz');
     const res = await worker.fetch(req, mockEnv, {});
     assert.equal(res.status, 301);
+});
+
+test('images/Static Binary Redirect (Custom URL)', async () => {
+    const envWithUrl = { ...mockEnv, PUBLIC_R2_URL: 'https://custom-r2.example.com' };
+    const req = new Request('https://images.debthin.org/images/debian/bookworm/amd64/default/20231010_01:23/rootfs.tar.xz');
+    const res = await worker.fetch(req, envWithUrl, {});
+    assert.equal(res.status, 301);
+    assert.equal(res.headers.get('Location'), 'https://custom-r2.example.com/images/debian/bookworm/amd64/default/20231010_01:23/rootfs.tar.xz');
+});
+
+test('images/Root and Robots.txt Routes', async () => {
+    const reqRobots = new Request('https://images.debthin.org/robots.txt');
+    const resRobots = await worker.fetch(reqRobots, mockEnv, {});
+    assert.equal(resRobots.status, 200);
+    assert.ok((await resRobots.text()).includes('Disallow: /'));
+
+    const reqRoot = new Request('https://images.debthin.org/');
+    const resRoot = await worker.fetch(reqRoot, mockEnv, {});
+    assert.equal(resRoot.status, 200);
+    assert.ok((await resRoot.text()).includes('debthin container registry'));
 });
 
 test('images/Not Found Fallback', async () => {

@@ -12,13 +12,12 @@ const _textEncoder = new TextEncoder();
  * Executes or fetches the generated content adhering strictly to V8 isolate limits and concurrent HTTP coalescing.
  * 
  * @param {Request} request - The inbound HTTP request.
- * @param {Object} bucket - The Cloudflare R2 bucket binding.
  * @param {string} cacheKey - The logical path string identifying the payload.
  * @param {string} contentType - The resulting HTTP content type header.
  * @param {Function} generatorFn - The asynchronous lambda extracting R2 properties.
  * @returns {Promise<Response>} The HTTP response (complete payload or 304).
  */
-async function serveCachedOrGenerate(request, bucket, cacheKey, contentType, generatorFn) {
+async function serveCachedOrGenerate(request, cacheKey, contentType, generatorFn) {
     const now = Date.now();
     let cached = indexCache.get(cacheKey);
     const expired = cached && (now - cached.addedAt > indexCache.ttl);
@@ -36,11 +35,12 @@ async function serveCachedOrGenerate(request, bucket, cacheKey, contentType, gen
     }
 
     const fetchPromise = (async () => {
-        const textData = await generatorFn(bucket);
+        const textData = await generatorFn();
         const buf = _textEncoder.encode(textData).buffer;
         
+        // Generate a fast length-based ETag (avoids changing ETags strictly on TTL expiry)
         const meta = {
-            etag: `W/"${buf.byteLength}-${now}"`,
+            etag: `W/"${buf.byteLength}"`,
             lastModified: now
         };
         
@@ -86,19 +86,21 @@ function buildResponse(request, meta, buf, isCached, hits, contentType) {
  * @returns {Promise<Response>} The HTTP response containing the CSV index.
  */
 export async function handleLxcIndex(request, bucket) {
-    return serveCachedOrGenerate(request, bucket, "meta/1.0/index-system", "text/plain; charset=utf-8", async (b) => {
+    return serveCachedOrGenerate(request, "meta/1.0/index-system", "text/plain; charset=utf-8", async () => {
         let indexData = "";
         let processedVersions = new Set();
         let cursor = undefined;
+        let pages = 0;
 
         do {
-            const listed = await b.list({ prefix: 'images/debian/', cursor: cursor });
+            if (pages++ > 100) break; // Circuit breaker: Max 100k objects
+            const listed = await bucket.list({ prefix: 'images/debian/', cursor: cursor });
             for (const object of listed.objects) {
                 const parts = object.key.split('/');
-                if (parts.length !== 7) continue;
+                if (parts.length !== 7 || parts.some(p => p.startsWith('.') || p === '')) continue; // Sanity guard
 
                 const [, os, release, arch, variant, version,] = parts;
-                const versionKey = `${os}-${release}-${arch}-${version}`;
+                const versionKey = `${os}-${release}-${arch}-${variant}-${version}`;
 
                 if (!processedVersions.has(versionKey)) {
                     indexData += `${os};${release};${arch};${variant};${version};/images/${os}/${release}/${arch}/${variant}/${version}/\n`;
@@ -118,11 +120,11 @@ export async function handleLxcIndex(request, bucket) {
  * @returns {Promise<Response>} The HTTP response.
  */
 export async function handleIncusPointer(request) {
-    return serveCachedOrGenerate(request, null, "streams/v1/index.json", "application/json; charset=utf-8", async () => {
+    return serveCachedOrGenerate(request, "streams/v1/index.json", "application/json; charset=utf-8", async () => {
         return JSON.stringify({
             format: "index:1.0",
             index: { images: { datatype: "image-downloads", path: "streams/v1/images.json" } }
-        }, null, 2);
+        });
     });
 }
 
@@ -134,12 +136,14 @@ export async function handleIncusPointer(request) {
  * @returns {Promise<Response>} The HTTP response comprising the Simplestreams JSON manifest.
  */
 export async function handleIncusIndex(request, bucket) {
-    return serveCachedOrGenerate(request, bucket, "streams/v1/images.json", "application/json; charset=utf-8", async (b) => {
+    return serveCachedOrGenerate(request, "streams/v1/images.json", "application/json; charset=utf-8", async () => {
         let products = {};
         let cursor = undefined;
+        let pages = 0;
 
         do {
-            const listed = await b.list({
+            if (pages++ > 100) break; // Circuit breaker: Max 100k objects
+            const listed = await bucket.list({
                 prefix: 'images/debian/',
                 include: ['customMetadata'],
                 cursor: cursor
@@ -147,9 +151,13 @@ export async function handleIncusIndex(request, bucket) {
 
             for (const object of listed.objects) {
                 const parts = object.key.split('/');
-                if (parts.length !== 7) continue;
+                if (parts.length !== 7 || parts.some(p => p.startsWith('.') || p === '')) continue; // Sanity guard
 
                 const [, os, release, arch, variant, version, filename] = parts;
+                
+                // Active discard for components missing requisite cryptographic hashes
+                if (!object.customMetadata || !object.customMetadata.sha256) continue;
+
                 const productName = `${os}:${release}:${arch}:${variant}`;
 
                 if (!products[productName]) {
@@ -176,7 +184,7 @@ export async function handleIncusIndex(request, bucket) {
                     ftype: filename,
                     path: object.key,
                     size: object.size,
-                    sha256: object.customMetadata?.sha256 || "HASH_MISSING"
+                    sha256: object.customMetadata.sha256
                 };
             }
             cursor = listed.truncated ? listed.cursor : undefined;
@@ -186,7 +194,7 @@ export async function handleIncusIndex(request, bucket) {
             format: "products:1.0",
             datatype: "image-downloads",
             products: products
-        }, null, 2);
+        });
     });
 }
 
@@ -194,9 +202,11 @@ export async function handleIncusIndex(request, bucket) {
  * Redirects binary container downloads to the unmetered R2 public zone.
  *
  * @param {string} rawPath - The intercepted request path starting with `/images/`.
+ * @param {Object} env - The Cloudflare environment bindings block.
  * @returns {Response} An HTTP 301 redirection payload.
  */
-export function handleImageRedirect(rawPath) {
-    const publicR2Url = `https://r2-public.debthin.org${rawPath}`;
+export function handleImageRedirect(rawPath, env) {
+    const fallbackHost = typeof env === 'object' && env.PUBLIC_R2_URL ? env.PUBLIC_R2_URL : 'https://r2-public.debthin.org';
+    const publicR2Url = `${fallbackHost}${rawPath}`;
     return Response.redirect(publicR2Url, 301);
 }

@@ -1,111 +1,43 @@
-# debthin — Architecture
+# debthin Worker Architecture
 
-debthin is a Cloudflare Worker that acts as a curated, caching apt repository proxy. It serves Debian and Ubuntu package indices from an R2 bucket, handling the full range of requests an apt client makes during `apt update`: release files, package indices, by-hash lookups, and `.deb` redirects.
+The Cloudflare Worker codebase is logically structured into separated domains to enforce strict boundaries between network primitives and application specific routing.
 
-The core logic is divided into library components under `worker/core/` and isolated route handlers under `worker/handlers/` to keep the main edge router (`worker/index.js`) as robust and lean as possible.
+## 1. Core Primitives (`worker/core/`)
+The foundation layer of the worker. Contains generic, highly-optimized components that have zero knowledge of Debian repositories or the "debthin" application domain.
 
----
+- **`cache.js`**: LRU array cache implementing purely fast typed arrays. Exposes distinct tiers (e.g., `metaCache` and `dataCache`) for memory allocation but enforces no application-specific routing.
+- **`r2.js`**: Pure Cloudflare Bucket interactions (`r2Get`, `r2Head`). It orchestrates background network queues and memory caching layers, but executes no payload evaluation.
+- **`http.js`**: Standard HTTP formatting structures. Calculates `304 Not Modified` states, executes GZIP streaming (`DecompressionStream`), and applies generic HTTP headers.
+- **`utils.js`**: Shared zero-allocation utility functions for parsing URLs mapping generic string logic.
+- **`config.js`**: Parses and enforces the runtime boundaries defined in `config.json`.
 
-## Request lifecycle
+## 2. Standard Application Domain (`worker/debthin/`)
+The primary traffic controller executing logic tailored specifically for the Debian package ecosystem (debthin).
 
-```
-apt client
-    │
-    ▼
-CF edge (HTTP/1.1 termination, TLS)
-    │
-    ▼
-worker/index.js: fetch() handler
-    │  adds X-Timer, X-Served-By
-    ▼
-worker/index.js: handleRequest()
-    │
-    ├── method/query/path guard → 400/405 (bare, no headers)
-    ├── robots.txt / config.json → handlers: handleStaticAssets
-    ├── pool/ → handlers: handleUpstreamRedirect (301 Location only)
-    ├── unknown distro → 404 (bare)
-    │
-    └── dists/{distro}/...
-            │
-            ├── suite alias resolution (e.g. stable → bookworm)
-            ├── InRelease / Release.gpg → handlers: handleDistributionHashIndex -> serveR2()
-            ├── binary-{arch}/Release → handlers: handleDistributionHashIndex (generated inline)
-            ├── Packages / Packages.gz → handlers: handleDistributionHashIndex -> serveR2()
-            ├── by-hash/SHA256/{hash}
-            │       └── handlers: handleByHash -> mapped to _hashIndexes -> serveR2(immutable)
-            └── unmatched → handlers: handleUpstreamRedirect
-```
+- **`indexes.js`**: Debthin-specific. Scans textual `InRelease` payloads and populates the global `_hashIndexes` structures in RAM, creating translation layers for `by-hash` endpoints.
+- **`index.js`**: Top-level routers filtering requests for standard static assets, alias evaluations, directory traversal blocks, and executing distribution route targets.
+- **`packages.js` / `release.js`** (as utilized): Component layers managing specific payload transformations (like discarding PGP wrappers or dispatching empty files locally).
 
----
+## 3. Proxy Domain (`worker/proxy/`)
+Virtual vendor sandboxing routes mapped to remote Upstreams (like Grafana and Redis).
 
-## Route Handlers (`handlers/index.js`)
+- **`handlers/index.js`**: Dispatches proxy calls across metadata (`Release`), and packaging targets. Identifies caching staleness natively.
+- **`packages.js`**: Executes deep Debian stream parsing. Evaluates exact `Depends: ` chains, drops conflicting payload stanzas, bounds to mapped library versions, and recompiles dynamic gzip proxy binaries. 
+- **`utils.js` / `version.js`**: Proxies cryptography evaluation hashes and calculates exact Debian epoch/upstream character weights.
 
-Decoupled endpoint logic isolating the complexity of distinct edge paths away from the main CF worker orchestrator:
+## 4. Container Image Domain (`worker/images/`)
+Generates metadata index structures mapping raw R2 objects to Classic LXC and Incus hypervisor manifest protocols.
 
-- `handleStaticAssets`: rapidly returns synthetic objects for configurations unreliant on R2 bounds.
-- `handleUpstreamRedirect`: blindly diverts unknown requests exactly to standard Debian/Ubuntu pools without invoking the isolate cache subsystem.
-- `handleDistributionHashIndex`: resolves canonical suite identifiers mapping requests linearly against native metadata chunking formats.
-- `handleByHash`: leverages the warmed hash table to proxy requests natively for exact SHA-verifiable payloads.
+**Architectural Flow Comparison (`images` vs `proxy` Critical Path):**
 
----
+While the Proxy layer evaluates deep streaming algorithms, the Container Image index generators expose severe systemic architectural constraints when evaluating millions of R2 bucket objects under load:
 
-## Isolate cache (`core/cache.js`)
-
-The primary performance footprint proxy. All R2 objects are cached identically inside the active isolate RAM pipeline for the lifetime of the thread context, bypassing R2 REST bandwidth entirely for heavily-warm node architectures.
-
-### Structure
-
-Fixed 256-slot bounds executing entirely in low-level typed array arrays to bypass JS memory and GC limits.
-
-**Why flat arrays instead of a doubly-linked list?**
-While a doubly-linked list offers theoretical O(1) LRU mutations, in V8/Node constraints at heavily restricted sizes (128-256 elements), allocating node wrapper objects triggers severe heap fragmentation and Garbage Collection blocks. A flat contiguous `Uint32Array` linearly scanned for eviction clocks fits flawlessly in the hardware CPU L1 cache, offering exponentially faster real-world execution times for small scales by entirely bypassing memory pointer indirection.
-
-| Array | Type | Purpose |
-|---|---|---|
-| `_cacheIndex` | `Map<string, uint8>` | key → slot number |
-| `_cacheBuf` | `Array[256]` | `ArrayBuffer` payload |
-| `_cacheMeta` | `Array[256]` | metadata object (`etag`, `lastModified`, `contentType`) |
-| `_cacheKey` | `Array[256]` | key string (needed for eviction) |
-| `_cacheHits` | `Int32Array[256]` | per-slot hit counter |
-| `_cacheLastUsed` | `Uint32Array[256]` | logical clock value at last access |
-| `_cacheBytes` | `Int32Array[256]` | `buf.byteLength` (avoids re-reading `ArrayBuffer`) |
-
-### LRU eviction
-
-Two eviction triggers:
-
-1. **Slot limit** (primary): when all slots are occupied, `_evictLRU()` scans `_cacheLastUsed` natively against a uint array.
-2. **Byte ceiling** (secondary, 96 MB): guards dynamically against heavily scaled artifacts choking identical bounds.
-
-The timestamp clock (`_now`) is globally synchronized natively exactly once per request across the isolate layout to ensure absolute eviction evaluation accuracy scaling cleanly.
-
----
-
-## Cache warming and Hash Index (`core/r2.js`)
-
-When `r2Get` fetches an `InRelease` file, it actively pipelines a `warmRamCacheFromRelease` `ctx.waitUntil` job evaluating directly without halting standard execution chains. This maps the native `sha256 → path` directly back against the globally available `_hashIndexes` object securely mapping subsequent incoming request payloads instantly on resolution!
-
----
-
-## Transformers (`core/utils.js`)
-
-Extracts string operations natively resolving distinct logic:
-- Parses parameters out against simple `indexOf` loops bounding memory sizes
-- Isolates `isHex64` verification rules guaranteeing hash integrities natively
-
----
-
-## Constants (`core/constants.js`)
-
-Native static parameters:
-
-- `H_BASE` — strictly defines secure XSS boundary headers natively
-- `H_CACHED` — appends aggressive native CDN TTL directives to payloads smoothly 
-
-`no-transform` heavily populates most CDN bounds actively preventing intermediate architectures breaking compression formats APT natively anticipates executing correctly dynamically.
-
----
-
-## Configuration (`core/config.js`)
-
-Loaded once at module load from `../config.json`. Each distro entry is natively pre-processed dynamically extracting `aliases`, `arches`, and stripping protocol domains for rapid O(1) validations natively in edge environments.
+1. **Absence of Background Stale-While-Revalidate (SWR):**
+   - **Proxy**: Utilizes `ctx.waitUntil(env.DEBTHIN_BUCKET.put(...))` to fetch upstream dependencies exclusively in the background without natively blocking the client sockets.
+   - **Images**: Traps the inbound socket synchronously during LRUCache TTL expiries, sequentially executing slow origin `Class 1` R2 `list({cursor})` pagination calls spanning thousands of objects before returning headers.
+2. **Missing Persistent Tier-2 Architecture:**
+   - **Proxy**: Fully persists generated metadata objects backing into the physical R2 bucket. Edge regions fetch this Tier 2 object statically if their RAM is bare.
+   - **Images**: Relies completely on volatile memory. A Cloudflare Edge data-center reboot flushes the `indexCache`. The next hit natively forces an exhaustive, expensive physical scan of the storage bucket from scratch just to yield the index.
+3. **Hazardous Edge Memory Bounds:**
+   - **Proxy**: Pipes heavy textual artifacts sequentially through Web Streams (`new Response(gz).pipeThrough(new TextDecoderStream()).getReader()`), discarding useless nodes sequentially to preserve the strict 128MB V8 worker RAM limits natively.
+   - **Images**: Aggregates all discovered bucket objects concurrently into a solitary massive structured JSON object and textual CSV schema in RAM prior to encoding them. This structure inherently risks an `Out of Memory` abort trajectory when the catalog scales upwards.

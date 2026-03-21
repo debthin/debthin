@@ -31,6 +31,18 @@ async function handleRequest(request, env) {
         return new Response("Bad Request\n", { status: 400 });
     }
 
+    if (rawPath === "robots.txt") {
+        return new Response("User-agent: *\nAllow: /$\nDisallow: /\n", { 
+            headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "public, max-age=3600" } 
+        });
+    }
+
+    if (rawPath === "") {
+        return new Response("debthin container registry interface natively operating at the Edge.", { 
+            headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "public, max-age=3600" } 
+        });
+    }
+
     if (rawPath === "health") {
         let r2 = "OK";
         try { await env.IMAGES_BUCKET.head("healthcheck-ping"); } catch (e) { r2 = "ERROR"; }
@@ -61,7 +73,7 @@ async function handleRequest(request, env) {
 
     // 4. Direct Downloads (Redirect to unmetered R2)
     if (rawPath.startsWith("images/")) {
-        return handleImageRedirect('/' + rawPath);
+        return handleImageRedirect('/' + rawPath, env);
     }
 
     return new Response("Not Found. debthin image server.", { status: 404 });

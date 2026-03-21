@@ -1,6 +1,6 @@
 name = "debthin-proxy"
 main = "worker/proxy/index.js"
-compatibility_date = "2024-01-01"
+compatibility_date = "2026-03-18"
 
 [[r2_buckets]]
 binding = "DEBTHIN_BUCKET"
