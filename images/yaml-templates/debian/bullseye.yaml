@@ -88,23 +88,19 @@ files:
 
 packages:
   manager: apt
-  update: true
-  cleanup: true
-  sets:
-    - action: remove
-      packages:
-        - udev
-    - action: install
-      packages:
-        - curl
-        - ifupdown
-        - isc-dhcp-client
 
 actions:
-  - trigger: post-packages
+  - trigger: post-files
     action: |-
       #!/bin/sh
       set -e
+
+      # Ensure the keyring is securely synced before triggering apt update natively
+      export DEBIAN_FRONTEND=noninteractive
+      apt-get update
+      apt-get remove -y udev || true
+      apt-get install -y --no-install-recommends curl ifupdown isc-dhcp-client
+      apt-get clean
 
       # Purge any residual files
       rm -rf /usr/share/doc/* /usr/share/man/* /usr/share/locale/* /var/cache/apt/archives/*.deb

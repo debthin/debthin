@@ -92,6 +92,11 @@ echo "$BUILD_MATRIX" | while read -r DISTRO SUITE ARCH; do
     # 3b. Dynamically Patch the YAML
     YAML_RUN="${TMP_DIR}/current_build.yaml"
     
+    # Must explicitly copy the host keyring into the TMP isolate so the YAML './' relative mount resolves natively!
+    if [ -f "${REPO_ROOT}/static/debthin-keyring-binary.gpg" ]; then
+        cp "${REPO_ROOT}/static/debthin-keyring-binary.gpg" "${TMP_DIR}/debthin-keyring-binary.gpg"
+    fi
+
     sed "s/architecture: .*/architecture: \"${ARCH}\"/" "$YAML_SRC" | \
     sed "s/lxc.arch = .*/lxc.arch = ${ARCH}/" > "$YAML_RUN"
 
@@ -107,9 +112,6 @@ echo "$BUILD_MATRIX" | while read -r DISTRO SUITE ARCH; do
     
     # Build Incus format
     sudo distrobuilder build-incus "$YAML_RUN" "$OUT_DIR" --cache-dir="$CACHE_DIR" > /dev/null
-
-    # Build standard Docker/Podman OCI image format dynamically
-    sudo distrobuilder pack-oci "$YAML_RUN" "${OUT_DIR}/oci.tar" --cache-dir="$CACHE_DIR" > /dev/null
 
     # 3d. Generate local hashes
     echo "Calculating SHA256 hashes..."
