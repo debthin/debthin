@@ -4,7 +4,7 @@
  */
 
 import { LRUCache } from '../core/cache.js';
-import { CACHE_TTL_MS } from '../debthin/constants.js';
+import { CACHE_TTL_MS } from '../core/constants.js';
 
 // Index manifests can be natively large, so we assign a 20MB ArrayBuffer isolate limit.
 export const indexCache = LRUCache(16, 20 * 1024 * 1024, CACHE_TTL_MS);

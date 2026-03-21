@@ -3,7 +3,7 @@
  */
 
 import { isNotModified } from '../../core/http.js';
-import { H_CACHED } from '../../debthin/constants.js';
+import { H_CACHED } from '../../core/constants.js';
 import { indexCache } from '../cache.js';
 
 const _textEncoder = new TextEncoder();

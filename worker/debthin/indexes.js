@@ -4,7 +4,7 @@
  */
 
 import { metaCache, dataCache } from './cache.js';
-import { EMPTY_GZ_HASH, EMPTY_GZ, EMPTY_HASH } from './constants.js';
+import { EMPTY_GZ_HASH, EMPTY_GZ, EMPTY_HASH } from '../core/constants.js';
 
 const _textDecoder = new TextDecoder();
 

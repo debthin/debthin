@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { warmRamCacheFromRelease, _hashIndexes } from '../../worker/debthin/indexes.js';
 import { handleByHash } from '../../worker/debthin/handlers/index.js';
-import { EMPTY_GZ_HASH } from '../../worker/debthin/constants.js';
+import { EMPTY_GZ_HASH } from '../../worker/core/constants.js';
 
 // Read the mock file
 const mockInRelease = readFileSync(join(import.meta.dirname, 'mock_InRelease'), 'utf8');
