@@ -75,19 +75,9 @@ HOST_APT="${REPO_ROOT}/.cache/apt/${DISTRO}_${SUITE}_${ARCH}"
 mkdir -p "$HOST_APT"
 mkdir -p "$HOST_APT"
 
-# Inject custom bind mounts and disable internal cache wipes
-awk -v host_apt="$HOST_APT" '/^files:/ {
-    print "custom_mounts:"
-    print "  - source: " host_apt
-    print "    target: var/cache/apt/archives"
-    print ""
-    print $0
-    next
-}1' "$YAML_SRC" | \
-sed "s/architecture: .*/architecture: \"${ARCH}\"/" | \
-sed "s/lxc.arch = .*/lxc.arch = ${ARCH}/" | \
-sed "s|/var/cache/apt/archives/\*.deb||g" | \
-sed "/apt-get clean/d" > "$YAML_RUN"
+# Process YAML template converting architecture definitions natively
+sed "s/architecture: .*/architecture: \"${ARCH}\"/" "$YAML_SRC" | \
+sed "s/lxc.arch = .*/lxc.arch = ${ARCH}/" > "$YAML_RUN"
 
 # Create distrobuilder cache directory
 CACHE_DIR="${REPO_ROOT}/.cache/distrobuilder"
@@ -122,6 +112,10 @@ if ! sudo env PATH="${WORK_DIR}/bin:$PATH" distrobuilder build-dir "$YAML_RUN" "
      echo "ERROR: Distrobuilder failed to construct rootfs for $DISTRO $SUITE $ARCH"
 fi
 
+# Copy surviving packages back to the host utilizing rsync over cp
+if [ -d "${ROOTFS_MNT}/var/cache/apt/archives" ]; then
+    rsync -a "${ROOTFS_MNT}/var/cache/apt/archives/"*.deb "$HOST_APT/" 2>/dev/null || true
+fi
 # Clean underlying apt cache copied natively during the bootstrap wrapper phase
 sudo rm -f "${ROOTFS_MNT}/var/cache/apt/archives/"*.deb 2>/dev/null || true
 
