@@ -116,12 +116,10 @@ sudo distrobuilder pack-incus "$YAML_RUN" "$ROOTFS_MNT" "$OUT_DIR"
 
 if command -v buildah >/dev/null 2>&1; then
     CTR=$(sudo buildah from scratch)
-    MNT=$(sudo buildah mount "$CTR")
-    sudo cp -a "${ROOTFS_MNT}/." "$MNT/"
+    sudo buildah add "$CTR" "${OUT_DIR}/rootfs.tar.xz" /
     sudo buildah config --env PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin "$CTR"
     # Create OCI layout directory
     sudo buildah commit --format oci "$CTR" "oci:${OUT_DIR}/oci" > /dev/null
-    sudo buildah umount "$CTR" > /dev/null
     sudo buildah rm "$CTR" > /dev/null
 fi
 
