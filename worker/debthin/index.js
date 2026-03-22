@@ -1,5 +1,6 @@
 import { parseURL, tokenizePath } from '../core/utils.js';
 import { handleStaticAssets, handleUpstreamRedirect, handleDistributionHashIndex } from './handlers/index.js';
+import { resolveUpstream } from './utils.js';
 import { DERIVED_CONFIG, CONFIG_JSON_STRING } from '../core/config.js';
 
 // ── Main Entry ───────────────────────────────────────────────────────────────
@@ -58,11 +59,11 @@ async function handleRequest(request, env, ctx) {
 
   const distro = first;
   const rest = rawPath.slice(slash + 1);
-  const { upstream, aliasMap, suites } = distroConfig;
+  const { upstream, aliasMap, suites, archUpstreams } = distroConfig;
 
   // Immediately redirect apt pool binary requests to the original upstream
   if (rest.startsWith("pool/")) {
-    return handleUpstreamRedirect(protocol, upstream, rest);
+    return handleUpstreamRedirect(protocol, resolveUpstream(rest, archUpstreams, upstream), rest);
   }
 
   // Parse nested dists/ paths using our lightweight allocator-free tokenizer
@@ -81,7 +82,7 @@ async function handleRequest(request, env, ctx) {
 
   // Redirect ALL i18n requests (including Translation files and their by-hash lookups) directly to upstream
   if (tokens.p0 === "dists" && tokens.p1 && tokens.p3 === "i18n") {
-    return handleUpstreamRedirect(protocol, upstream, suitePath);
+    return handleUpstreamRedirect(protocol, resolveUpstream(suitePath, archUpstreams, upstream), suitePath);
   }
 
   // Map active Release, Packages, and by-hash lookups through the proxy handlers
@@ -91,7 +92,7 @@ async function handleRequest(request, env, ctx) {
   }
 
   // Fallback unconditionally to upstream redirect for unmatched paths
-  return handleUpstreamRedirect(protocol, upstream, suitePath);
+  return handleUpstreamRedirect(protocol, resolveUpstream(suitePath, archUpstreams, upstream), suitePath);
 }
 
 export default {
