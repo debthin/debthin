@@ -71,7 +71,7 @@ if [ -f "${REPO_ROOT}/static/debthin-keyring-binary.gpg" ]; then
 fi
 
 # Copy cached deb packages to working directory
-HOST_APT="${REPO_ROOT}/.cache/apt"
+HOST_APT="${REPO_ROOT}/.cache/apt/${DISTRO}_${SUITE}_${ARCH}"
 mkdir -p "$HOST_APT"
 mkdir -p "${WORK_DIR}/apt-cache"
 cp -un "$HOST_APT/"*.deb "${WORK_DIR}/apt-cache/" 2>/dev/null || true
