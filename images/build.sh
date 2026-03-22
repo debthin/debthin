@@ -105,15 +105,16 @@ echo "$BUILD_MATRIX" | while read -r DISTRO SUITE ARCH; do
         mkdir -p "${WORK_DIR}/apt-cache"
         cp -un "$HOST_APT/"*.deb "${WORK_DIR}/apt-cache/" 2>/dev/null || true
 
-        sed "s/architecture: .*/architecture: \"${ARCH}\"/" "$YAML_SRC" | \
+        # Inject the apt cache loader cleanly under the 'files:' array in the YAML
+        awk '/^files:/ {
+            print
+            print "  - path: /var/cache/apt/archives/"
+            print "    generator: copy"
+            print "    source: ./apt-cache/"
+            next
+        }1' "$YAML_SRC" | \
+        sed "s/architecture: .*/architecture: \"${ARCH}\"/" | \
         sed "s/lxc.arch = .*/lxc.arch = ${ARCH}/" > "$YAML_RUN"
-
-        # Dynamically inject the apt cache loader natively forcing local network downloads into cache
-        cat <<EOF >> "$YAML_RUN"
-  - path: /var/cache/apt/archives/
-    generator: copy
-    source: ./apt-cache/
-EOF
 
         # Explicitly persist deb downloads across execution cycles avoiding upstream throttling bounds!
         CACHE_DIR="${REPO_ROOT}/.cache/distrobuilder"
