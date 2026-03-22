@@ -75,8 +75,16 @@ HOST_APT="${REPO_ROOT}/.cache/apt/${DISTRO}_${SUITE}_${ARCH}"
 mkdir -p "$HOST_APT"
 mkdir -p "$HOST_APT"
 
-# Process YAML template converting architecture definitions natively
-sed "s/architecture: .*/architecture: \"${ARCH}\"/" "$YAML_SRC" | \
+# Inject custom bind mounts dynamically ensuring packaging routines save network pulls directly to the physical host block
+awk -v host_apt="$HOST_APT" '/^files:/ {
+    print "custom_mounts:"
+    print "  - source: " host_apt
+    print "    target: var/cache/apt/archives"
+    print ""
+    print $0
+    next
+}1' "$YAML_SRC" | \
+sed "s/architecture: .*/architecture: \"${ARCH}\"/" | \
 sed "s/lxc.arch = .*/lxc.arch = ${ARCH}/" > "$YAML_RUN"
 
 # Create distrobuilder cache directory
@@ -112,19 +120,12 @@ if ! sudo env PATH="${WORK_DIR}/bin:$PATH" distrobuilder build-dir "$YAML_RUN" "
      echo "ERROR: Distrobuilder failed to construct rootfs for $DISTRO $SUITE $ARCH"
 fi
 
-# Copy surviving packages back to the host utilizing rsync over cp
-if [ -d "${ROOTFS_MNT}/var/cache/apt/archives" ]; then
-    rsync -a "${ROOTFS_MNT}/var/cache/apt/archives/"*.deb "$HOST_APT/" 2>/dev/null || true
-fi
 # Clean underlying apt cache copied natively during the bootstrap wrapper phase
 sudo rm -f "${ROOTFS_MNT}/var/cache/apt/archives/"*.deb 2>/dev/null || true
 
-# Strip the actions block from the runtime YAML to strictly prevent pack-lxc and pack-incus from re-executing APT network pulls
-awk '
-/^actions:/ { skip=1; next }
-/^[a-z]+:/ { if (skip) skip=0 }
-!skip { print }
-' "$YAML_RUN" > "${YAML_RUN}.tmp" && sudo mv "${YAML_RUN}.tmp" "$YAML_RUN"
+# At this stage, distrobuilder pack-lxc and pack-incus will individually fire post-files hooks natively.
+# Because custom_mounts physically masks the target folder inside the chroot, all downloaded packages map directly
+# into the host cache instead of generating uncompressed internal filesystem bloat inside the final target archives.
 
 # Pack LXC and Incus formats
 sudo distrobuilder pack-lxc "$YAML_RUN" "$ROOTFS_MNT" "$OUT_DIR"
