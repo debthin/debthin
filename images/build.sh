@@ -62,6 +62,9 @@ cd "$REPO_ROOT" || exit 1
 
 echo "$BUILD_MATRIX" | while read -r DISTRO SUITE ARCH; do
     
+    # Shortcut to bypass trixie during testing
+    if [ "$SUITE" = "trixie" ]; then continue; fi
+
     # 3a. The Guardrail: Check if a template actually exists
     # This prevents the script from trying to build "-updates" or "-backports" 
     # suites unless you explicitly created a yaml template for them.
