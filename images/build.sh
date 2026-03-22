@@ -70,6 +70,10 @@ if [ -f "${REPO_ROOT}/static/debthin-keyring-binary.gpg" ]; then
     cp "${REPO_ROOT}/static/debthin-keyring-binary.gpg" "${WORK_DIR}/debthin-keyring-binary.gpg"
 fi
 
+# Resolve and secure explicit host package caching paths
+HOST_APT="${REPO_ROOT}/.cache/apt/${DISTRO}_${SUITE}_${ARCH}"
+mkdir -p "$HOST_APT"
+
 # Process YAML template converting architecture definitions natively
 sed "s/architecture: .*/architecture: \"${ARCH}\"/" "$YAML_SRC" | \
 sed "s/lxc.arch = .*/lxc.arch = ${ARCH}/" > "$YAML_RUN"
@@ -92,11 +96,28 @@ fi
 
 
 
+# Create a debootstrap wrapper to pre-inject cached packages before bootstrap network pulls 
+mkdir -p "${WORK_DIR}/bin"
+cat <<EOF > "${WORK_DIR}/bin/debootstrap"
+#!/usr/bin/env bash
+mkdir -p "${ROOTFS_MNT}/var/cache/apt/archives"
+if ls "${HOST_APT}/"*.deb >/dev/null 2>&1; then
+    cp -un "${HOST_APT}/"*.deb "${ROOTFS_MNT}/var/cache/apt/archives/"
+fi
+exec /usr/sbin/debootstrap "\$@"
+EOF
+chmod +x "${WORK_DIR}/bin/debootstrap"
+
 # Build rootfs directory
-if ! sudo distrobuilder build-dir "$YAML_RUN" "$ROOTFS_MNT" --cache-dir="$CACHE_DIR" --sources-dir="$SOURCES_DIR"; then
+if ! sudo env PATH="${WORK_DIR}/bin:$PATH" distrobuilder build-dir "$YAML_RUN" "$ROOTFS_MNT" --cache-dir="$CACHE_DIR" --sources-dir="$SOURCES_DIR"; then
      echo "ERROR: Distrobuilder failed to construct rootfs for $DISTRO $SUITE $ARCH"
      exit 1
 fi
+
+# Synchronize newly fetched debootstrap packages back into the persistent host cache
+sudo cp -un "${ROOTFS_MNT}/var/cache/apt/archives/"*.deb "$HOST_APT/" 2>/dev/null || true
+# Clean underlying apt cache copied natively during the bootstrap wrapper phase
+sudo rm -f "${ROOTFS_MNT}/var/cache/apt/archives/"*.deb 2>/dev/null || true
 
 # Pack LXC format natively allowing the initial post-files configuration iteration to execute successfully.
 # Because the native yaml templates contain `apt-get clean`, no uncompressed deb blobs are archived within the tarball.
