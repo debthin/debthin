@@ -74,22 +74,6 @@ fi
 sed "s/architecture: .*/architecture: \"${ARCH}\"/" "$YAML_SRC" | \
 sed "s/lxc.arch = .*/lxc.arch = ${ARCH}/" > "$YAML_RUN"
 
-# Prevent apt-cacher-ng corruption by pulling from standard unmodified repositories, safely restoring debthin.org inside the final image
-awk -v suite="$SUITE" '
-  /url: "http:\/\/debthin.org\/debian"/ { print "  url: \"http://deb.debian.org/debian\""; next }
-  /deb \[signed-by=\/etc\/apt\/keyrings\/debthin.gpg\] http:\/\/debthin.org\/debian/ {
-      print "      deb http://deb.debian.org/debian " suite " main"
-      next
-  }
-  /apt-get clean/ {
-      print "      echo \"deb [signed-by=/etc/apt/keyrings/debthin.gpg] http://debthin.org/debian " suite " main\" > /etc/apt/sources.list"
-      print "      echo \"deb http://deb.debian.org/debian-security " suite "-security main\" >> /etc/apt/sources.list"
-      print $0
-      next
-  }
-  { print }
-' "$YAML_RUN" > "${YAML_RUN}.tmp" && sudo mv "${YAML_RUN}.tmp" "$YAML_RUN"
-
 # Create distrobuilder cache directory preserving isolated source archives natively
 CACHE_DIR="${REPO_ROOT}/.cache/distrobuilder"
 mkdir -p "$CACHE_DIR"
