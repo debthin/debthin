@@ -1,0 +1,121 @@
+image:
+  distribution: "ubuntu"
+  release: "plucky"
+  architecture: "amd64"
+  description: "Ubuntu 25.04 Plucky (debthin.org Minimal)"
+
+source:
+  downloader: "debootstrap"
+  url: "http://debthin.org/ubuntu"
+  skip_verification: true
+
+files:
+  - path: /etc/apt/keyrings/debthin.gpg
+    generator: copy
+    source: ./debthin-keyring-binary.gpg
+    mode: 0644
+
+  - path: /etc/apt/sources.list
+    generator: dump
+    content: |-
+      deb [signed-by=/etc/apt/keyrings/debthin.gpg] http://debthin.org/ubuntu plucky main
+      deb http://security.ubuntu.com/ubuntu plucky-security main
+
+  - path: /etc/dpkg/dpkg.cfg.d/01_nodoc
+    generator: dump
+    content: |-
+      path-exclude /usr/share/doc/*
+      path-include /usr/share/doc/*/copyright
+      path-exclude /usr/share/man/*
+      path-exclude /usr/share/groff/*
+      path-exclude /usr/share/info/*
+      path-exclude /usr/share/lintian/*
+
+  - path: /etc/dpkg/dpkg.cfg.d/01_nolocale
+    generator: dump
+    content: |-
+      path-exclude /usr/share/locale/*
+      path-include /usr/share/locale/en/*
+
+  - path: /etc/dpkg/dpkg.cfg.d/01_nobloat
+    generator: dump
+    content: |-
+      path-exclude /usr/lib/x86_64-linux-gnu/gconv/*
+      path-exclude /usr/lib/udev/hwdb.d/*
+      path-exclude /usr/lib/systemd/hwdb/*
+      path-exclude /etc/udev/hwdb.d/*
+
+  - path: /etc/apt/apt.conf.d/99thin
+    generator: dump
+    content: |-
+      Acquire::Languages "none";
+      Acquire::GzipIndexes "true";
+      Acquire::CompressionTypes::Order:: "gz";
+      Dir::Cache::pkgcache "";
+      Dir::Cache::srcpkgcache "";
+  - path: /etc/apt/apt.conf.d/01norecommends
+    generator: dump
+    content: |-
+      APT::Install-Recommends "false";
+      APT::Install-Suggests "false";
+
+  - path: /etc/systemd/network/10-eth0.network
+    generator: dump
+    content: |-
+      [Match]
+      Name=eth0
+      [Network]
+      DHCP=yes
+
+  - path: /etc/hostname
+    generator: hostname
+
+  - path: /etc/hosts
+    generator: hosts
+
+  - path: /etc/tmpfiles.d/resolv.conf
+    generator: dump
+    content: |-
+      L+ /etc/resolv.conf - - - - ../run/systemd/resolve/stub-resolv.conf
+
+packages:
+  manager: apt
+
+actions:
+  - trigger: post-files
+    action: |-
+      #!/bin/sh
+      set -e
+
+      export DEBIAN_FRONTEND=noninteractive
+      apt-get update
+      apt-get remove -y udev || true
+      apt-get install -y --no-install-recommends systemd-resolved curl
+      apt-get clean
+
+      rm -rf /usr/share/doc/* /usr/share/man/* /usr/share/locale/* /var/cache/apt/archives/*.deb
+      rm -rf /usr/lib/x86_64-linux-gnu/gconv/* /usr/lib/udev/hwdb.d/*
+      rm -f /var/cache/apt/*.bin
+      rm -f /usr/lib/udev/hwdb.bin /etc/udev/hwdb.bin
+      rm -rf /var/lib/apt/lists/*
+
+      systemctl enable systemd-networkd.service
+      systemctl enable systemd-resolved.service
+
+      mkdir -p /etc/systemd/journald.conf.d
+      cat << 'EOF' > /etc/systemd/journald.conf.d/00-container-limits.conf
+      [Journal]
+      SystemMaxUse=50M
+      SystemKeepFree=0
+      EOF
+
+targets:
+  lxc:
+    config:
+      - type: all
+        content: |-
+          lxc.include = LXC_TEMPLATE_CONFIG/ubuntu.common.conf
+          lxc.arch = amd64
+      - type: user
+        content: |-
+          lxc.include = LXC_TEMPLATE_CONFIG/ubuntu.userns.conf
