@@ -133,6 +133,7 @@ blendsel
 blendsel-data
 blt
 bluedevil
+bluefish
 bluefish-data
 bluefish-plugins
 bluetooth
@@ -225,7 +226,6 @@ coinor-libosi1v5
 colordiff
 comerr-dev
 command-not-found
-confget
 conmon
 conntrack
 console-common
@@ -450,6 +450,8 @@ fcitx5-frontend-qt6
 fcitx5-module-chttrans
 fcitx5-module-cloudpinyin
 fcitx5-module-fullwidth
+fcitx5-module-lua
+fcitx5-module-lua-common
 fcitx5-module-pinyinhelper
 fcitx5-module-punctuation
 fcitx5-modules
@@ -489,7 +491,6 @@ fish-common
 flac
 flatpak
 flex
-flite
 fluid-soundfont-gm
 fluid-soundfont-gs
 fluidsynth
@@ -722,6 +723,7 @@ gufw
 guile-3.0-libs
 gv
 gvfs
+gvfs-backends
 gvfs-common
 gvfs-daemons
 gvfs-libs
@@ -874,6 +876,7 @@ kfind
 kget
 kglobalacceld
 kgpg
+kimagemapeditor
 kinfocenter
 kinit
 kio
@@ -1452,6 +1455,7 @@ libcrypt-dev
 libcrypt-openssl-bignum-perl
 libcrypt-openssl-random-perl
 libcrypt-openssl-rsa-perl
+libcrypt-passwdmd5-perl
 libcrypt-random-seed-perl
 libcrypt-rc4-perl
 libcrypt-ssleay-perl
@@ -1715,6 +1719,7 @@ libfakechroot
 libfakekey0
 libfakeroot
 libfaketime
+libfarmhash0
 libfarstream-0.2-5
 libfastinfoset-java
 libfastjson4
@@ -1812,6 +1817,7 @@ libfreehep-graphics2d-java
 libfreehep-graphicsio-java
 libfreehep-graphicsio-svg-java
 libfreehep-io-java
+libfreehep-util-java
 libfreeimage3
 libfreeipmi17
 libfreerdp-client3-3
@@ -2940,6 +2946,7 @@ libmagickcore-7.q16-10-extra
 libmagickwand-7.q16-10
 libmail-authenticationresults-perl
 libmail-dkim-perl
+libmail-dmarc-perl
 libmail-imapclient-perl
 libmail-java
 libmail-sendmail-perl
@@ -2951,6 +2958,7 @@ libmailutils9t64
 libmalcontent-0-0
 libmalcontent-ui-1-1
 libmanette-0.2-0
+libmarblewidget-qt6-28
 libmarco-private2
 libmariadb-dev
 libmariadb-dev-compat
@@ -3706,6 +3714,7 @@ libqt6qml6
 libqt6qmlcompiler6
 libqt6qmlmeta6
 libqt6qmlmodels6
+libqt6qmlnetwork6
 libqt6qmlworkerscript6
 libqt6quick3d6
 libqt6quick3druntimerender6
@@ -3907,6 +3916,7 @@ libsdl2-net-2.0-0
 libsdl2-ttf-2.0-0
 libsdl3-0
 libseat1
+libseccomp-dev
 libseccomp2
 libsecret-1-0
 libsecret-common
@@ -4147,6 +4157,7 @@ libtermkey1
 libtesseract5
 libtest-deep-perl
 libtest-fatal-perl
+libtest-file-sharedir-perl
 libtest-harness-perl
 libtest-output-perl
 libtest-simple-perl
@@ -4733,6 +4744,7 @@ lua-lpeg
 lua-luv
 lua-socket
 lua5.1
+lua5.4
 luit
 lv
 lvm2
@@ -4755,6 +4767,7 @@ make
 malcontent
 malcontent-gui
 man-db
+marble-qt-data
 mariadb-client
 mariadb-client-compat
 mariadb-client-core
@@ -5066,7 +5079,6 @@ node-got
 node-graceful-fs
 node-growl
 node-gyp
-node-har-schema
 node-has-flag
 node-has-unicode
 node-has-value
@@ -5074,7 +5086,6 @@ node-has-values
 node-hosted-git-info
 node-html5shiv
 node-http-proxy-agent
-node-http-signature
 node-https-proxy-agent
 node-iconv-lite
 node-icss-utils
@@ -5261,7 +5272,6 @@ node-spdx-exceptions
 node-spdx-expression-parse
 node-spdx-license-ids
 node-sprintf-js
-node-sshpk
 node-ssri
 node-stack-utils
 node-string-decoder
@@ -5349,7 +5359,6 @@ ocl-icd-libopencl1
 ocl-icd-opencl-dev
 odbcinst
 odt2txt
-ofono
 open-iscsi
 open-vm-tools
 open-vm-tools-desktop
@@ -5365,6 +5374,7 @@ openjdk-21-jdk
 openjdk-21-jdk-headless
 openjdk-21-jre
 openjdk-21-jre-headless
+openjdk-25-jre-headless
 openjfx
 openjfx-source
 openmpi-bin
@@ -5581,6 +5591,7 @@ python3
 python3-acme
 python3-aeidon
 python3-aiodns
+python3-aiofiles
 python3-aiohappyeyeballs
 python3-aiohttp
 python3-aiosignal
@@ -6292,6 +6303,7 @@ qml6-module-qt5compat-graphicaleffects
 qml6-module-qtcore
 qml6-module-qtlocation
 qml6-module-qtmultimedia
+qml6-module-qtnetwork
 qml6-module-qtpositioning
 qml6-module-qtqml
 qml6-module-qtqml-models
@@ -6655,6 +6667,7 @@ ure-java
 usb.ids
 usbmuxd
 usbutils
+usr-is-merged
 usrmerge
 util-linux
 util-linux-extra

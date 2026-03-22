@@ -83,6 +83,7 @@ tar
 tzdata
 util-linux
 zlib1g
+usr-is-merged
 
 # Essential networking
 iproute2
