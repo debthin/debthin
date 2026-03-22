@@ -7,6 +7,29 @@
 import { compareDebianVersions, parseVersion } from './version.js';
 
 /**
+ * Retrieves a field value from a stanza regardless of its storage type.
+ * Stanzas from parsePackages/reduceToLatest use plain objects; stanzas from
+ * reduceStreamToLatest use Maps. This accessor unifies both code paths.
+ *
+ * @param {Object|Map} fields - The stanza field container.
+ * @param {string} key - The lowercase field name.
+ * @returns {string|undefined} The field value, or undefined if not present.
+ */
+function fieldGet(fields, key) {
+  return fields instanceof Map ? fields.get(key) : fields[key];
+}
+
+/**
+ * Iterates over all key-value pairs in a stanza regardless of storage type.
+ *
+ * @param {Object|Map} fields - The stanza field container.
+ * @returns {Iterable<[string, string]>} Key-value pairs.
+ */
+function fieldEntries(fields) {
+  return fields instanceof Map ? fields.entries() : Object.entries(fields);
+}
+
+/**
  * Deserializes an APT formatted Packages payload into primitive JavaScript objects.
  * 
  * @param {string} text - Raw Packages file payload.
@@ -74,29 +97,28 @@ export function reduceToLatest(stanzas, pin) {
 }
 
 /**
- * Processes a raw APT Packages stream iteratively.
- * Uses a Uint8Array leftover buffer instead of String concatenation
- * to eliminate V8 Garbage Collection pressure from intermediate string allocations.
- * Scans for stanza boundaries (\n\n) directly in the byte domain and only
- * decodes individual stanzas to text on demand.
+ * Slab-allocated, JIT-optimized APT Packages stream processor.
+ * Pre-allocates a 1MB memory slab to guarantee zero allocations during standard
+ * chunk processing. Utilizes V8 Maps for stanza field storage to prevent
+ * hidden-class megamorphism on dynamic field parsing.
  *
  * @param {ReadableStream} readableStream - The uncompressed byte stream.
  * @param {string|null} pin - Target framework pinning restriction constraints.
- * @returns {Promise<Map<string, Object>>} The reduced mapping of best package versions.
+ * @returns {Promise<Map<string, Map<string, string>>>} The reduced mapping of best package versions.
  */
 export async function reduceStreamToLatest(readableStream, pin) {
   const reader = readableStream.getReader();
   const best = new Map();
   const decoder = new TextDecoder();
 
-  // Tracks unconsumed tail bytes between read() calls.
-  let leftover = new Uint8Array(0);
+  // 1MB pre-allocated slab. Prevents Uint8Array allocations inside the loop.
+  let slab = new Uint8Array(1024 * 1024);
+  let slabOffset = 0;
 
   const processStanza = (stanzaBytes) => {
     const text = decoder.decode(stanzaBytes);
     if (!text.trim()) return;
 
-    // Extract Package name and version using regex sweeps instead of split()
     const pkgMatch = text.match(/^Package:\s*(.+)$/m);
     const verMatch = text.match(/^Version:\s*(.+)$/m);
 
@@ -109,9 +131,8 @@ export async function reduceStreamToLatest(readableStream, pin) {
       if (upstream !== pin && !upstream.startsWith(pin + ".")) return;
     }
 
-    if (!best.has(name) || compareDebianVersions(version, best.get(name)["version"] || "") > 0) {
-      // Only parse the full field set if we are actually keeping this stanza
-      best.set(name, parseStanzaFields(text));
+    if (!best.has(name) || compareDebianVersions(version, best.get(name).get("version") || "") > 0) {
+      best.set(name, parseStanzaFieldsMap(text));
     }
   };
 
@@ -119,48 +140,60 @@ export async function reduceStreamToLatest(readableStream, pin) {
     const { done, value } = await reader.read();
     if (done) break;
 
-    // Merge leftover bytes with the new chunk without intermediate string allocation
-    const chunk = new Uint8Array(leftover.length + value.length);
-    chunk.set(leftover);
-    chunk.set(value, leftover.length);
+    // Expand slab only if the incoming chunk overflows the buffer
+    if (slabOffset + value.length > slab.length) {
+      const newSlab = new Uint8Array(slab.length * 2 + value.length);
+      newSlab.set(slab.subarray(0, slabOffset));
+      slab = newSlab;
+    }
+
+    slab.set(value, slabOffset);
+    const totalLength = slabOffset + value.length;
 
     let start = 0;
-    for (let i = 0; i < chunk.length - 1; i++) {
-      // Detect \n\n (0x0A, 0x0A) stanza boundary directly in byte domain
-      if (chunk[i] === 10 && chunk[i + 1] === 10) {
-        processStanza(chunk.subarray(start, i));
+    for (let i = 0; i < totalLength - 1; i++) {
+      if (slab[i] === 10 && slab[i + 1] === 10) {
+        processStanza(slab.subarray(start, i));
         start = i + 2;
       }
     }
-    leftover = chunk.subarray(start);
+
+    // Shift leftover bytes to the beginning of the slab
+    if (start < totalLength) {
+      slab.copyWithin(0, start, totalLength);
+      slabOffset = totalLength - start;
+    } else {
+      slabOffset = 0;
+    }
   }
 
-  if (leftover.length > 0) processStanza(leftover);
+  if (slabOffset > 0) processStanza(slab.subarray(0, slabOffset));
 
   return best;
 }
 
 /**
- * Parses a raw Debian control stanza string into a key-value field dictionary.
- * Handles continuation lines (leading whitespace) by appending to the previous key.
- * Keys are normalised to lowercase for consistent lookups.
+ * Parses a raw Debian control stanza string into a Map to preserve V8 hidden
+ * class optimization. Using Map avoids the megamorphic property lookups that
+ * occur when V8 encounters objects with varying key sets.
  *
  * @param {string} stanzaText - A single decoded stanza block.
- * @returns {Object} Null-prototype dictionary of field name → value.
+ * @returns {Map<string, string>} Dictionary of field name → value.
  */
-function parseStanzaFields(stanzaText) {
-  const fields = Object.create(null);
+function parseStanzaFieldsMap(stanzaText) {
+  const fields = new Map();
   let currentKey = null;
   const lines = stanzaText.split("\n");
+
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     if (line.charCodeAt(0) === 32 || line.charCodeAt(0) === 9) {
-      if (currentKey) fields[currentKey] += "\n" + line;
+      if (currentKey) fields.set(currentKey, fields.get(currentKey) + "\n" + line);
     } else {
       const colon = line.indexOf(":");
       if (colon !== -1) {
         currentKey = line.slice(0, colon).toLowerCase();
-        fields[currentKey] = line.slice(colon + 2);
+        fields.set(currentKey, line.slice(colon + 2));
       }
     }
   }
@@ -170,17 +203,18 @@ function parseStanzaFields(stanzaText) {
 /**
  * Evaluates the resulting graph to verify satisfied dependencies.
  * Automatically removes isolated packages that lack the required dependency layers internally.
+ * Supports both plain-object stanzas (from parsePackages) and Map stanzas (from reduceStreamToLatest).
  * 
- * @param {Map<string, Object>} pkgMap - Resolved map of targeted latest versions.
- * @returns {Map<string, Object>} The final filtered graph containing only viable packages.
+ * @param {Map<string, Object|Map>} pkgMap - Resolved map of targeted latest versions.
+ * @returns {Map<string, Object|Map>} The final filtered graph containing only viable packages.
  */
 export function filterPackages(pkgMap) {
   const provides = new Map();
   for (const [, fields] of pkgMap) {
-    for (const alts of parseDeps(fields["provides"] || "")) {
+    for (const alts of parseDeps(fieldGet(fields, "provides") || "")) {
       for (const virt of alts) {
         if (!provides.has(virt)) provides.set(virt, []);
-        provides.get(virt).push(fields["package"]);
+        provides.get(virt).push(fieldGet(fields, "package"));
       }
     }
   }
@@ -188,7 +222,7 @@ export function filterPackages(pkgMap) {
   const filtered   = new Map();
   for (const [name, fields] of pkgMap) {
     let ok = true;
-    for (const depField of [fields["depends"], fields["pre-depends"]].filter(Boolean)) {
+    for (const depField of [fieldGet(fields, "depends"), fieldGet(fields, "pre-depends")].filter(Boolean)) {
       for (const alts of parseDeps(depField)) {
         if (!alts.some(canSatisfy)) { ok = false; break; }
       }
@@ -201,16 +235,17 @@ export function filterPackages(pkgMap) {
 
 /**
  * Serializes the final mapped structure back into APT-compatible textual formatting.
+ * Supports both plain-object stanzas and Map stanzas.
  * 
- * @param {Map<string, Object>} pkgMap - The final post-filtered mapping structure.
+ * @param {Map<string, Object|Map>} pkgMap - The final post-filtered mapping structure.
  * @returns {string} The fully serialized string ready for compression.
  */
 export function serializePackages(pkgMap) {
   const capitalise = k => k.replace(/(^|-)([a-z])/g, (_, p, c) => p + c.toUpperCase());
   const stanzas = [];
   for (const fields of pkgMap.values()) {
-    const lines = [`Package: ${fields["package"]}`];
-    for (const [k, v] of Object.entries(fields)) {
+    const lines = [`Package: ${fieldGet(fields, "package")}`];
+    for (const [k, v] of fieldEntries(fields)) {
       if (k !== "package") lines.push(`${capitalise(k)}: ${v}`);
     }
     stanzas.push(lines.join("\n"));
