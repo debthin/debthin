@@ -55,12 +55,12 @@ export function isNotModified(requestHeaders, obj) {
  * @param {Function} [options.onDiskMiss] - Callback (buffer, forceReindex) triggered strictly on network fetch.
  * @returns {Promise<Response>} A fully formed HTTP Response ready for the client socket.
  */
-export async function serveR2(env, request, key, cache, { transform, fetchKey, ctx, immutable, onDiskMiss } = {}) {
+export async function serveR2(env, request, key, cache, { transform, fetchKey, ctx, immutable, onDiskMiss, ttl, maxAge } = {}) {
   const isHead = request.method === "HEAD";
   
   const obj = isHead && !transform 
     ? await r2Head(env, fetchKey ?? key, cache) 
-    : await r2Get(env, fetchKey ?? key, cache, ctx, { onDiskMiss });
+    : await r2Get(env, fetchKey ?? key, cache, ctx, { onDiskMiss, ttl });
     
   if (!obj) return new Response("Not found\n", { status: 404, headers: { ...H_CACHED, "X-Cache": "MISS" } });
 
@@ -74,6 +74,7 @@ export async function serveR2(env, request, key, cache, { transform, fetchKey, c
   if (obj.etag) h["ETag"] = obj.etag;
   if (obj.lastModified) h["Last-Modified"] = new Date(obj.lastModified).toUTCString();
   if (isHead && obj.isCached) h["Content-Length"] = obj.contentLength.toString();
+  if (maxAge !== undefined) h["Cache-Control"] = `public, max-age=${maxAge}, no-transform`;
 
   h["Content-Type"] = (transform === "strip-pgp" || transform === "decompress") 
     ? "text/plain; charset=utf-8" 
