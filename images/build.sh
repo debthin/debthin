@@ -100,7 +100,7 @@ echo "$BUILD_MATRIX" | while read -r DISTRO SUITE ARCH; do
         fi
 
         # Extract host deb packages natively dropping them efficiently into the runtime working bounds 
-        HOST_APT="${REPO_ROOT}/cached/apt"
+        HOST_APT="${REPO_ROOT}/.cache/apt"
         mkdir -p "$HOST_APT"
         mkdir -p "${WORK_DIR}/apt-cache"
         cp -un "$HOST_APT/"*.deb "${WORK_DIR}/apt-cache/" 2>/dev/null || true
@@ -116,7 +116,7 @@ echo "$BUILD_MATRIX" | while read -r DISTRO SUITE ARCH; do
 EOF
 
         # Explicitly persist deb downloads across execution cycles avoiding upstream throttling bounds!
-        CACHE_DIR="${REPO_ROOT}/cached/distrobuilder"
+        CACHE_DIR="${REPO_ROOT}/.cache/distrobuilder"
         mkdir -p "$CACHE_DIR"
 
         cd "$WORK_DIR" || exit 1
@@ -129,7 +129,7 @@ EOF
         fi
 
         # Build core directory first cutting redundant debootstrap downloads directly
-        if ! sudo distrobuilder build-dir "$YAML_RUN" "$ROOTFS_MNT" --cache-dir="$CACHE_DIR"; then
+        if ! sudo distrobuilder build-dir "$YAML_RUN" "$ROOTFS_MNT" --cache-dir="$CACHE_DIR" --sources-dir="$CACHE_DIR"; then
              echo "ERROR: Distrobuilder failed to construct rootfs for $DISTRO $SUITE $ARCH"
         fi
         
