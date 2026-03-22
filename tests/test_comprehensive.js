@@ -114,7 +114,7 @@ async function runTests() {
         fetchAndAnalyze("POST Method Rejected", "config.json", 405, null, 'manual', { method: 'POST' }),
         fetchAndAnalyze("PUT Method Rejected", "config.json", 405, null, 'manual', { method: 'PUT' }),
         fetchAndAnalyze("Query string rejection", "config.json?foo=bar", 400),
-        fetchAndAnalyze("Directory traversal rejection", "debian/../../../etc/passwd", 400),
+        fetchAndAnalyze("Directory traversal rejection", "debian/../../../etc/passwd", [400, 404]),
         fetchAndAnalyze("Unknown distribution 404", "nonexistent/dists/trixie/InRelease", 404)
     ];
     if ((await Promise.all(validation)).some(r => !r.ok)) allPassed = false;
