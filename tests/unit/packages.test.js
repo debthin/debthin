@@ -28,7 +28,7 @@ test('proxy/packages/Streaming Chunk Boundaries', async () => {
   const best = await reduceStreamToLatest(readable, null);
   
   assert.equal(best.size, 2);
-  assert.equal(best.get("test")["version"], "2.0");
+  assert.equal(best.get("test").get("version"), "2.0");
   assert.ok(best.has("ignore"));
 });
 
@@ -71,7 +71,7 @@ test('proxy/packages/Streaming Byte Sweep Continuation Lines', async () => {
   const best = await reduceStreamToLatest(readable, null);
 
   assert.equal(best.size, 1);
-  const desc = best.get("desc-test")["description"];
+  const desc = best.get("desc-test").get("description");
   assert.ok(desc.includes("Short desc"), "First line preserved");
   assert.ok(desc.includes("Long description line 1"), "Continuation line 1 preserved");
   assert.ok(desc.includes("Long description line 2"), "Continuation line 2 preserved");
