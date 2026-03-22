@@ -119,12 +119,10 @@ if command -v buildah >/dev/null 2>&1; then
     MNT=$(sudo buildah mount "$CTR")
     sudo cp -a "${ROOTFS_MNT}/." "$MNT/"
     sudo buildah config --env PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin "$CTR"
-    sudo buildah commit "$CTR" "oci-archive:${OUT_DIR}/oci.tar" > /dev/null
+    # Commit the container to a strict OCI Image Layout directory yielding natively compressed internal blobs
+    sudo buildah commit --format oci "$CTR" "oci:${OUT_DIR}/oci" > /dev/null
     sudo buildah umount "$CTR" > /dev/null
     sudo buildah rm "$CTR" > /dev/null
-    
-    # Compress OCI archive
-    sudo xz -T1 -9 "${OUT_DIR}/oci.tar"
 fi
 
 # Unmount and remove rootfs and working directories
@@ -143,7 +141,7 @@ if ! command -v sha256sum >/dev/null 2>&1; then
 fi
 
 # Generate SHA256 hashes for output files
-EXISTING_BINS=$(ls -1 rootfs.tar.xz meta.tar.xz incus.tar.xz rootfs.squashfs oci.tar.xz 2>/dev/null || true)
+EXISTING_BINS=$(ls -1 rootfs.tar.xz meta.tar.xz incus.tar.xz rootfs.squashfs 2>/dev/null || true)
 if [ -n "$EXISTING_BINS" ]; then
     # shellcheck disable=SC2086
     $SHA_CMD $EXISTING_BINS > hashes.txt
