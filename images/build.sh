@@ -77,7 +77,7 @@ mkdir -p "$HOST_APT"
 
 # Inject custom bind mounts dynamically ensuring packaging routines save network pulls directly to the physical host block
 awk -v host_apt="$HOST_APT" '/^files:/ {
-    print "custom_mounts:"
+    print "mounts:"
     print "  - source: " host_apt
     print "    target: var/cache/apt/archives"
     print ""
