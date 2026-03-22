@@ -16,6 +16,9 @@ TMP_DIR="${REPO_ROOT}/.build_tmp"
 # The version stamp matches the R2 worker layout (YYYYMMDD_HHMM)
 BUILD_DATE="$(date +%Y%m%d_%H%M)"
 
+# Ensure all parallel background processes are aggressively terminated if the script is cancelled
+trap 'echo -e "\n[ABORT] Terminating all active background builds..."; kill 0 2>/dev/null; exit 1' INT TERM
+
 # Ensure dependencies exist
 for cmd in distrobuilder jq curl; do
     if ! command -v "$cmd" >/dev/null 2>&1; then
