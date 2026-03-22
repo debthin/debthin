@@ -74,48 +74,44 @@ export function reduceToLatest(stanzas, pin) {
 }
 
 /**
- * Processes a raw APT Packages decompressed stream iteratively, extracting bounds into a mapped dictionary.
- * Natively avoids V8 Out-Of-Memory limits by dropping discarded versions continuously across chunks.
- * 
- * @param {ReadableStream} readableStream - The uncompressed ASCII text flow.
+ * Processes a raw APT Packages stream iteratively.
+ * Uses a Uint8Array leftover buffer instead of String concatenation
+ * to eliminate V8 Garbage Collection pressure from intermediate string allocations.
+ * Scans for stanza boundaries (\n\n) directly in the byte domain and only
+ * decodes individual stanzas to text on demand.
+ *
+ * @param {ReadableStream} readableStream - The uncompressed byte stream.
  * @param {string|null} pin - Target framework pinning restriction constraints.
  * @returns {Promise<Map<string, Object>>} The reduced mapping of best package versions.
  */
 export async function reduceStreamToLatest(readableStream, pin) {
-  const decoder = new TextDecoderStream();
-  const reader = readableStream.pipeThrough(decoder).getReader();
-
+  const reader = readableStream.getReader();
   const best = new Map();
-  let buffer = "";
+  const decoder = new TextDecoder();
 
-  const processStanzaStr = (stanzaText) => {
-    if (!stanzaText.trim()) return;
-    const fields = Object.create(null);
-    let currentKey = null;
+  // Tracks unconsumed tail bytes between read() calls.
+  let leftover = new Uint8Array(0);
 
-    for (const line of stanzaText.split("\n")) {
-      if (line.charCodeAt(0) === 32 || line.charCodeAt(0) === 9) {
-        if (currentKey) fields[currentKey] += "\n" + line;
-      } else {
-        const colon = line.indexOf(":");
-        if (colon !== -1) {
-          currentKey = line.slice(0, colon).toLowerCase();
-          fields[currentKey] = line.slice(colon + 2);
-        }
-      }
-    }
+  const processStanza = (stanzaBytes) => {
+    const text = decoder.decode(stanzaBytes);
+    if (!text.trim()) return;
 
-    const name = fields["package"];
-    if (!name) return;
-    
-    const version = fields["version"] || "";
+    // Extract Package name and version using regex sweeps instead of split()
+    const pkgMatch = text.match(/^Package:\s*(.+)$/m);
+    const verMatch = text.match(/^Version:\s*(.+)$/m);
+
+    if (!pkgMatch) return;
+    const name = pkgMatch[1];
+    const version = verMatch ? verMatch[1] : "";
+
     if (pin) {
       const { upstream } = parseVersion(version);
       if (upstream !== pin && !upstream.startsWith(pin + ".")) return;
     }
-    
+
     if (!best.has(name) || compareDebianVersions(version, best.get(name)["version"] || "") > 0) {
-      best.set(name, fields);
+      // Only parse the full field set if we are actually keeping this stanza
+      best.set(name, parseStanzaFields(text));
     }
   };
 
@@ -123,18 +119,52 @@ export async function reduceStreamToLatest(readableStream, pin) {
     const { done, value } = await reader.read();
     if (done) break;
 
-    buffer += value;
-    let idx;
-    while ((idx = buffer.indexOf("\n\n")) !== -1) {
-      const stanzaStr = buffer.slice(0, idx).trim();
-      buffer = buffer.slice(idx + 2);
-      processStanzaStr(stanzaStr);
+    // Merge leftover bytes with the new chunk without intermediate string allocation
+    const chunk = new Uint8Array(leftover.length + value.length);
+    chunk.set(leftover);
+    chunk.set(value, leftover.length);
+
+    let start = 0;
+    for (let i = 0; i < chunk.length - 1; i++) {
+      // Detect \n\n (0x0A, 0x0A) stanza boundary directly in byte domain
+      if (chunk[i] === 10 && chunk[i + 1] === 10) {
+        processStanza(chunk.subarray(start, i));
+        start = i + 2;
+      }
     }
+    leftover = chunk.subarray(start);
   }
 
-  if (buffer.trim()) processStanzaStr(buffer.trim());
+  if (leftover.length > 0) processStanza(leftover);
 
   return best;
+}
+
+/**
+ * Parses a raw Debian control stanza string into a key-value field dictionary.
+ * Handles continuation lines (leading whitespace) by appending to the previous key.
+ * Keys are normalised to lowercase for consistent lookups.
+ *
+ * @param {string} stanzaText - A single decoded stanza block.
+ * @returns {Object} Null-prototype dictionary of field name → value.
+ */
+function parseStanzaFields(stanzaText) {
+  const fields = Object.create(null);
+  let currentKey = null;
+  const lines = stanzaText.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (line.charCodeAt(0) === 32 || line.charCodeAt(0) === 9) {
+      if (currentKey) fields[currentKey] += "\n" + line;
+    } else {
+      const colon = line.indexOf(":");
+      if (colon !== -1) {
+        currentKey = line.slice(0, colon).toLowerCase();
+        fields[currentKey] = line.slice(colon + 2);
+      }
+    }
+  }
+  return fields;
 }
 
 /**
