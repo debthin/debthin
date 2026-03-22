@@ -70,16 +70,11 @@ if [ -f "${REPO_ROOT}/static/debthin-keyring-binary.gpg" ]; then
     cp "${REPO_ROOT}/static/debthin-keyring-binary.gpg" "${WORK_DIR}/debthin-keyring-binary.gpg"
 fi
 
-# Copy cached deb packages to working directory
-HOST_APT="${REPO_ROOT}/.cache/apt/${DISTRO}_${SUITE}_${ARCH}"
-mkdir -p "$HOST_APT"
-mkdir -p "$HOST_APT"
-
 # Process YAML template converting architecture definitions natively
 sed "s/architecture: .*/architecture: \"${ARCH}\"/" "$YAML_SRC" | \
 sed "s/lxc.arch = .*/lxc.arch = ${ARCH}/" > "$YAML_RUN"
 
-# Create distrobuilder cache directory
+# Create distrobuilder cache directory preserving isolated source archives natively
 CACHE_DIR="${REPO_ROOT}/.cache/distrobuilder"
 mkdir -p "$CACHE_DIR"
 
@@ -88,36 +83,36 @@ mkdir -p "$SOURCES_DIR"
 
 cd "$WORK_DIR" || exit 1
 
-# Mount rootfs as tmpfs on Linux
+# Mount rootfs as tmpfs on Linux natively handling volatile file matrices
 ROOTFS_MNT="${OUT_DIR}/rootfs"
 mkdir -p "$ROOTFS_MNT"
 if [ "$(uname -s)" = "Linux" ]; then
     sudo mount -t tmpfs -o size=2G tmpfs "$ROOTFS_MNT"
 fi
 
-# Create a debootstrap wrapper to pre-inject cached packages before bootstrap network pulls 
-mkdir -p "${WORK_DIR}/bin"
-cat <<EOF > "${WORK_DIR}/bin/debootstrap"
-#!/usr/bin/env bash
-mkdir -p "${ROOTFS_MNT}/var/cache/apt/archives"
-if ls "${HOST_APT}/"*.deb >/dev/null 2>&1; then
-    cp -un "${HOST_APT}/"*.deb "${ROOTFS_MNT}/var/cache/apt/archives/"
+# Detect apt-cacher-ng natively deploying it globally across build sequences 
+PROXY_ENV=""
+if curl -s -m 1 "http://127.0.0.1:3142/acng-report.html" >/dev/null 2>&1; then
+    HOST_IP="127.0.0.1"
+    # Resolve the physical LAN IP specifically circumventing chroot and lxc namespace isolation blockades
+    if [ "$(uname -s)" = "Linux" ] && command -v hostname >/dev/null; then
+        HOST_IP=$(hostname -I | awk '{print $1}')
+    fi
+    echo "[INFO] apt-cacher-ng detected on ${HOST_IP}. Enabling transparent proxy constraints..."
+    PROXY_ENV="http_proxy=http://${HOST_IP}:3142 https_proxy=http://${HOST_IP}:3142 HTTP_PROXY=http://${HOST_IP}:3142 HTTPS_PROXY=http://${HOST_IP}:3142"
+else
+    echo "[INFO] apt-cacher-ng daemon not intercepted. Executing downloads natively against WAN boundaries."
 fi
-exec /usr/sbin/debootstrap "\$@"
-EOF
-chmod +x "${WORK_DIR}/bin/debootstrap"
 
 # Build rootfs directory
-if ! sudo env PATH="${WORK_DIR}/bin:$PATH" distrobuilder build-dir "$YAML_RUN" "$ROOTFS_MNT" --cache-dir="$CACHE_DIR" --sources-dir="$SOURCES_DIR"; then
+if ! sudo env $PROXY_ENV distrobuilder build-dir "$YAML_RUN" "$ROOTFS_MNT" --cache-dir="$CACHE_DIR" --sources-dir="$SOURCES_DIR"; then
      echo "ERROR: Distrobuilder failed to construct rootfs for $DISTRO $SUITE $ARCH"
+     exit 1
 fi
-
-# Clean underlying apt cache copied natively during the bootstrap wrapper phase
-sudo rm -f "${ROOTFS_MNT}/var/cache/apt/archives/"*.deb 2>/dev/null || true
 
 # Pack LXC format natively allowing the initial post-files configuration iteration to execute successfully.
 # Because the native yaml templates contain `apt-get clean`, no uncompressed deb blobs are archived within the tarball.
-sudo distrobuilder pack-lxc "$YAML_RUN" "$ROOTFS_MNT" "$OUT_DIR"
+sudo env $PROXY_ENV distrobuilder pack-lxc "$YAML_RUN" "$ROOTFS_MNT" "$OUT_DIR"
 
 # Strip the actions array from the runtime YAML stopping consecutive pack-incus frameworks from infinitely repeating network loops.
 awk '
@@ -127,7 +122,7 @@ awk '
 ' "$YAML_RUN" > "${YAML_RUN}.tmp" && sudo mv "${YAML_RUN}.tmp" "$YAML_RUN"
 
 # Pack Incus format safely without repeating setup scripts
-sudo distrobuilder pack-incus "$YAML_RUN" "$ROOTFS_MNT" "$OUT_DIR"
+sudo env $PROXY_ENV distrobuilder pack-incus "$YAML_RUN" "$ROOTFS_MNT" "$OUT_DIR"
 
 if command -v buildah >/dev/null 2>&1; then
     CTR=$(sudo buildah from scratch)
