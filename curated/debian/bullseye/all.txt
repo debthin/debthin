@@ -129,6 +129,7 @@ black
 bleachbit
 blt
 bluedevil
+bluefish
 bluefish-data
 bluefish-plugins
 bluetooth
@@ -429,6 +430,8 @@ fcitx5-frontend-qt5
 fcitx5-module-chttrans
 fcitx5-module-cloudpinyin
 fcitx5-module-fullwidth
+fcitx5-module-lua
+fcitx5-module-lua-common
 fcitx5-module-pinyinhelper
 fcitx5-module-punctuation
 fcitx5-modules
@@ -463,7 +466,6 @@ fish-common
 flac
 flatpak
 flex
-flite
 fluid-soundfont-gm
 fluid-soundfont-gs
 fluidsynth
@@ -667,6 +669,7 @@ gufw
 guile-2.2-libs
 gv
 gvfs
+gvfs-backends
 gvfs-common
 gvfs-daemons
 gvfs-libs
@@ -819,6 +822,7 @@ kf5-messagelib-data
 kfind
 kget
 kgpg
+kimagemapeditor
 kinfocenter
 kinit
 kio
@@ -1377,6 +1381,7 @@ libcrypt-dev
 libcrypt-openssl-bignum-perl
 libcrypt-openssl-random-perl
 libcrypt-openssl-rsa-perl
+libcrypt-passwdmd5-perl
 libcrypt-random-seed-perl
 libcrypt-rc4-perl
 libcrypt-ssleay-perl
@@ -1562,7 +1567,6 @@ libemail-mime-perl
 libemail-sender-perl
 libemail-simple-perl
 libemail-valid-perl
-libembree3-3
 libemf1
 libenca0
 libenchant-2-2
@@ -1629,6 +1633,7 @@ libfakekey0
 libfakeroot
 libfaketime
 libfam0
+libfarmhash0
 libfarstream-0.2-5
 libfastinfoset-java
 libfastjson4
@@ -1719,6 +1724,7 @@ libfreehep-graphics2d-java
 libfreehep-graphicsio-java
 libfreehep-graphicsio-svg-java
 libfreehep-io-java
+libfreehep-util-java
 libfreeimage3
 libfreeipmi17
 libfreerdp-client2-2
@@ -3478,6 +3484,7 @@ libsdl2-image-2.0-0
 libsdl2-mixer-2.0-0
 libsdl2-net-2.0-0
 libsdl2-ttf-2.0-0
+libseccomp-dev
 libseccomp2
 libsecret-1-0
 libsecret-common
@@ -4225,6 +4232,7 @@ lua-lpeg
 lua-luv
 lua-socket
 lua5.1
+lua5.4
 lv
 lvm2
 lxc
@@ -4900,7 +4908,6 @@ ocl-icd-opencl-dev
 odbcinst
 odbcinst1debian2
 odt2txt
-ofono
 open-iscsi
 open-vm-tools
 open-vm-tools-desktop
@@ -5139,6 +5146,7 @@ python3
 python3-acme
 python3-aeidon
 python3-aiodns
+python3-aiofiles
 python3-aiohttp
 python3-alabaster
 python3-all
