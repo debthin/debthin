@@ -31,3 +31,49 @@ test('proxy/packages/Streaming Chunk Boundaries', async () => {
   assert.equal(best.get("test")["version"], "2.0");
   assert.ok(best.has("ignore"));
 });
+
+test('proxy/packages/Streaming Byte Sweep Pin Filter', async () => {
+  const text =
+    "Package: pinA\nVersion: 1:12.0-1\nFilename: pool/a\n\n" +
+    "Package: pinB\nVersion: 1:13.0-2\nFilename: pool/b\n\n" +
+    "Package: pinC\nVersion: 12.0.1-1\nFilename: pool/c\n";
+
+  const encoder = new TextEncoder();
+  const readable = new ReadableStream({
+    start(controller) {
+      controller.enqueue(encoder.encode(text));
+      controller.close();
+    }
+  });
+
+  const best = await reduceStreamToLatest(readable, "12.0");
+
+  assert.equal(best.size, 2, "Only packages matching pin 12.0 should be kept");
+  assert.ok(best.has("pinA"));
+  assert.ok(best.has("pinC"));
+  assert.ok(!best.has("pinB"), "pinB has upstream 13.0 and should be excluded");
+});
+
+test('proxy/packages/Streaming Byte Sweep Continuation Lines', async () => {
+  const text =
+    "Package: desc-test\nVersion: 1.0\nDescription: Short desc\n" +
+    " Long description line 1\n" +
+    " Long description line 2\n\n";
+
+  const encoder = new TextEncoder();
+  const readable = new ReadableStream({
+    start(controller) {
+      controller.enqueue(encoder.encode(text));
+      controller.close();
+    }
+  });
+
+  const best = await reduceStreamToLatest(readable, null);
+
+  assert.equal(best.size, 1);
+  const desc = best.get("desc-test")["description"];
+  assert.ok(desc.includes("Short desc"), "First line preserved");
+  assert.ok(desc.includes("Long description line 1"), "Continuation line 1 preserved");
+  assert.ok(desc.includes("Long description line 2"), "Continuation line 2 preserved");
+});
+
