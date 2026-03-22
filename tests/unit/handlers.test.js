@@ -1,6 +1,13 @@
-import test from 'node:test';
+import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { handleStaticAssets, handleUpstreamRedirect } from '../../worker/debthin/handlers/index.js';
+
+// Stub the CF Cache API so r2Get's L2 layer is transparent in unit tests.
+before(() => {
+  globalThis.caches = { default: { match: async () => undefined, put: async () => {} } };
+});
+after(() => { delete globalThis.caches; });
+
 
 test('handlers/handleUpstreamRedirect', () => {
   const protocol = 'https';
