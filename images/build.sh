@@ -27,6 +27,20 @@ else
     exit 1
 fi
 
+# Native trap guaranteeing orphaned tmpfs arrays gracefully abort on unexpected failures
+cleanup() {
+    if [ -n "${ROOTFS_MNT:-}" ]; then
+        if [ "$(uname -s)" = "Linux" ]; then
+            sudo umount -l "$ROOTFS_MNT" 2>/dev/null || true
+        fi
+        sudo rm -rf "$ROOTFS_MNT" 2>/dev/null || true
+    fi
+    if [ -n "${WORK_DIR:-}" ]; then
+        sudo rm -rf "$WORK_DIR" 2>/dev/null || true
+    fi
+}
+trap cleanup EXIT
+
 # Ensure dependencies exist
 for cmd in distrobuilder curl; do
     if ! command -v "$cmd" >/dev/null 2>&1; then
@@ -141,13 +155,6 @@ if command -v buildah >/dev/null 2>&1; then
     sudo buildah commit --disable-compression=false --format oci "$CTR" "oci:${OUT_DIR}/oci" > /dev/null
     sudo buildah rm "$CTR" > /dev/null
 fi
-
-# Unmount and remove rootfs and working directories
-if [ "$(uname -s)" = "Linux" ]; then
-    sudo umount -l "$ROOTFS_MNT" || true
-fi
-sudo rm -rf "$ROOTFS_MNT"
-sudo rm -rf "$WORK_DIR"
 
 echo "Calculating SHA256 hashes..."
 cd "$OUT_DIR" || exit 1
