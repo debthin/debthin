@@ -207,8 +207,8 @@ async function runTests() {
             fetchAndAnalyze("Arch Release (generated native text)", `${distro}/dists/${testSuite}/${component}/binary-${arch}/Release`, 200, "hit-generated"),
 
             // By-Hash empty file intercepts
-            fetchAndAnalyze("by-hash empty string intercept", `${distro}/dists/${testSuite}/${component}/by-hash/SHA256/${EMPTY_HASH}`, 200, null),
-            fetchAndAnalyze("by-hash empty gzip intercept", `${distro}/dists/${testSuite}/${component}/by-hash/SHA256/${EMPTY_GZ_HASH}`, 200, null),
+            fetchAndAnalyze("by-hash empty string intercept", `${distro}/dists/${testSuite}/${component}/by-hash/SHA256/${EMPTY_HASH}`, 200, "hit-synthetic"),
+            fetchAndAnalyze("by-hash empty gzip intercept", `${distro}/dists/${testSuite}/${component}/by-hash/SHA256/${EMPTY_GZ_HASH}`, 200, "hit-synthetic"),
 
             // by-hash unknown valid hex64 hash → 404
             fetchAndAnalyze("by-hash unknown hash 404", `${distro}/dists/${testSuite}/${component}/by-hash/SHA256/deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef`, 404),
@@ -262,7 +262,7 @@ async function runTests() {
         const headResults = await Promise.all([
             fetchAndAnalyze("HEAD InRelease", `${distro}/dists/${testSuite}/InRelease`, 200, ["hit", "hit-isolate-cache"], 'manual', { method: 'HEAD' }),
             fetchAndAnalyze("HEAD Packages.gz", `${distro}/dists/${testSuite}/${component}/binary-${arch}/Packages.gz`, 200, ["hit", "hit-isolate-cache"], 'manual', { method: 'HEAD' }),
-            fetchAndAnalyze("HEAD by-hash empty gzip", `${distro}/dists/${testSuite}/${component}/by-hash/SHA256/${EMPTY_GZ_HASH}`, 200, null, 'manual', { method: 'HEAD' })
+            fetchAndAnalyze("HEAD by-hash empty gzip", `${distro}/dists/${testSuite}/${component}/by-hash/SHA256/${EMPTY_GZ_HASH}`, 200, "hit-synthetic", 'manual', { method: 'HEAD' })
         ]);
         if (headResults.some(r => !r.ok)) allPassed = false;
 
