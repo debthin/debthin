@@ -116,7 +116,7 @@ cat <<EOF > "${WORK_DIR}/bin/debootstrap"
 #!/usr/bin/env bash
 mkdir -p "${ROOTFS_MNT}/var/cache/apt/archives"
 if ls "${HOST_APT}/"*.deb >/dev/null 2>&1; then
-    cp -un "${HOST_APT}/"*.deb "${ROOTFS_MNT}/var/cache/apt/archives/"
+    cp -u "${HOST_APT}/"*.deb "${ROOTFS_MNT}/var/cache/apt/archives/"
 fi
 exec /usr/sbin/debootstrap "\$@"
 EOF
@@ -129,7 +129,7 @@ if ! sudo env PATH="${WORK_DIR}/bin:$PATH" distrobuilder build-dir "$YAML_RUN" "
 fi
 
 # Synchronize newly fetched debootstrap packages back into the persistent host cache
-sudo cp -un "${ROOTFS_MNT}/var/cache/apt/archives/"*.deb "$HOST_APT/" 2>/dev/null || true
+sudo cp -u "${ROOTFS_MNT}/var/cache/apt/archives/"*.deb "$HOST_APT/" 2>/dev/null || true
 # Clean underlying apt cache copied natively during the bootstrap wrapper phase
 sudo rm -f "${ROOTFS_MNT}/var/cache/apt/archives/"*.deb 2>/dev/null || true
 
@@ -156,6 +156,12 @@ if command -v buildah >/dev/null 2>&1; then
     sudo buildah rm "$CTR" > /dev/null
 fi
 
+# Tear down the rootfs mount before hashing so find doesn't recurse into the unpacked tree
+if [ "$(uname -s)" = "Linux" ]; then
+    sudo umount -l "$ROOTFS_MNT" 2>/dev/null || true
+fi
+sudo rm -rf "$ROOTFS_MNT" 2>/dev/null || true
+
 # Reclaim ownership from root so hashing and downstream tools work without sudo
 sudo chown -R "$(id -u):$(id -g)" "$OUT_DIR"
 
@@ -167,7 +173,7 @@ if ! command -v sha256sum >/dev/null 2>&1; then
     SHA_CMD="shasum -a 256"
 fi
 
-# Generate SHA256 hashes for all output files
-find . -type f ! -name "hashes.txt" | sort | xargs $SHA_CMD > hashes.txt
+# Hash only top-level artefact files (skip oci/ subtree)
+find . -maxdepth 1 -type f ! -name "hashes.txt" | sort | xargs $SHA_CMD > hashes.txt
 
 echo "[DONE] Artefacts saved to: $OUT_DIR"
