@@ -16,7 +16,7 @@ TMP_DIR="${REPO_ROOT}/.build_tmp"
 # The version stamp matches the R2 worker layout (YYYYMMDD_HHMM)
 BUILD_DATE="$(date +%Y%m%d_%H%M)"
 
-# Ensure all parallel background processes are aggressively terminated if the script is cancelled
+# Trap SIGINT and SIGTERM to kill background jobs
 trap 'echo -e "\n[ABORT] Terminating all active background builds..."; kill 0 2>/dev/null; exit 1' INT TERM
 
 # Ensure dependencies exist
@@ -76,9 +76,9 @@ echo "$BUILD_MATRIX" | while read -r DISTRO SUITE ARCH; do
         continue
     fi
 
-    # Spawn isolated build process natively mapped to background execution
+    # Start background build process
     (
-        # Provide unique isolated configuration mounts safely out of parallel bounds!
+        # Create working directory for this build
         WORK_DIR="${TMP_DIR}/${DISTRO}_${SUITE}_${ARCH}"
         mkdir -p "$WORK_DIR"
 
@@ -97,18 +97,18 @@ echo "$BUILD_MATRIX" | while read -r DISTRO SUITE ARCH; do
         mkdir -p "$OUT_DIR"
 
         YAML_RUN="${WORK_DIR}/current_build.yaml"
-        
+
         if [ -f "${REPO_ROOT}/static/debthin-keyring-binary.gpg" ]; then
             cp "${REPO_ROOT}/static/debthin-keyring-binary.gpg" "${WORK_DIR}/debthin-keyring-binary.gpg"
         fi
 
-        # Extract host deb packages natively dropping them efficiently into the runtime working bounds 
+        # Copy cached deb packages to working directory
         HOST_APT="${REPO_ROOT}/.cache/apt"
         mkdir -p "$HOST_APT"
         mkdir -p "${WORK_DIR}/apt-cache"
         cp -un "$HOST_APT/"*.deb "${WORK_DIR}/apt-cache/" 2>/dev/null || true
 
-        # Inject the apt cache loader cleanly under the 'files:' array in the YAML
+        # Add apt cache directory to YAML
         awk '/^files:/ {
             print
             print "  - path: /var/cache/apt/archives/"
@@ -119,30 +119,30 @@ echo "$BUILD_MATRIX" | while read -r DISTRO SUITE ARCH; do
         sed "s/architecture: .*/architecture: \"${ARCH}\"/" | \
         sed "s/lxc.arch = .*/lxc.arch = ${ARCH}/" > "$YAML_RUN"
 
-        # Explicitly persist deb downloads across execution cycles avoiding upstream throttling bounds!
+        # Create distrobuilder cache directory
         CACHE_DIR="${REPO_ROOT}/.cache/distrobuilder"
         mkdir -p "$CACHE_DIR"
 
         cd "$WORK_DIR" || exit 1
 
-        # Evaluate ultra-fast tmpfs bindings dynamically allocating strictly on Linux host execution bounds natively mapping massive IO thresholds
+        # Mount rootfs as tmpfs on Linux
         ROOTFS_MNT="${OUT_DIR}/rootfs"
         mkdir -p "$ROOTFS_MNT"
         if [ "$(uname -s)" = "Linux" ]; then
             sudo mount -t tmpfs -o size=2G tmpfs "$ROOTFS_MNT"
         fi
 
-        # Build core directory first cutting redundant debootstrap downloads directly
+        # Build rootfs directory
         if ! sudo distrobuilder build-dir "$YAML_RUN" "$ROOTFS_MNT" --cache-dir="$CACHE_DIR" --sources-dir="$CACHE_DIR"; then
              echo "ERROR: Distrobuilder failed to construct rootfs for $DISTRO $SUITE $ARCH"
         fi
         
-        # Save any newly resolved .deb packages organically out of the TMPFS and directly back into persistent arrays
+        # Save downloaded deb packages to host cache
         sudo cp -un "${ROOTFS_MNT}/var/cache/apt/archives/"*.deb "$HOST_APT/" 2>/dev/null || true
-        # Wipe the container archives natively protecting image size limits
+        # Clean apt cache from rootfs
         sudo rm -f "${ROOTFS_MNT}/var/cache/apt/archives/"*.deb 2>/dev/null || true
 
-        # Pack the isolated formats from the single rootfs
+        # Pack LXC and Incus formats
         sudo distrobuilder pack-lxc "$YAML_RUN" "$ROOTFS_MNT" "$OUT_DIR"
         sudo distrobuilder pack-incus "$YAML_RUN" "$ROOTFS_MNT" "$OUT_DIR"
 
@@ -155,11 +155,11 @@ echo "$BUILD_MATRIX" | while read -r DISTRO SUITE ARCH; do
             sudo buildah umount "$CTR" > /dev/null
             sudo buildah rm "$CTR" > /dev/null
             
-            # Compress the massive uncompressed OCI archive natively conserving limits
+            # Compress OCI archive
             sudo xz -T1 "${OUT_DIR}/oci.tar"
         fi
 
-        # Safely detach and purge the IO bound limits organically
+        # Unmount and remove rootfs and working directories
         if [ "$(uname -s)" = "Linux" ]; then
             sudo umount -l "$ROOTFS_MNT" || true
         fi
@@ -174,7 +174,7 @@ echo "$BUILD_MATRIX" | while read -r DISTRO SUITE ARCH; do
             SHA_CMD="shasum -a 256"
         fi
         
-        # Hash only physical bins organically protecting tests catching split builds safely
+        # Generate SHA256 hashes for output files
         EXISTING_BINS=$(ls -1 rootfs.tar.xz meta.tar.xz incus.tar.xz rootfs.squashfs oci.tar.xz 2>/dev/null || true)
         if [ -n "$EXISTING_BINS" ]; then
             # shellcheck disable=SC2086
@@ -192,7 +192,7 @@ echo "$BUILD_MATRIX" | while read -r DISTRO SUITE ARCH; do
 
 done
 
-# Block script conclusion until all background worker targets officially land
+# Wait for all background jobs to finish
 wait
 
 # Cleanup
