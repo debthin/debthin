@@ -1,10 +1,17 @@
-import test from 'node:test';
+import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { warmRamCacheFromRelease, _hashIndexes } from '../../worker/debthin/indexes.js';
 import { handleByHash } from '../../worker/debthin/handlers/index.js';
 import { EMPTY_GZ_HASH } from '../../worker/core/constants.js';
+
+// Stub the CF Cache API so r2Get's L2 layer is transparent in unit tests.
+before(() => {
+  globalThis.caches = { default: { match: async () => undefined, put: async () => {} } };
+});
+after(() => { delete globalThis.caches; });
+
 
 // Read the mock file
 const mockInRelease = readFileSync(join(import.meta.dirname, 'mock_InRelease'), 'utf8');

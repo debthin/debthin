@@ -86,6 +86,7 @@ export async function r2Get(env, key, cache, ctx, { onDiskMiss, ttl } = {}) {
   let cached = cache.get(key);
   const expired = cached && (now - cached.addedAt > effectiveTtl);
 
+  // 1. L1 Warm Path (In-Isolate RAM Cache)
   if (cached && !expired) {
     return wrapCachedObject(cached.buf, cached.meta, true, cached.hits);
   }
@@ -98,6 +99,25 @@ export async function r2Get(env, key, cache, ctx, { onDiskMiss, ttl } = {}) {
     }
   }
 
+  // 2. L2 Warm Path (Colo Solid-State Cache)
+  // Synthesize a fast string URL to avoid 'new Request(url)' GC overhead
+  const l2Key = `https://l2-internal.debthin.org/${key}`;
+  const l2Cache = caches.default;
+
+  const l2Response = await l2Cache.match(l2Key);
+  if (l2Response) {
+    const buf = await l2Response.arrayBuffer();
+    const meta = {
+      etag: l2Response.headers.get("ETag"),
+      lastModified: Date.parse(l2Response.headers.get("Last-Modified")) || null
+    };
+
+    cache.add(key, buf, meta, now);
+
+    return wrapCachedObject(buf, meta, true, 0);
+  }
+
+  // 3. Cold Path (R2 Bucket Fetch)
   const fetchPromise = (async () => {
     const fetchOpts = expired ? { onlyIf: { etagDoesNotMatch: cached.meta.etag } } : {};
     const obj = await env.DEBTHIN_BUCKET.get(key, fetchOpts);
@@ -129,6 +149,17 @@ export async function r2Get(env, key, cache, ctx, { onDiskMiss, ttl } = {}) {
 
     const buf = await obj.arrayBuffer();
     cache.add(key, buf, meta, now);
+
+    // Populate L2 colo cache in the background so subsequent same-colo
+    // requests can skip R2 entirely.
+    if (ctx && ctx.waitUntil) {
+      const l2Headers = new Headers({ "Content-Type": "application/octet-stream" });
+      if (meta.etag) l2Headers.set("ETag", meta.etag);
+      if (meta.lastModified) l2Headers.set("Last-Modified", new Date(meta.lastModified).toUTCString());
+      // Cache-Control drives CF cache TTL; match the L1 TTL.
+      l2Headers.set("Cache-Control", `public, max-age=${Math.round(effectiveTtl / 1000)}`);
+      ctx.waitUntil(l2Cache.put(l2Key, new Response(buf, { headers: l2Headers })));
+    }
 
     if (onDiskMiss) {
       if (ctx && ctx.waitUntil) {
