@@ -42,11 +42,6 @@ fi
 
 YAML_SRC="${TEMPLATE_DIR}/${DISTRO}/${SUITE}.yaml"
 
-if [ ! -f "$YAML_SRC" ]; then
-    echo "[SKIP] $DISTRO:$SUITE ($ARCH) - No template found at $YAML_SRC"
-    exit 0
-fi
-
 mkdir -p "$TMP_DIR"
 cd "$REPO_ROOT" || exit 1
 
