@@ -117,6 +117,18 @@ echo "$BUILD_MATRIX" | while read -r DISTRO SUITE ARCH; do
     sudo distrobuilder pack-lxc "$YAML_RUN" "${OUT_DIR}/rootfs" "$OUT_DIR"
     sudo distrobuilder pack-incus "$YAML_RUN" "${OUT_DIR}/rootfs" "$OUT_DIR"
 
+    # Intercept the raw directory generating a fully formal OCI bundle natively if buildah is executing
+    if command -v buildah >/dev/null 2>&1; then
+        echo "Packaging native OCI bundle mapping via buildah..."
+        CTR=$(sudo buildah from scratch)
+        MNT=$(sudo buildah mount "$CTR")
+        sudo cp -a "${OUT_DIR}/rootfs/." "$MNT/"
+        sudo buildah config --env PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin "$CTR"
+        sudo buildah commit "$CTR" "oci-archive:${OUT_DIR}/oci.tar" > /dev/null
+        sudo buildah umount "$CTR" > /dev/null
+        sudo buildah rm "$CTR" > /dev/null
+    fi
+
     # Cleanup the uncompressed staging directory securely
     sudo rm -rf "${OUT_DIR}/rootfs"
 
