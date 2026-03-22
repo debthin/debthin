@@ -60,14 +60,12 @@ BUILD_MATRIX=$(jq -r '
 mkdir -p "$TMP_DIR"
 cd "$REPO_ROOT" || exit 1
 
+# Global thread pool limit
+MAX_JOBS=4
+ACTIVE_JOBS=0
+
 echo "$BUILD_MATRIX" | while read -r DISTRO SUITE ARCH; do
     
-    # Shortcut to bypass trixie during testing
-    if [ "$SUITE" = "trixie" ]; then continue; fi
-
-    # 3a. The Guardrail: Check if a template actually exists
-    # This prevents the script from trying to build "-updates" or "-backports" 
-    # suites unless you explicitly created a yaml template for them.
     YAML_SRC="${TEMPLATE_DIR}/${DISTRO}/${SUITE}.yaml"
     
     if [ ! -f "$YAML_SRC" ]; then
@@ -75,86 +73,103 @@ echo "$BUILD_MATRIX" | while read -r DISTRO SUITE ARCH; do
         continue
     fi
 
-    echo ""
-    echo "[BUILD] Constructing $DISTRO $SUITE for $ARCH..."
+    # Spawn isolated build process natively mapped to background execution
+    (
+        # Provide unique isolated configuration mounts safely out of parallel bounds!
+        WORK_DIR="${TMP_DIR}/${DISTRO}_${SUITE}_${ARCH}"
+        mkdir -p "$WORK_DIR"
 
-    # Check cross-compilation dependencies natively protecting debootstrap routines
-    HOST_ARCH=$(dpkg --print-architecture 2>/dev/null || uname -m | sed -e 's/x86_64/amd64/' -e 's/aarch64/arm64/')
-    if [ "$ARCH" != "$HOST_ARCH" ]; then
-        if ! ls /usr/bin/qemu-*-static >/dev/null 2>&1; then
-            echo "ERROR: Cross-compiling $ARCH on $HOST_ARCH natively requires QEMU user emulation bounds."
-            echo "Please run: sudo apt install qemu-user-static binfmt-support"
-            exit 1
+        echo "[BUILD] Constructing $DISTRO $SUITE for $ARCH..."
+
+        HOST_ARCH=$(dpkg --print-architecture 2>/dev/null || uname -m | sed -e 's/x86_64/amd64/' -e 's/aarch64/arm64/')
+        if [ "$ARCH" != "$HOST_ARCH" ]; then
+            if ! ls /usr/bin/qemu-*-static >/dev/null 2>&1; then
+                echo "ERROR: Cross-compiling $ARCH on $HOST_ARCH natively requires QEMU user emulation bounds."
+                echo "Please run: sudo apt install qemu-user-static binfmt-support"
+                exit 1
+            fi
         fi
+        
+        OUT_DIR="${OUTPUT_BASE}/${DISTRO}/${SUITE}/${ARCH}/default/${BUILD_DATE}"
+        mkdir -p "$OUT_DIR"
+
+        YAML_RUN="${WORK_DIR}/current_build.yaml"
+        
+        if [ -f "${REPO_ROOT}/static/debthin-keyring-binary.gpg" ]; then
+            cp "${REPO_ROOT}/static/debthin-keyring-binary.gpg" "${WORK_DIR}/debthin-keyring-binary.gpg"
+        fi
+
+        sed "s/architecture: .*/architecture: \"${ARCH}\"/" "$YAML_SRC" | \
+        sed "s/lxc.arch = .*/lxc.arch = ${ARCH}/" > "$YAML_RUN"
+
+        # Explicitly persist deb downloads across execution cycles avoiding upstream throttling bounds!
+        CACHE_DIR="${REPO_ROOT}/.cache/distrobuilder"
+        mkdir -p "$CACHE_DIR"
+
+        cd "$WORK_DIR" || exit 1
+
+        # Evaluate ultra-fast tmpfs bindings dynamically allocating strictly on Linux host execution bounds natively mapping massive IO thresholds
+        ROOTFS_MNT="${OUT_DIR}/rootfs"
+        mkdir -p "$ROOTFS_MNT"
+        if [ "$(uname -s)" = "Linux" ]; then
+            sudo mount -t tmpfs -o size=2G tmpfs "$ROOTFS_MNT"
+        fi
+
+        # Build core directory first cutting redundant debootstrap downloads directly
+        if ! sudo distrobuilder build-dir "$YAML_RUN" "$ROOTFS_MNT" --cache-dir="$CACHE_DIR"; then
+             echo "ERROR: Distrobuilder failed to construct rootfs for $DISTRO $SUITE $ARCH"
+        fi
+        
+        # Pack the isolated formats from the single rootfs
+        sudo distrobuilder pack-lxc "$YAML_RUN" "$ROOTFS_MNT" "$OUT_DIR"
+        sudo distrobuilder pack-incus "$YAML_RUN" "$ROOTFS_MNT" "$OUT_DIR"
+
+        if command -v buildah >/dev/null 2>&1; then
+            CTR=$(sudo buildah from scratch)
+            MNT=$(sudo buildah mount "$CTR")
+            sudo cp -a "${ROOTFS_MNT}/." "$MNT/"
+            sudo buildah config --env PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin "$CTR"
+            sudo buildah commit "$CTR" "oci-archive:${OUT_DIR}/oci.tar" > /dev/null
+            sudo buildah umount "$CTR" > /dev/null
+            sudo buildah rm "$CTR" > /dev/null
+        fi
+
+        # Safely detach and purge the IO bound limits organically
+        if [ "$(uname -s)" = "Linux" ]; then
+            sudo umount -l "$ROOTFS_MNT" || true
+        fi
+        sudo rm -rf "$ROOTFS_MNT"
+        sudo rm -rf "$WORK_DIR"
+
+        echo "Calculating SHA256 hashes..."
+        cd "$OUT_DIR" || exit 1
+        
+        SHA_CMD="sha256sum"
+        if ! command -v sha256sum >/dev/null 2>&1; then
+            SHA_CMD="shasum -a 256"
+        fi
+        
+        EXISTING_BINS=$(ls -1 rootfs.tar.xz meta.tar.xz incus.tar.xz rootfs.squashfs oci.tar 2>/dev/null || true)
+        if [ -n "$EXISTING_BINS" ]; then
+            # shellcheck disable=SC2086
+            $SHA_CMD $EXISTING_BINS > hashes.txt
+        fi
+        
+        echo "[DONE] Artefacts saved to: $OUT_DIR"
+    ) &
+
+    ACTIVE_JOBS=$((ACTIVE_JOBS + 1))
+    if [ "$ACTIVE_JOBS" -ge "$MAX_JOBS" ]; then
+        wait -n
+        ACTIVE_JOBS=$((ACTIVE_JOBS - 1))
     fi
-    
-    # Define the output directory based on our R2 edge architecture
-    OUT_DIR="${OUTPUT_BASE}/${DISTRO}/${SUITE}/${ARCH}/default/${BUILD_DATE}"
-    mkdir -p "$OUT_DIR"
 
-    # 3b. Dynamically Patch the YAML
-    YAML_RUN="${TMP_DIR}/current_build.yaml"
-    
-    # Must explicitly copy the host keyring into the TMP isolate so the YAML './' relative mount resolves natively!
-    if [ -f "${REPO_ROOT}/static/debthin-keyring-binary.gpg" ]; then
-        cp "${REPO_ROOT}/static/debthin-keyring-binary.gpg" "${TMP_DIR}/debthin-keyring-binary.gpg"
-    fi
-
-    sed "s/architecture: .*/architecture: \"${ARCH}\"/" "$YAML_SRC" | \
-    sed "s/lxc.arch = .*/lxc.arch = ${ARCH}/" > "$YAML_RUN"
-
-    CACHE_DIR="${REPO_ROOT}/.cache/distrobuilder"
-    mkdir -p "$CACHE_DIR"
-
-    # Lock execution context to the isolate accommodating the local GPG file generator paths cleanly
-    cd "$TMP_DIR" || exit 1
-
-    # 3c. Run Distrobuilder
-    # Build core directory first cutting redundant debootstrap downloads directly
-    sudo distrobuilder build-dir "$YAML_RUN" "${OUT_DIR}/rootfs" --cache-dir="$CACHE_DIR"
-    
-    # Pack the isolated formats from the single rootfs
-    sudo distrobuilder pack-lxc "$YAML_RUN" "${OUT_DIR}/rootfs" "$OUT_DIR"
-    sudo distrobuilder pack-incus "$YAML_RUN" "${OUT_DIR}/rootfs" "$OUT_DIR"
-
-    # Intercept the raw directory generating a fully formal OCI bundle natively if buildah is executing
-    if command -v buildah >/dev/null 2>&1; then
-        echo "Packaging native OCI bundle mapping via buildah..."
-        CTR=$(sudo buildah from scratch)
-        MNT=$(sudo buildah mount "$CTR")
-        sudo cp -a "${OUT_DIR}/rootfs/." "$MNT/"
-        sudo buildah config --env PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin "$CTR"
-        sudo buildah commit "$CTR" "oci-archive:${OUT_DIR}/oci.tar" > /dev/null
-        sudo buildah umount "$CTR" > /dev/null
-        sudo buildah rm "$CTR" > /dev/null
-    fi
-
-    # Cleanup the uncompressed staging directory securely
-    sudo rm -rf "${OUT_DIR}/rootfs"
-
-    # 3d. Generate local hashes
-    echo "Calculating SHA256 hashes..."
-    cd "$OUT_DIR" || exit 1
-    
-    SHA_CMD="sha256sum"
-    if ! command -v sha256sum >/dev/null 2>&1; then
-        SHA_CMD="shasum -a 256"
-    fi
-    
-    # Hash only physical bins organically protecting tests catching split builds safely
-    EXISTING_BINS=$(ls -1 rootfs.tar.xz meta.tar.xz incus.tar.xz rootfs.squashfs oci.tar 2>/dev/null || true)
-    if [ -n "$EXISTING_BINS" ]; then
-        # shellcheck disable=SC2086
-        $SHA_CMD $EXISTING_BINS > hashes.txt
-    fi
-    
-    cd "$REPO_ROOT"
-
-    echo "[DONE] Artefacts saved to: $OUT_DIR"
 done
 
+# Block script conclusion until all background worker targets officially land
+wait
+
 # Cleanup
-rm -rf "$TMP_DIR"
 echo ""
 echo "==========================================="
 echo " Build Run Complete!"
