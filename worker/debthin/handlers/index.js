@@ -90,11 +90,13 @@ export async function handleByHash(request, env, ctx, distro, sha256) {
   if (sha256 === EMPTY_GZ_HASH) {
     const heg = new Headers(H_IMMUTABLE);
     heg.set("Content-Type", "application/x-gzip");
+    heg.set("X-Debthin", "hit-synthetic");
     return new Response(request.method === "HEAD" ? null : EMPTY_GZ, { headers: heg });
   }
   if (sha256 === EMPTY_HASH) {
     const hep = new Headers(H_IMMUTABLE);
     hep.set("Content-Type", "text/plain; charset=utf-8");
+    hep.set("X-Debthin", "hit-synthetic");
     return new Response("", { headers: hep });
   }
 
