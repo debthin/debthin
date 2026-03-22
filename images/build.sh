@@ -75,16 +75,8 @@ HOST_APT="${REPO_ROOT}/.cache/apt/${DISTRO}_${SUITE}_${ARCH}"
 mkdir -p "$HOST_APT"
 mkdir -p "$HOST_APT"
 
-# Inject custom bind mounts dynamically ensuring packaging routines save network pulls directly to the physical host block
-awk -v host_apt="$HOST_APT" '/^files:/ {
-    print "mounts:"
-    print "  - source: " host_apt
-    print "    target: var/cache/apt/archives"
-    print ""
-    print $0
-    next
-}1' "$YAML_SRC" | \
-sed "s/architecture: .*/architecture: \"${ARCH}\"/" | \
+# Process YAML template converting architecture definitions natively
+sed "s/architecture: .*/architecture: \"${ARCH}\"/" "$YAML_SRC" | \
 sed "s/lxc.arch = .*/lxc.arch = ${ARCH}/" > "$YAML_RUN"
 
 # Create distrobuilder cache directory
@@ -123,12 +115,18 @@ fi
 # Clean underlying apt cache copied natively during the bootstrap wrapper phase
 sudo rm -f "${ROOTFS_MNT}/var/cache/apt/archives/"*.deb 2>/dev/null || true
 
-# At this stage, distrobuilder pack-lxc and pack-incus will individually fire post-files hooks natively.
-# Because custom_mounts physically masks the target folder inside the chroot, all downloaded packages map directly
-# into the host cache instead of generating uncompressed internal filesystem bloat inside the final target archives.
-
-# Pack LXC and Incus formats
+# Pack LXC format natively allowing the initial post-files configuration iteration to execute successfully.
+# Because the native yaml templates contain `apt-get clean`, no uncompressed deb blobs are archived within the tarball.
 sudo distrobuilder pack-lxc "$YAML_RUN" "$ROOTFS_MNT" "$OUT_DIR"
+
+# Strip the actions array from the runtime YAML stopping consecutive pack-incus frameworks from infinitely repeating network loops.
+awk '
+/^actions:/ { skip=1; next }
+/^[a-z]+:/ { if (skip) skip=0 }
+!skip { print }
+' "$YAML_RUN" > "${YAML_RUN}.tmp" && sudo mv "${YAML_RUN}.tmp" "$YAML_RUN"
+
+# Pack Incus format safely without repeating setup scripts
 sudo distrobuilder pack-incus "$YAML_RUN" "$ROOTFS_MNT" "$OUT_DIR"
 
 if command -v buildah >/dev/null 2>&1; then
