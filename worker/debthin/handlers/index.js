@@ -142,6 +142,8 @@ async function serveManifests(env, request, r2Key, p2, ctx) {
   if (p2 === "InRelease" || p2 === "Release.gpg") {
     return serveR2(env, request, r2Key, metaCache, {
       ctx,
+      ttl: 120000,
+      maxAge: 120,
       onDiskMiss: (buf, force) => warmRamCacheFromRelease(buf, suiteDir, force)
     });
   }
@@ -151,6 +153,8 @@ async function serveManifests(env, request, r2Key, p2, ctx) {
       fetchKey,
       transform: "strip-pgp",
       ctx,
+      ttl: 120000,
+      maxAge: 120,
       onDiskMiss: (buf, force) => warmRamCacheFromRelease(buf, suiteDir, force)
     });
   }

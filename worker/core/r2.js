@@ -80,10 +80,11 @@ export async function r2Head(env, key, cache) {
  * @param {Function} [options.onDiskMiss] - Hook to notify the orchestrator of cache updates.
  * @returns {Promise<Object|null>} An object matching the physical interface of an edge response payload.
  */
-export async function r2Get(env, key, cache, ctx, { onDiskMiss } = {}) {
+export async function r2Get(env, key, cache, ctx, { onDiskMiss, ttl } = {}) {
   const now = Date.now();
+  const effectiveTtl = ttl ?? cache.ttl;
   let cached = cache.get(key);
-  const expired = cached && (now - cached.addedAt > cache.ttl);
+  const expired = cached && (now - cached.addedAt > effectiveTtl);
 
   if (cached && !expired) {
     return wrapCachedObject(cached.buf, cached.meta, true, cached.hits);
