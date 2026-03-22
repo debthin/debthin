@@ -156,6 +156,9 @@ if command -v buildah >/dev/null 2>&1; then
     sudo buildah rm "$CTR" > /dev/null
 fi
 
+# Reclaim ownership from root so hashing and downstream tools work without sudo
+sudo chown -R "$(id -u):$(id -g)" "$OUT_DIR"
+
 echo "Calculating SHA256 hashes..."
 cd "$OUT_DIR" || exit 1
 
