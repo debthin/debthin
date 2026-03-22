@@ -144,6 +144,26 @@ run_filter_batch() {
 
     echo "  Allowed list for $distro/$suite: $allowed" >&2
 
+    # Merge required_packages overrides into the allowed list.
+    # These capture distro-specific package names (e.g. libldap2 on Ubuntu)
+    # that don't exist in the base curated list.
+    local req_pkg=""
+    if [[ -f "required_packages/$distro/$suite.txt" ]]; then
+        req_pkg="required_packages/$distro/$suite.txt"
+    elif [[ -f "required_packages/$distro.txt" ]]; then
+        req_pkg="required_packages/$distro.txt"
+    elif [[ -f "required_packages/debian.txt" ]]; then
+        req_pkg="required_packages/debian.txt"
+    fi
+
+    if [[ -n "$req_pkg" ]]; then
+        echo "  Required packages: $req_pkg" >&2
+        local merged
+        merged=$(mktemp)
+        cat "$allowed" "$req_pkg" | sort -u > "$merged"
+        allowed="$merged"
+    fi
+
     # Check for script modifications recursively
     local filter_script="scripts/filter.py"
 
@@ -177,6 +197,7 @@ run_filter_batch() {
     echo "  Filtering $distro/$suite: $n jobs..." >&2
     python3 scripts/filter.py --allowed "$allowed" --batch "$jobfile" --stats
     rm -f "$jobfile"
+    [[ "$allowed" == /tmp/* ]] && rm -f "$allowed"
 }
 
 BUILD_START=$(date +%s)

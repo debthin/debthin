@@ -216,7 +216,8 @@
       "bookworm": {
         "aliases": [
           "stable"
-        ]
+        ],
+        "curated_base": "debian/bookworm"
       },
       "bullseye": {
         "aliases": [
@@ -224,7 +225,8 @@
         ],
         "components": [
           "main"
-        ]
+        ],
+        "curated_base": "debian/bullseye"
       }
     }
   }
