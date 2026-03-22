@@ -73,19 +73,21 @@ fi
 # Copy cached deb packages to working directory
 HOST_APT="${REPO_ROOT}/.cache/apt/${DISTRO}_${SUITE}_${ARCH}"
 mkdir -p "$HOST_APT"
-mkdir -p "${WORK_DIR}/apt-cache"
-cp -un "$HOST_APT/"*.deb "${WORK_DIR}/apt-cache/" 2>/dev/null || true
+mkdir -p "$HOST_APT"
 
-# Add apt cache directory to YAML
-awk '/^files:/ {
-    print
-    print "  - path: /var/cache/apt/archives/"
-    print "    generator: copy"
-    print "    source: ./apt-cache/"
+# Inject custom bind mounts and disable internal cache wipes
+awk -v host_apt="$HOST_APT" '/^files:/ {
+    print "custom_mounts:"
+    print "  - source: " host_apt
+    print "    target: var/cache/apt/archives"
+    print ""
+    print $0
     next
 }1' "$YAML_SRC" | \
 sed "s/architecture: .*/architecture: \"${ARCH}\"/" | \
-sed "s/lxc.arch = .*/lxc.arch = ${ARCH}/" > "$YAML_RUN"
+sed "s/lxc.arch = .*/lxc.arch = ${ARCH}/" | \
+sed "s|/var/cache/apt/archives/\*.deb||g" | \
+sed "/apt-get clean/d" > "$YAML_RUN"
 
 # Create distrobuilder cache directory
 CACHE_DIR="${REPO_ROOT}/.cache/distrobuilder"
@@ -120,9 +122,7 @@ if ! sudo env PATH="${WORK_DIR}/bin:$PATH" distrobuilder build-dir "$YAML_RUN" "
      echo "ERROR: Distrobuilder failed to construct rootfs for $DISTRO $SUITE $ARCH"
 fi
 
-# Save downloaded deb packages to host cache
-sudo cp -un "${ROOTFS_MNT}/var/cache/apt/archives/"*.deb "$HOST_APT/" 2>/dev/null || true
-# Clean apt cache from rootfs
+# Clean underlying apt cache copied natively during the bootstrap wrapper phase
 sudo rm -f "${ROOTFS_MNT}/var/cache/apt/archives/"*.deb 2>/dev/null || true
 
 # Pack LXC and Incus formats
