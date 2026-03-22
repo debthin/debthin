@@ -91,6 +91,9 @@ sed "s/lxc.arch = .*/lxc.arch = ${ARCH}/" > "$YAML_RUN"
 CACHE_DIR="${REPO_ROOT}/.cache/distrobuilder"
 mkdir -p "$CACHE_DIR"
 
+SOURCES_DIR="${REPO_ROOT}/.cache/distrobuilder_sources"
+mkdir -p "$SOURCES_DIR"
+
 cd "$WORK_DIR" || exit 1
 
 # Mount rootfs as tmpfs on Linux
@@ -101,7 +104,7 @@ if [ "$(uname -s)" = "Linux" ]; then
 fi
 
 # Build rootfs directory
-if ! sudo distrobuilder --cleanup=false build-dir "$YAML_RUN" "$ROOTFS_MNT" --cache-dir="$CACHE_DIR" --sources-dir="$CACHE_DIR"; then
+if ! sudo distrobuilder build-dir "$YAML_RUN" "$ROOTFS_MNT" --cache-dir="$CACHE_DIR" --sources-dir="$SOURCES_DIR"; then
      echo "ERROR: Distrobuilder failed to construct rootfs for $DISTRO $SUITE $ARCH"
 fi
 
