@@ -119,7 +119,7 @@ if command -v buildah >/dev/null 2>&1; then
     sudo buildah add "$CTR" "${OUT_DIR}/rootfs.tar.xz" /
     sudo buildah config --env PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin "$CTR"
     # Create OCI layout directory
-    sudo buildah commit --format oci "$CTR" "oci:${OUT_DIR}/oci" > /dev/null
+    sudo buildah commit --disable-compression=false --format oci "$CTR" "oci:${OUT_DIR}/oci" > /dev/null
     sudo buildah rm "$CTR" > /dev/null
 fi
 
