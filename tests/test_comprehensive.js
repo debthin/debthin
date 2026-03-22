@@ -166,12 +166,12 @@ async function runTests() {
         const irResp = await fetch(inReleaseUrl);
         const irText = await irResp.text();
         
-        // Find a valid SHA256 of the Packages file
+        // Find a valid SHA256 hash for a Packages.gz file and test the by-hash URL
         const sectionIdx = irText.indexOf("\nSHA256:");
         if (sectionIdx !== -1) {
             let pos = irText.indexOf("\n", sectionIdx + 1) + 1;
             let realHash = null;
-            let realPath = null;
+            let realName = null;
             while (pos > 0 && pos < irText.length && irText.charCodeAt(pos) === 32) {
                 const lineEnd = irText.indexOf("\n", pos);
                 const line = lineEnd === -1 ? irText.slice(pos) : irText.slice(pos, lineEnd);
@@ -183,19 +183,22 @@ async function runTests() {
                 const hash = parts[0];
                 const name = parts[2];
                 
-                if (name.includes('by-hash/SHA256/') && hash.length === 64 && hash !== EMPTY_HASH && hash !== EMPTY_GZ_HASH) {
+                if (name.endsWith('/Packages.gz') && hash.length === 64 && hash !== EMPTY_HASH && hash !== EMPTY_GZ_HASH) {
                     realHash = hash;
-                    realPath = name;
+                    realName = name;
                     break;
                 }
                 pos = lineEnd === -1 ? irText.length : lineEnd + 1;
             }
             
             if (realHash) {
-                const hashResult = await fetchAndAnalyze("Live by-hash index routing", `${distro}/dists/${testSuite}/${realPath}`, 200, ["hit", "hit-isolate-cache"]);
-                if (!hashResult) allPassed = false;
+                // Construct the by-hash URL from the component path (e.g. main/binary-amd64/by-hash/SHA256/<hash>)
+                const componentDir = realName.slice(0, realName.lastIndexOf('/'));
+                const byHashPath = `${componentDir}/by-hash/SHA256/${realHash}`;
+                const hashResult = await fetchAndAnalyze("Live by-hash index routing", `${distro}/dists/${testSuite}/${byHashPath}`, 200, ["hit", "hit-isolate-cache"]);
+                if (!hashResult.ok) allPassed = false;
             } else {
-                console.log(`⚠️  Could not locate a valid Packages hash in InRelease for ${distro}. Skipping by-hash live check.`);
+                console.log(`⚠️  Could not locate a valid Packages.gz hash in InRelease for ${distro}. Skipping by-hash live check.`);
             }
         }
 
