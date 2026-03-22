@@ -1,0 +1,3 @@
+libcurl4t64
+libpsl5t64
+libldap2
