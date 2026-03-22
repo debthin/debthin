@@ -90,29 +90,40 @@ if [ "$(uname -s)" = "Linux" ]; then
     sudo mount -t tmpfs -o size=2G tmpfs "$ROOTFS_MNT"
 fi
 
-# Detect apt-cacher-ng natively deploying it globally across build sequences 
-PROXY_ENV=""
+# Detect apt-cacher-ng natively deploying it exclusively across apt sequences 
 if curl -s -m 1 "http://127.0.0.1:3142/acng-report.html" >/dev/null 2>&1; then
     HOST_IP="127.0.0.1"
     # Resolve the physical LAN IP specifically circumventing chroot and lxc namespace isolation blockades
     if [ "$(uname -s)" = "Linux" ] && command -v hostname >/dev/null; then
         HOST_IP=$(hostname -I | awk '{print $1}')
     fi
-    echo "[INFO] apt-cacher-ng detected on ${HOST_IP}. Enabling transparent proxy constraints..."
-    PROXY_ENV="http_proxy=http://${HOST_IP}:3142 https_proxy=http://${HOST_IP}:3142 HTTP_PROXY=http://${HOST_IP}:3142 HTTPS_PROXY=http://${HOST_IP}:3142"
+    echo "[INFO] apt-cacher-ng detected on ${HOST_IP}. Injecting transient proxy constraints natively..."
+    APT_CONF="Acquire::http::Proxy \"http://${HOST_IP}:3142\";"
+
+    # Inject the apt proxy directly into the post-files hook avoiding external HTTP dependency corruption
+    awk -v conf="$APT_CONF" '/export DEBIAN_FRONTEND=noninteractive/ {
+        print $0
+        print "      echo \x27" conf "\x27 > /etc/apt/apt.conf.d/01proxy"
+        next
+    }
+    /apt-get clean/ {
+        print $0
+        print "      rm -f /etc/apt/apt.conf.d/01proxy"
+        next
+    }1' "$YAML_RUN" > "${YAML_RUN}.tmp" && sudo mv "${YAML_RUN}.tmp" "$YAML_RUN"
 else
     echo "[INFO] apt-cacher-ng daemon not intercepted. Executing downloads natively against WAN boundaries."
 fi
 
 # Build rootfs directory
-if ! sudo env $PROXY_ENV distrobuilder build-dir "$YAML_RUN" "$ROOTFS_MNT" --cache-dir="$CACHE_DIR" --sources-dir="$SOURCES_DIR"; then
+if ! sudo distrobuilder build-dir "$YAML_RUN" "$ROOTFS_MNT" --cache-dir="$CACHE_DIR" --sources-dir="$SOURCES_DIR"; then
      echo "ERROR: Distrobuilder failed to construct rootfs for $DISTRO $SUITE $ARCH"
      exit 1
 fi
 
 # Pack LXC format natively allowing the initial post-files configuration iteration to execute successfully.
 # Because the native yaml templates contain `apt-get clean`, no uncompressed deb blobs are archived within the tarball.
-sudo env $PROXY_ENV distrobuilder pack-lxc "$YAML_RUN" "$ROOTFS_MNT" "$OUT_DIR"
+sudo distrobuilder pack-lxc "$YAML_RUN" "$ROOTFS_MNT" "$OUT_DIR"
 
 # Strip the actions array from the runtime YAML stopping consecutive pack-incus frameworks from infinitely repeating network loops.
 awk '
@@ -122,7 +133,7 @@ awk '
 ' "$YAML_RUN" > "${YAML_RUN}.tmp" && sudo mv "${YAML_RUN}.tmp" "$YAML_RUN"
 
 # Pack Incus format safely without repeating setup scripts
-sudo env $PROXY_ENV distrobuilder pack-incus "$YAML_RUN" "$ROOTFS_MNT" "$OUT_DIR"
+sudo distrobuilder pack-incus "$YAML_RUN" "$ROOTFS_MNT" "$OUT_DIR"
 
 if command -v buildah >/dev/null 2>&1; then
     CTR=$(sudo buildah from scratch)
