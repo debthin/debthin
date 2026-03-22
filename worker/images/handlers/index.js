@@ -8,74 +8,55 @@ import { indexCache } from '../cache.js';
 
 const _textEncoder = new TextEncoder();
 
-// ── R2 Listing Cache ─────────────────────────────────────────────────────────
+// ── R2 Static Manifest Fetch ─────────────────────────────────────────────────
 
-const LISTING_CACHE_KEY = "_r2_listing";
+const MANIFEST_KEY = "images-manifest.json";
+const MANIFEST_CACHE_KEY = "_manifest";
 
 /**
- * Fetches and caches the parsed R2 bucket listing.
- * Returns a structured array of image entries derived from object keys and metadata.
- * Respects the indexCache TTL and pending coalescing to avoid redundant list() calls.
+ * Fetches and caches the pre-built image manifest from R2.
+ * The manifest is generated at build time by scripts/generate_image_manifest.py
+ * and uploaded alongside the images. This avoids the need for dynamic bucket.list()
+ * calls, which are slow, CPU-intensive, and will exceed the V8 isolate memory
+ * limit as the bucket grows.
+ *
+ * Respects the indexCache TTL and pending coalescing to avoid redundant fetches.
  *
  * @param {Object} bucket - The Cloudflare R2 bucket binding.
  * @returns {Promise<Array<Object>>} Parsed image entries.
  */
-async function getImageListing(bucket) {
+async function fetchManifest(bucket) {
     const now = Date.now();
-    let cached = indexCache.get(LISTING_CACHE_KEY);
+    let cached = indexCache.get(MANIFEST_CACHE_KEY);
     if (cached && (now - cached.addedAt <= indexCache.ttl)) {
         return JSON.parse(new TextDecoder().decode(cached.buf));
     }
 
-    if (indexCache.pending.has(LISTING_CACHE_KEY)) {
-        try { await indexCache.pending.get(LISTING_CACHE_KEY); } catch (e) { console.error(e.stack || e); }
-        cached = indexCache.get(LISTING_CACHE_KEY);
+    if (indexCache.pending.has(MANIFEST_CACHE_KEY)) {
+        try { await indexCache.pending.get(MANIFEST_CACHE_KEY); } catch (e) { console.error(e.stack || e); }
+        cached = indexCache.get(MANIFEST_CACHE_KEY);
         if (cached && (now - cached.addedAt <= indexCache.ttl)) {
             return JSON.parse(new TextDecoder().decode(cached.buf));
         }
     }
 
     const fetchPromise = (async () => {
-        const entries = [];
-        let cursor = undefined;
-        let pages = 0;
+        const obj = await bucket.get(MANIFEST_KEY);
+        if (!obj) {
+            console.error("images-manifest.json not found in R2 bucket. Run generate_image_manifest.py and upload.");
+            return [];
+        }
 
-        do {
-            if (pages++ > 100) break;
-            let listed;
-            try {
-                listed = await bucket.list({
-                    prefix: 'images/debian/',
-                    include: ['customMetadata'],
-                    cursor: cursor
-                });
-            } catch (err) {
-                throw new Error("R2_LIST_ERROR: Failed to paginate bucket sequence. " + err.message);
-            }
-
-            for (const object of listed.objects) {
-                const parts = object.key.split('/');
-                if (parts.length !== 7 || parts.some(p => p.startsWith('.') || p === '')) continue;
-
-                const [, os, release, arch, variant, version, filename] = parts;
-                entries.push({
-                    os, release, arch, variant, version, filename,
-                    key: object.key,
-                    size: object.size,
-                    sha256: object.customMetadata?.sha256 || null
-                });
-            }
-            cursor = listed.truncated ? listed.cursor : undefined;
-        } while (cursor);
-
-        const buf = _textEncoder.encode(JSON.stringify(entries)).buffer;
-        indexCache.add(LISTING_CACHE_KEY, buf, { etag: `W/"${buf.byteLength}"`, lastModified: Date.now() }, Date.now());
+        const buf = await obj.arrayBuffer();
+        const entries = JSON.parse(new TextDecoder().decode(buf));
+        const cacheBuf = _textEncoder.encode(JSON.stringify(entries)).buffer;
+        indexCache.add(MANIFEST_CACHE_KEY, cacheBuf, { etag: `W/"${cacheBuf.byteLength}"`, lastModified: Date.now() }, Date.now());
         return entries;
     })();
 
-    indexCache.pending.set(LISTING_CACHE_KEY, fetchPromise);
+    indexCache.pending.set(MANIFEST_CACHE_KEY, fetchPromise);
     try { return await fetchPromise; }
-    finally { if (indexCache.pending.get(LISTING_CACHE_KEY) === fetchPromise) indexCache.pending.delete(LISTING_CACHE_KEY); }
+    finally { if (indexCache.pending.get(MANIFEST_CACHE_KEY) === fetchPromise) indexCache.pending.delete(MANIFEST_CACHE_KEY); }
 }
 
 // ── Index Generators ─────────────────────────────────────────────────────────
@@ -170,7 +151,7 @@ async function serveDerivedIndex(request, bucket, cacheKey, contentType, formatF
     }
 
     const fetchPromise = (async () => {
-        const entries = await getImageListing(bucket);
+        const entries = await fetchManifest(bucket);
         const textData = formatFn(entries);
         const buf = _textEncoder.encode(textData).buffer;
         const meta = { etag: `W/"${buf.byteLength}"`, lastModified: Date.now() };
@@ -245,17 +226,23 @@ export async function handleIncusIndex(request, bucket, ctx) {
 
 export function handleImageRedirect(rawPath, env) {
     const fallbackHost = typeof env === 'object' && env.PUBLIC_R2_URL ? env.PUBLIC_R2_URL : 'https://r2-public.debthin.org';
-    return Response.redirect(`${fallbackHost}${rawPath}`, 301);
+    return new Response(null, {
+        status: 301,
+        headers: {
+            "Location": `${fallbackHost}${rawPath}`,
+            "Cache-Control": "public, max-age=3600, immutable"
+        }
+    });
 }
 
 /**
- * Pre-warms the R2 listing and all derived indexes if cold or expired.
+ * Pre-warms the manifest and all derived indexes if cold or expired.
  * Designed for ctx.waitUntil() — no-op if caches are fresh.
  *
  * @param {Object} bucket - The Cloudflare R2 bucket binding.
  */
 export async function warmAllIndexes(bucket) {
-    const entries = await getImageListing(bucket);
+    const entries = await fetchManifest(bucket);
     const now = Date.now();
 
     const warmups = [
