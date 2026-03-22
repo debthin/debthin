@@ -140,11 +140,7 @@ if ! command -v sha256sum >/dev/null 2>&1; then
     SHA_CMD="shasum -a 256"
 fi
 
-# Generate SHA256 hashes for output files
-EXISTING_BINS=$(ls -1 rootfs.tar.xz meta.tar.xz incus.tar.xz rootfs.squashfs 2>/dev/null || true)
-if [ -n "$EXISTING_BINS" ]; then
-    # shellcheck disable=SC2086
-    $SHA_CMD $EXISTING_BINS > hashes.txt
-fi
+# Generate SHA256 hashes for all output files
+find . -type f ! -name "hashes.txt" | sort | xargs $SHA_CMD > hashes.txt
 
 echo "[DONE] Artefacts saved to: $OUT_DIR"
