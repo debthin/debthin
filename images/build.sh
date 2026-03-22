@@ -1,10 +1,7 @@
 #!/usr/bin/env bash
 set -e
 
-# ==========================================
-# 1. PATH RESOLUTION & SETUP
-# ==========================================
-# Always resolve paths relative to the script, allowing execution from anywhere
+# PATH RESOLUTION & SETUP
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
@@ -13,14 +10,25 @@ TEMPLATE_DIR="${REPO_ROOT}/images/yaml-templates"
 OUTPUT_BASE="${REPO_ROOT}/images_output/images"
 TMP_DIR="${REPO_ROOT}/.build_tmp"
 
-# The version stamp matches the R2 worker layout (YYYYMMDD_HHMM)
-BUILD_DATE="$(date +%Y%m%d_%H%M)"
+# Force all xz operations to use exactly 1 thread
+export XZ_OPT="-T1"
 
-# Trap SIGINT and SIGTERM to kill background jobs
-trap 'echo -e "\n[ABORT] Terminating all active background builds..."; kill 0 2>/dev/null; exit 1' INT TERM
+# Inherit BUILD_DATE from Make or generate a standalone timestamp
+BUILD_DATE="${BUILD_DATE:-$(date +%Y%m%d_%H%M)}"
+
+if [ "$#" -eq 1 ] && [[ "$1" == */*/* ]]; then
+    IFS='/' read -r DISTRO SUITE ARCH <<< "$1"
+elif [ "$#" -eq 3 ]; then
+    DISTRO="$1"
+    SUITE="$2"
+    ARCH="$3"
+else
+    echo "Usage: $0 <distro/suite/arch> OR $0 <distro> <suite> <arch>"
+    exit 1
+fi
 
 # Ensure dependencies exist
-for cmd in distrobuilder jq curl; do
+for cmd in distrobuilder curl; do
     if ! command -v "$cmd" >/dev/null 2>&1; then
         echo "ERROR: Required command '$cmd' is not installed."
         exit 1
@@ -32,172 +40,118 @@ if [ ! -f "$CONFIG_FILE" ]; then
     exit 1
 fi
 
-echo "==========================================="
-echo " Starting debthin Image Builder"
-echo " Build Version: $BUILD_DATE"
-echo "==========================================="
+YAML_SRC="${TEMPLATE_DIR}/${DISTRO}/${SUITE}.yaml"
 
-# ==========================================
-# 2. FLATTEN THE JSON MATRIX
-# ==========================================
-# This jq query normalizes the different distro structures into a flat list: 
-# "distro suite arch" (e.g., "debian trixie amd64")
-BUILD_MATRIX=$(jq -r '
-  (
-    .debian | .arches as $def | .suites | to_entries[] | 
-    .key as $s | (.value.arches // $def)[] | "debian \($s) \(.)"
-  ),
-  (
-    .ubuntu | (.archive_arches + .ports_arches) as $arch | .suites | to_entries[] | 
-    .key as $s | $arch[] | "ubuntu \($s) \(.)"
-  ),
-  (
-    .raspbian | .arches as $def | .suites | to_entries[] | 
-    .key as $s | (.value.arches // $def)[] | "raspbian \($s) \(.)"
-  )
-' "$CONFIG_FILE")
+if [ ! -f "$YAML_SRC" ]; then
+    echo "[SKIP] $DISTRO:$SUITE ($ARCH) - No template found at $YAML_SRC"
+    exit 0
+fi
 
-# ==========================================
-# 3. EXECUTE BUILD LOOP
-# ==========================================
 mkdir -p "$TMP_DIR"
 cd "$REPO_ROOT" || exit 1
 
-# Global thread pool limit
-MAX_JOBS=4
-ACTIVE_JOBS=0
+# Create working directory for this build
+WORK_DIR="${TMP_DIR}/${DISTRO}_${SUITE}_${ARCH}"
+mkdir -p "$WORK_DIR"
 
-echo "$BUILD_MATRIX" | while read -r DISTRO SUITE ARCH; do
-    
-    YAML_SRC="${TEMPLATE_DIR}/${DISTRO}/${SUITE}.yaml"
-    
-    if [ ! -f "$YAML_SRC" ]; then
-        echo "[SKIP] $DISTRO:$SUITE ($ARCH) - No template found at $YAML_SRC"
-        continue
+echo "[BUILD] Constructing $DISTRO $SUITE for $ARCH..."
+
+# Check for cross-compilation dependencies
+HOST_ARCH=$(dpkg --print-architecture 2>/dev/null || uname -m | sed -e 's/x86_64/amd64/' -e 's/aarch64/arm64/')
+if [ "$ARCH" != "$HOST_ARCH" ]; then
+    if ! ls /usr/bin/qemu-*-static >/dev/null 2>&1; then
+        echo "ERROR: Cross-compiling $ARCH on $HOST_ARCH requires QEMU user emulation."
+        echo "Please run: sudo apt install qemu-user-static binfmt-support"
+        exit 1
     fi
+fi
 
-    # Start background build process
-    (
-        # Create working directory for this build
-        WORK_DIR="${TMP_DIR}/${DISTRO}_${SUITE}_${ARCH}"
-        mkdir -p "$WORK_DIR"
+OUT_DIR="${OUTPUT_BASE}/${DISTRO}/${SUITE}/${ARCH}/default/${BUILD_DATE}"
+mkdir -p "$OUT_DIR"
 
-        echo "[BUILD] Constructing $DISTRO $SUITE for $ARCH..."
+YAML_RUN="${WORK_DIR}/current_build.yaml"
 
-        HOST_ARCH=$(dpkg --print-architecture 2>/dev/null || uname -m | sed -e 's/x86_64/amd64/' -e 's/aarch64/arm64/')
-        if [ "$ARCH" != "$HOST_ARCH" ]; then
-            if ! ls /usr/bin/qemu-*-static >/dev/null 2>&1; then
-                echo "ERROR: Cross-compiling $ARCH on $HOST_ARCH natively requires QEMU user emulation bounds."
-                echo "Please run: sudo apt install qemu-user-static binfmt-support"
-                exit 1
-            fi
-        fi
-        
-        OUT_DIR="${OUTPUT_BASE}/${DISTRO}/${SUITE}/${ARCH}/default/${BUILD_DATE}"
-        mkdir -p "$OUT_DIR"
+if [ -f "${REPO_ROOT}/static/debthin-keyring-binary.gpg" ]; then
+    cp "${REPO_ROOT}/static/debthin-keyring-binary.gpg" "${WORK_DIR}/debthin-keyring-binary.gpg"
+fi
 
-        YAML_RUN="${WORK_DIR}/current_build.yaml"
+# Copy cached deb packages to working directory
+HOST_APT="${REPO_ROOT}/.cache/apt"
+mkdir -p "$HOST_APT"
+mkdir -p "${WORK_DIR}/apt-cache"
+cp -un "$HOST_APT/"*.deb "${WORK_DIR}/apt-cache/" 2>/dev/null || true
 
-        if [ -f "${REPO_ROOT}/static/debthin-keyring-binary.gpg" ]; then
-            cp "${REPO_ROOT}/static/debthin-keyring-binary.gpg" "${WORK_DIR}/debthin-keyring-binary.gpg"
-        fi
+# Add apt cache directory to YAML
+awk '/^files:/ {
+    print
+    print "  - path: /var/cache/apt/archives/"
+    print "    generator: copy"
+    print "    source: ./apt-cache/"
+    next
+}1' "$YAML_SRC" | \
+sed "s/architecture: .*/architecture: \"${ARCH}\"/" | \
+sed "s/lxc.arch = .*/lxc.arch = ${ARCH}/" > "$YAML_RUN"
 
-        # Copy cached deb packages to working directory
-        HOST_APT="${REPO_ROOT}/.cache/apt"
-        mkdir -p "$HOST_APT"
-        mkdir -p "${WORK_DIR}/apt-cache"
-        cp -un "$HOST_APT/"*.deb "${WORK_DIR}/apt-cache/" 2>/dev/null || true
+# Create distrobuilder cache directory
+CACHE_DIR="${REPO_ROOT}/.cache/distrobuilder"
+mkdir -p "$CACHE_DIR"
 
-        # Add apt cache directory to YAML
-        awk '/^files:/ {
-            print
-            print "  - path: /var/cache/apt/archives/"
-            print "    generator: copy"
-            print "    source: ./apt-cache/"
-            next
-        }1' "$YAML_SRC" | \
-        sed "s/architecture: .*/architecture: \"${ARCH}\"/" | \
-        sed "s/lxc.arch = .*/lxc.arch = ${ARCH}/" > "$YAML_RUN"
+cd "$WORK_DIR" || exit 1
 
-        # Create distrobuilder cache directory
-        CACHE_DIR="${REPO_ROOT}/.cache/distrobuilder"
-        mkdir -p "$CACHE_DIR"
+# Mount rootfs as tmpfs on Linux
+ROOTFS_MNT="${OUT_DIR}/rootfs"
+mkdir -p "$ROOTFS_MNT"
+if [ "$(uname -s)" = "Linux" ]; then
+    sudo mount -t tmpfs -o size=2G tmpfs "$ROOTFS_MNT"
+fi
 
-        cd "$WORK_DIR" || exit 1
+# Build rootfs directory
+if ! sudo distrobuilder build-dir "$YAML_RUN" "$ROOTFS_MNT" --cache-dir="$CACHE_DIR" --sources-dir="$CACHE_DIR"; then
+     echo "ERROR: Distrobuilder failed to construct rootfs for $DISTRO $SUITE $ARCH"
+fi
 
-        # Mount rootfs as tmpfs on Linux
-        ROOTFS_MNT="${OUT_DIR}/rootfs"
-        mkdir -p "$ROOTFS_MNT"
-        if [ "$(uname -s)" = "Linux" ]; then
-            sudo mount -t tmpfs -o size=2G tmpfs "$ROOTFS_MNT"
-        fi
+# Save downloaded deb packages to host cache
+sudo cp -un "${ROOTFS_MNT}/var/cache/apt/archives/"*.deb "$HOST_APT/" 2>/dev/null || true
+# Clean apt cache from rootfs
+sudo rm -f "${ROOTFS_MNT}/var/cache/apt/archives/"*.deb 2>/dev/null || true
 
-        # Build rootfs directory
-        if ! sudo distrobuilder build-dir "$YAML_RUN" "$ROOTFS_MNT" --cache-dir="$CACHE_DIR" --sources-dir="$CACHE_DIR"; then
-             echo "ERROR: Distrobuilder failed to construct rootfs for $DISTRO $SUITE $ARCH"
-        fi
-        
-        # Save downloaded deb packages to host cache
-        sudo cp -un "${ROOTFS_MNT}/var/cache/apt/archives/"*.deb "$HOST_APT/" 2>/dev/null || true
-        # Clean apt cache from rootfs
-        sudo rm -f "${ROOTFS_MNT}/var/cache/apt/archives/"*.deb 2>/dev/null || true
+# Pack LXC and Incus formats
+sudo distrobuilder pack-lxc "$YAML_RUN" "$ROOTFS_MNT" "$OUT_DIR"
+sudo distrobuilder pack-incus "$YAML_RUN" "$ROOTFS_MNT" "$OUT_DIR"
 
-        # Pack LXC and Incus formats
-        sudo distrobuilder pack-lxc "$YAML_RUN" "$ROOTFS_MNT" "$OUT_DIR"
-        sudo distrobuilder pack-incus "$YAML_RUN" "$ROOTFS_MNT" "$OUT_DIR"
+if command -v buildah >/dev/null 2>&1; then
+    CTR=$(sudo buildah from scratch)
+    MNT=$(sudo buildah mount "$CTR")
+    sudo cp -a "${ROOTFS_MNT}/." "$MNT/"
+    sudo buildah config --env PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin "$CTR"
+    sudo buildah commit "$CTR" "oci-archive:${OUT_DIR}/oci.tar" > /dev/null
+    sudo buildah umount "$CTR" > /dev/null
+    sudo buildah rm "$CTR" > /dev/null
+    
+    # Compress OCI archive
+    sudo xz -T1 -9 "${OUT_DIR}/oci.tar"
+fi
 
-        if command -v buildah >/dev/null 2>&1; then
-            CTR=$(sudo buildah from scratch)
-            MNT=$(sudo buildah mount "$CTR")
-            sudo cp -a "${ROOTFS_MNT}/." "$MNT/"
-            sudo buildah config --env PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin "$CTR"
-            sudo buildah commit "$CTR" "oci-archive:${OUT_DIR}/oci.tar" > /dev/null
-            sudo buildah umount "$CTR" > /dev/null
-            sudo buildah rm "$CTR" > /dev/null
-            
-            # Compress OCI archive
-            sudo xz -T1 "${OUT_DIR}/oci.tar"
-        fi
+# Unmount and remove rootfs and working directories
+if [ "$(uname -s)" = "Linux" ]; then
+    sudo umount -l "$ROOTFS_MNT" || true
+fi
+sudo rm -rf "$ROOTFS_MNT"
+sudo rm -rf "$WORK_DIR"
 
-        # Unmount and remove rootfs and working directories
-        if [ "$(uname -s)" = "Linux" ]; then
-            sudo umount -l "$ROOTFS_MNT" || true
-        fi
-        sudo rm -rf "$ROOTFS_MNT"
-        sudo rm -rf "$WORK_DIR"
+echo "Calculating SHA256 hashes..."
+cd "$OUT_DIR" || exit 1
 
-        echo "Calculating SHA256 hashes..."
-        cd "$OUT_DIR" || exit 1
-        
-        SHA_CMD="sha256sum"
-        if ! command -v sha256sum >/dev/null 2>&1; then
-            SHA_CMD="shasum -a 256"
-        fi
-        
-        # Generate SHA256 hashes for output files
-        EXISTING_BINS=$(ls -1 rootfs.tar.xz meta.tar.xz incus.tar.xz rootfs.squashfs oci.tar.xz 2>/dev/null || true)
-        if [ -n "$EXISTING_BINS" ]; then
-            # shellcheck disable=SC2086
-            $SHA_CMD $EXISTING_BINS > hashes.txt
-        fi
-        
-        echo "[DONE] Artefacts saved to: $OUT_DIR"
-    ) &
+SHA_CMD="sha256sum"
+if ! command -v sha256sum >/dev/null 2>&1; then
+    SHA_CMD="shasum -a 256"
+fi
 
-    ACTIVE_JOBS=$((ACTIVE_JOBS + 1))
-    if [ "$ACTIVE_JOBS" -ge "$MAX_JOBS" ]; then
-        wait -n
-        ACTIVE_JOBS=$((ACTIVE_JOBS - 1))
-    fi
+# Generate SHA256 hashes for output files
+EXISTING_BINS=$(ls -1 rootfs.tar.xz meta.tar.xz incus.tar.xz rootfs.squashfs oci.tar.xz 2>/dev/null || true)
+if [ -n "$EXISTING_BINS" ]; then
+    # shellcheck disable=SC2086
+    $SHA_CMD $EXISTING_BINS > hashes.txt
+fi
 
-done
-
-# Wait for all background jobs to finish
-wait
-
-# Cleanup
-echo ""
-echo "==========================================="
-echo " Build Run Complete!"
-echo " Images generated in: $OUTPUT_BASE"
-echo "==========================================="
+echo "[DONE] Artefacts saved to: $OUT_DIR"
