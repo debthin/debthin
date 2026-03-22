@@ -10,8 +10,8 @@ TEMPLATE_DIR="${REPO_ROOT}/images/yaml-templates"
 OUTPUT_BASE="${REPO_ROOT}/images_output/images"
 TMP_DIR="${REPO_ROOT}/.build_tmp"
 
-# Force all xz operations to use exactly 1 thread
-export XZ_OPT="-T1"
+# Force all xz operations to use exactly 1 thread and compression level 6 (9 eats a chunk of memory when decompressing)
+export XZ_OPT="-T1 -6"
 
 # Inherit BUILD_DATE from Make or generate a standalone timestamp
 BUILD_DATE="${BUILD_DATE:-$(date +%Y%m%d_%H%M)}"
@@ -42,7 +42,7 @@ cleanup() {
 trap cleanup EXIT
 
 # Ensure dependencies exist
-for cmd in distrobuilder curl; do
+for cmd in distrobuilder curl buildah debootstrap; do
     if ! command -v "$cmd" >/dev/null 2>&1; then
         echo "ERROR: Required command '$cmd' is not installed."
         exit 1
@@ -130,21 +130,10 @@ fi
 
 # Synchronize newly fetched debootstrap packages back into the persistent host cache
 sudo cp -u "${ROOTFS_MNT}/var/cache/apt/archives/"*.deb "$HOST_APT/" 2>/dev/null || true
-# Clean underlying apt cache copied natively during the bootstrap wrapper phase
+# Clean underlying apt cache copied during the bootstrap wrapper phase
 sudo rm -f "${ROOTFS_MNT}/var/cache/apt/archives/"*.deb 2>/dev/null || true
 
-# Pack LXC format natively allowing the initial post-files configuration iteration to execute successfully.
-# Because the native yaml templates contain `apt-get clean`, no uncompressed deb blobs are archived within the tarball.
 sudo distrobuilder pack-lxc "$YAML_RUN" "$ROOTFS_MNT" "$OUT_DIR"
-
-# Strip the actions array from the runtime YAML stopping consecutive pack-incus frameworks from infinitely repeating network loops.
-awk '
-/^actions:/ { skip=1; next }
-/^[a-z]+:/ { if (skip) skip=0 }
-!skip { print }
-' "$YAML_RUN" > "${YAML_RUN}.tmp" && sudo mv "${YAML_RUN}.tmp" "$YAML_RUN"
-
-# Pack Incus format safely without repeating setup scripts
 sudo distrobuilder pack-incus "$YAML_RUN" "$ROOTFS_MNT" "$OUT_DIR"
 
 if command -v buildah >/dev/null 2>&1; then
@@ -173,7 +162,7 @@ if ! command -v sha256sum >/dev/null 2>&1; then
     SHA_CMD="shasum -a 256"
 fi
 
-# Hash only top-level artefact files (skip oci/ subtree)
-find . -maxdepth 1 -type f ! -name "hashes.txt" | sort | xargs $SHA_CMD > hashes.txt
+# Generate SHA256 hashes for all output files
+find . -type f ! -name "hashes.txt" | sort | xargs $SHA_CMD > hashes.txt
 
 echo "[DONE] Artefacts saved to: $OUT_DIR"
