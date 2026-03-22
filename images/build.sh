@@ -99,11 +99,24 @@ echo "$BUILD_MATRIX" | while read -r DISTRO SUITE ARCH; do
             cp "${REPO_ROOT}/static/debthin-keyring-binary.gpg" "${WORK_DIR}/debthin-keyring-binary.gpg"
         fi
 
+        # Extract host deb packages natively dropping them efficiently into the runtime working bounds 
+        HOST_APT="${REPO_ROOT}/cached/apt"
+        mkdir -p "$HOST_APT"
+        mkdir -p "${WORK_DIR}/apt-cache"
+        cp -un "$HOST_APT/"*.deb "${WORK_DIR}/apt-cache/" 2>/dev/null || true
+
         sed "s/architecture: .*/architecture: \"${ARCH}\"/" "$YAML_SRC" | \
         sed "s/lxc.arch = .*/lxc.arch = ${ARCH}/" > "$YAML_RUN"
 
+        # Dynamically inject the apt cache loader natively forcing local network downloads into cache
+        cat <<EOF >> "$YAML_RUN"
+  - path: /var/cache/apt/archives/
+    generator: copy
+    source: ./apt-cache/
+EOF
+
         # Explicitly persist deb downloads across execution cycles avoiding upstream throttling bounds!
-        CACHE_DIR="${REPO_ROOT}/.cache/distrobuilder"
+        CACHE_DIR="${REPO_ROOT}/cached/distrobuilder"
         mkdir -p "$CACHE_DIR"
 
         cd "$WORK_DIR" || exit 1
@@ -120,6 +133,11 @@ echo "$BUILD_MATRIX" | while read -r DISTRO SUITE ARCH; do
              echo "ERROR: Distrobuilder failed to construct rootfs for $DISTRO $SUITE $ARCH"
         fi
         
+        # Save any newly resolved .deb packages organically out of the TMPFS and directly back into persistent arrays
+        sudo cp -un "${ROOTFS_MNT}/var/cache/apt/archives/"*.deb "$HOST_APT/" 2>/dev/null || true
+        # Wipe the container archives natively protecting image size limits
+        sudo rm -f "${ROOTFS_MNT}/var/cache/apt/archives/"*.deb 2>/dev/null || true
+
         # Pack the isolated formats from the single rootfs
         sudo distrobuilder pack-lxc "$YAML_RUN" "$ROOTFS_MNT" "$OUT_DIR"
         sudo distrobuilder pack-incus "$YAML_RUN" "$ROOTFS_MNT" "$OUT_DIR"
