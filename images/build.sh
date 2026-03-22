@@ -100,8 +100,20 @@ if [ "$(uname -s)" = "Linux" ]; then
     sudo mount -t tmpfs -o size=2G tmpfs "$ROOTFS_MNT"
 fi
 
+# Create a debootstrap wrapper to pre-inject cached packages before bootstrap network pulls 
+mkdir -p "${WORK_DIR}/bin"
+cat <<EOF > "${WORK_DIR}/bin/debootstrap"
+#!/usr/bin/env bash
+mkdir -p "${ROOTFS_MNT}/var/cache/apt/archives"
+if ls "${HOST_APT}/"*.deb >/dev/null 2>&1; then
+    cp -un "${HOST_APT}/"*.deb "${ROOTFS_MNT}/var/cache/apt/archives/"
+fi
+exec /usr/sbin/debootstrap "\$@"
+EOF
+chmod +x "${WORK_DIR}/bin/debootstrap"
+
 # Build rootfs directory
-if ! sudo distrobuilder build-dir "$YAML_RUN" "$ROOTFS_MNT" --cache-dir="$CACHE_DIR" --sources-dir="$CACHE_DIR"; then
+if ! sudo env PATH="${WORK_DIR}/bin:$PATH" distrobuilder build-dir "$YAML_RUN" "$ROOTFS_MNT" --cache-dir="$CACHE_DIR" --sources-dir="$CACHE_DIR"; then
      echo "ERROR: Distrobuilder failed to construct rootfs for $DISTRO $SUITE $ARCH"
 fi
 
