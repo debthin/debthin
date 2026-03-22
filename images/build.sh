@@ -154,6 +154,9 @@ echo "$BUILD_MATRIX" | while read -r DISTRO SUITE ARCH; do
             sudo buildah commit "$CTR" "oci-archive:${OUT_DIR}/oci.tar" > /dev/null
             sudo buildah umount "$CTR" > /dev/null
             sudo buildah rm "$CTR" > /dev/null
+            
+            # Compress the massive uncompressed OCI archive natively conserving limits
+            sudo xz -T1 "${OUT_DIR}/oci.tar"
         fi
 
         # Safely detach and purge the IO bound limits organically
@@ -171,7 +174,8 @@ echo "$BUILD_MATRIX" | while read -r DISTRO SUITE ARCH; do
             SHA_CMD="shasum -a 256"
         fi
         
-        EXISTING_BINS=$(ls -1 rootfs.tar.xz meta.tar.xz incus.tar.xz rootfs.squashfs oci.tar 2>/dev/null || true)
+        # Hash only physical bins organically protecting tests catching split builds safely
+        EXISTING_BINS=$(ls -1 rootfs.tar.xz meta.tar.xz incus.tar.xz rootfs.squashfs oci.tar.xz 2>/dev/null || true)
         if [ -n "$EXISTING_BINS" ]; then
             # shellcheck disable=SC2086
             $SHA_CMD $EXISTING_BINS > hashes.txt
