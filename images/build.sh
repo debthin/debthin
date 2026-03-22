@@ -119,7 +119,7 @@ if command -v buildah >/dev/null 2>&1; then
     MNT=$(sudo buildah mount "$CTR")
     sudo cp -a "${ROOTFS_MNT}/." "$MNT/"
     sudo buildah config --env PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin "$CTR"
-    # Commit the container to a strict OCI Image Layout directory yielding natively compressed internal blobs
+    # Create OCI layout directory
     sudo buildah commit --format oci "$CTR" "oci:${OUT_DIR}/oci" > /dev/null
     sudo buildah umount "$CTR" > /dev/null
     sudo buildah rm "$CTR" > /dev/null
