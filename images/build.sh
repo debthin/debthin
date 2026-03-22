@@ -119,6 +119,13 @@ fi
 # Clean underlying apt cache copied natively during the bootstrap wrapper phase
 sudo rm -f "${ROOTFS_MNT}/var/cache/apt/archives/"*.deb 2>/dev/null || true
 
+# Strip the actions block from the runtime YAML to strictly prevent pack-lxc and pack-incus from re-executing APT network pulls
+awk '
+/^actions:/ { skip=1; next }
+/^[a-z]+:/ { if (skip) skip=0 }
+!skip { print }
+' "$YAML_RUN" > "${YAML_RUN}.tmp" && sudo mv "${YAML_RUN}.tmp" "$YAML_RUN"
+
 # Pack LXC and Incus formats
 sudo distrobuilder pack-lxc "$YAML_RUN" "$ROOTFS_MNT" "$OUT_DIR"
 sudo distrobuilder pack-incus "$YAML_RUN" "$ROOTFS_MNT" "$OUT_DIR"
