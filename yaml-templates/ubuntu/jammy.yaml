@@ -89,7 +89,7 @@ actions:
 
       export DEBIAN_FRONTEND=noninteractive
       apt-get update
-      apt-get remove -y udev || true
+      apt-get remove -y udev libicu70 netplan.io locales debconf-i18n python3.10 || true
       apt-get install -y --no-install-recommends systemd-resolved curl
       apt-get clean
 
