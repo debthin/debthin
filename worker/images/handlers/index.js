@@ -77,7 +77,7 @@ export async function handleOciRegistry(request, bucket, ctx, rawPath, env) {
 
         if (!r2Key) return new Response(ERR_MANIFEST, { status: 404, headers: H_V2_ROOT });
 
-        // SWR Fetch directly against the raw R2 manifest object
+        // SWR: serve stale manifest but refresh in background if TTL exceeded
         let cachedManifest = indexCache.get(r2Key);
         if (!cachedManifest) {
             const r2Res = await bucket.get(r2Key);
@@ -87,6 +87,19 @@ export async function handleOciRegistry(request, bucket, ctx, rawPath, env) {
             const meta = { etag: r2Res.etag, lastModified: now, lastModifiedStr: new Date(now).toUTCString() };
             indexCache.add(r2Key, buf, meta, now);
             cachedManifest = { buf, meta, hits: 0 };
+        } else if (Date.now() - cachedManifest.addedAt > indexCache.ttl && ctx && typeof ctx.waitUntil === 'function') {
+            ctx.waitUntil((async () => {
+                const r2Res = await bucket.get(r2Key);
+                if (r2Res) {
+                    const buf = await r2Res.arrayBuffer();
+                    const now = Date.now();
+                    indexCache.add(r2Key, buf, {
+                        etag: r2Res.etag,
+                        lastModified: now,
+                        lastModifiedStr: new Date(now).toUTCString()
+                    }, now);
+                }
+            })().catch(() => {}));
         }
 
         const cType = isInner ? "application/vnd.oci.image.manifest.v1+json" : "application/vnd.oci.image.index.v1+json";

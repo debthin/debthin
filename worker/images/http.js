@@ -57,20 +57,21 @@ export { OCI_LAYOUT_META };
  * @param {Object} [extraHeaders={}] - Additional headers to merge.
  * @returns {Response} The constructed HTTP response.
  */
-export function buildDerivedResponse(request, meta, buf, isCached, hits, baseHeaders, extraHeaders = {}) {
+export function buildDerivedResponse(request, meta, buf, isCached, hits, baseHeaders, extraHeaders) {
     if (isNotModified(request.headers, meta)) {
-        return new Response(null, { status: 304, headers: { ...baseHeaders, "ETag": meta.etag, ...extraHeaders } });
+        const h = new Headers(baseHeaders);
+        h.set("ETag", meta.etag);
+        if (extraHeaders) { for (const k in extraHeaders) h.set(k, extraHeaders[k]); }
+        return new Response(null, { status: 304, headers: h });
     }
 
-    return new Response(buf, {
-        headers: {
-            ...baseHeaders,
-            ...extraHeaders,
-            "ETag": meta.etag,
-            "Last-Modified": meta.lastModifiedStr,
-            "X-Debthin": isCached ? "hit-isolate-cache" : "hit-generated",
-            "X-Cache": isCached ? "HIT" : "MISS",
-            "X-Cache-Hits": hits.toString()
-        }
-    });
+    const h = new Headers(baseHeaders);
+    if (extraHeaders) { for (const k in extraHeaders) h.set(k, extraHeaders[k]); }
+    h.set("ETag", meta.etag);
+    h.set("Last-Modified", meta.lastModifiedStr);
+    h.set("X-Debthin", isCached ? "hit-isolate-cache" : "hit-generated");
+    h.set("X-Cache", isCached ? "HIT" : "MISS");
+    h.set("X-Cache-Hits", hits.toString());
+
+    return new Response(buf, { headers: h });
 }
