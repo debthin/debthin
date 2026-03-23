@@ -5,7 +5,6 @@
 
 import { parseURL } from '../core/utils.js';
 import { getCacheStats } from './cache.js';
-import { hydrateRegistryState } from './indexes.js';
 import {
     handleLxcIndex,
     handleIncusPointer,
@@ -76,11 +75,6 @@ export default {
      */
     async fetch(request, env, ctx) {
         const _now = Date.now();
-
-        // Background-warm the registry state on every inbound request
-        if (ctx && typeof ctx.waitUntil === 'function') {
-            ctx.waitUntil(hydrateRegistryState(env.IMAGES_BUCKET).catch(e => console.error("Warmup Error:", e)));
-        }
 
         let response;
         try {
