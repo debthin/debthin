@@ -11,19 +11,53 @@
 
 /**
  * Slices endpoint paths into zero-allocation dictionary properties.
- * Extracts sections linearly up to the configured limit.
+ * Hardwired indexOf chains for maxParts 2-5 maintain a stable V8 hidden
+ * class shape. Falls back to a generic loop for other values.
  *
  * @param {string} path - URL path segment.
- * @param {number} [maxParts=5] - Maximum number of components mapped natively.
- * @returns {Object} Keys p0 to pN mapped to sequential path chunks.
+ * @param {number} [maxParts=5] - Maximum number of components to extract.
+ * @returns {Object} Keys p0-pN mapped to sequential path chunks.
  */
 export function tokenizePath(path, maxParts = 5) {
   const parts = {};
-  const firstSlash = path.indexOf("/");
-  if (firstSlash === -1 || maxParts <= 0) return parts;
+  const s1 = path.indexOf("/");
+  if (s1 === -1 || maxParts <= 0) return parts;
 
+  if (maxParts === 2) {
+    parts.p0 = path.slice(0, s1);
+    parts.p1 = path.slice(s1 + 1);
+    return parts;
+  }
+
+  const s2 = path.indexOf("/", s1 + 1);
+  if (maxParts === 3) {
+    parts.p0 = path.slice(0, s1);
+    parts.p1 = path.slice(s1 + 1, s2 !== -1 ? s2 : undefined);
+    if (s2 !== -1) parts.p2 = path.slice(s2 + 1);
+    return parts;
+  }
+
+  const s3 = s2 !== -1 ? path.indexOf("/", s2 + 1) : -1;
+  if (maxParts === 4) {
+    parts.p0 = path.slice(0, s1);
+    parts.p1 = path.slice(s1 + 1, s2 !== -1 ? s2 : undefined);
+    if (s2 !== -1) parts.p2 = path.slice(s2 + 1, s3 !== -1 ? s3 : undefined);
+    if (s3 !== -1) parts.p3 = path.slice(s3 + 1);
+    return parts;
+  }
+
+  const s4 = s3 !== -1 ? path.indexOf("/", s3 + 1) : -1;
+  if (maxParts === 5) {
+    parts.p0 = path.slice(0, s1);
+    parts.p1 = path.slice(s1 + 1, s2 !== -1 ? s2 : undefined);
+    if (s2 !== -1) parts.p2 = path.slice(s2 + 1, s3 !== -1 ? s3 : undefined);
+    if (s3 !== -1) parts.p3 = path.slice(s3 + 1, s4 !== -1 ? s4 : undefined);
+    if (s4 !== -1) parts.p4 = path.slice(s4 + 1);
+    return parts;
+  }
+
+  // Generic fallback for maxParts > 5 or maxParts === 1
   let currentIdx = -1;
-
   for (let i = 0; i < maxParts; i++) {
     if (i === maxParts - 1) {
       parts[`p${i}`] = path.slice(currentIdx + 1);
@@ -34,7 +68,6 @@ export function tokenizePath(path, maxParts = 5) {
     currentIdx = nextIdx;
     if (currentIdx === -1) break;
   }
-
   return parts;
 }
 

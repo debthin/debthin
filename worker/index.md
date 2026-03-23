@@ -26,18 +26,23 @@ Virtual vendor sandboxing routes mapped to remote Upstreams (like Grafana and Re
 - **`utils.js` / `version.js`**: Proxies cryptography evaluation hashes and calculates exact Debian epoch/upstream character weights.
 
 ## 4. Container Image Domain (`worker/images/`)
-Generates metadata index structures mapping raw R2 objects to Classic LXC and Incus hypervisor manifest protocols.
+Serves container image metadata and binary downloads for Classic LXC, Incus/LXD, and OCI clients.
 
-**Architectural Flow Comparison (`images` vs `proxy` Critical Path):**
+**Pipeline Architecture:**
 
-While the Proxy layer evaluates deep streaming algorithms, the Container Image index generators expose severe systemic architectural constraints when evaluating millions of R2 bucket objects under load:
+Unlike the proxy layer which evaluates streams at the edge, the images worker consumes a pre-compiled `registry-state.json` built by `scripts/generate_image_manifest.py` during CI. This eliminates runtime R2 `list()` calls entirely.
 
-1. **Absence of Background Stale-While-Revalidate (SWR):**
-   - **Proxy**: Utilizes `ctx.waitUntil(env.DEBTHIN_BUCKET.put(...))` to fetch upstream dependencies exclusively in the background without natively blocking the client sockets.
-   - **Images**: Traps the inbound socket synchronously during LRUCache TTL expiries, sequentially executing slow origin `Class 1` R2 `list({cursor})` pagination calls spanning thousands of objects before returning headers.
-2. **Missing Persistent Tier-2 Architecture:**
-   - **Proxy**: Fully persists generated metadata objects backing into the physical R2 bucket. Edge regions fetch this Tier 2 object statically if their RAM is bare.
-   - **Images**: Relies completely on volatile memory. A Cloudflare Edge data-center reboot flushes the `indexCache`. The next hit natively forces an exhaustive, expensive physical scan of the storage bucket from scratch just to yield the index.
-3. **Hazardous Edge Memory Bounds:**
-   - **Proxy**: Pipes heavy textual artifacts sequentially through Web Streams (`new Response(gz).pipeThrough(new TextDecoderStream()).getReader()`), discarding useless nodes sequentially to preserve the strict 128MB V8 worker RAM limits natively.
-   - **Images**: Aggregates all discovered bucket objects concurrently into a solitary massive structured JSON object and textual CSV schema in RAM prior to encoding them. This structure inherently risks an `Out of Memory` abort trajectory when the catalog scales upwards.
+1. **Pre-compiled State (`registry-state.json`):**
+   - Built by the CI pipeline, containing all index payloads (`lxc_csv`, `incus_json`), OCI lookup dictionaries (`oci_blobs`, `oci_manifests`), and a `file_sizes` map for routing classification.
+   - Hydrated into the L1 LRU cache on first request via `hydrateRegistryState()`, with stale-while-revalidate refresh on subsequent requests.
+2. **Size-Based Metadata Caching:**
+   - Files ≤100KB (metadata like `incus.tar.xz`, `meta.tar.xz`, OCI index) are served from the LRU cache, fetched from R2 on miss.
+   - Files >100KB (rootfs binaries, large OCI blobs) are 301-redirected to the unmetered R2 public domain.
+   - `oci-layout` is hardwired as a static immutable response.
+3. **Module Structure:**
+   - `index.js` — Request validation and top-level dispatch.
+   - `handlers/index.js` — Route handlers, `routeImagePath` classifier, SWR cache serving.
+   - `indexes.js` — State hydration and OCI/file-size map accessors.
+   - `http.js` — Pre-encoded static payloads, frozen header sets, conditional response builder.
+   - `cache.js` — Shared LRU cache instance (256 slots, 20MB).
+

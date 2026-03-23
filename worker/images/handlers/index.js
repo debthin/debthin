@@ -1,263 +1,246 @@
 /**
- * @fileoverview Route handlers for the image distribution CDN worker.
+ * @fileoverview Route handlers for the image distribution worker.
+ * Maps incoming paths to LXC/Incus index lookups, OCI registry operations,
+ * and R2 redirect responses.
  */
 
-import { isNotModified } from '../../core/http.js';
-import { H_CACHED } from '../../core/constants.js';
 import { indexCache } from '../cache.js';
+import {
+    buildDerivedResponse, H_LXC_CSV, H_INCUS_JSON, H_V2_ROOT, H_IMMUTABLE, H_CACHED,
+    H_TAR_XZ, H_OCI_INDEX_JSON, H_OCI_LAYOUT,
+    STATIC_INCUS_POINTER, STATIC_OCI_LAYOUT, OCI_LAYOUT_META,
+    ERR_BLOB, ERR_MANIFEST
+} from '../http.js';
+import { hydrateRegistryState, getOciState, getFileSizes } from '../indexes.js';
 
-const _textEncoder = new TextEncoder();
+/** Size threshold in bytes. Files at or below this are served from cache. */
+const METADATA_SIZE_LIMIT = 102400;
 
-// ── R2 Static Manifest Fetch ─────────────────────────────────────────────────
-
-const MANIFEST_KEY = "images-manifest.json";
-const MANIFEST_CACHE_KEY = "_manifest";
-
-/**
- * Fetches and caches the pre-built image manifest from R2.
- * The manifest is generated at build time by scripts/generate_image_manifest.py
- * and uploaded alongside the images. This avoids the need for dynamic bucket.list()
- * calls, which are slow, CPU-intensive, and will exceed the V8 isolate memory
- * limit as the bucket grows.
- *
- * Respects the indexCache TTL and pending coalescing to avoid redundant fetches.
- *
- * @param {Object} bucket - The Cloudflare R2 bucket binding.
- * @returns {Promise<Array<Object>>} Parsed image entries.
- */
-async function fetchManifest(bucket) {
-    const now = Date.now();
-    let cached = indexCache.get(MANIFEST_CACHE_KEY);
-    if (cached && (now - cached.addedAt <= indexCache.ttl)) {
-        return JSON.parse(new TextDecoder().decode(cached.buf));
-    }
-
-    if (indexCache.pending.has(MANIFEST_CACHE_KEY)) {
-        try { await indexCache.pending.get(MANIFEST_CACHE_KEY); } catch (e) { console.error(e.stack || e); }
-        cached = indexCache.get(MANIFEST_CACHE_KEY);
-        if (cached && (now - cached.addedAt <= indexCache.ttl)) {
-            return JSON.parse(new TextDecoder().decode(cached.buf));
-        }
-    }
-
-    const fetchPromise = (async () => {
-        const obj = await bucket.get(MANIFEST_KEY);
-        if (!obj) {
-            console.error("images-manifest.json not found in R2 bucket. Run generate_image_manifest.py and upload.");
-            return [];
-        }
-
-        const buf = await obj.arrayBuffer();
-        const entries = JSON.parse(new TextDecoder().decode(buf));
-        const cacheBuf = _textEncoder.encode(JSON.stringify(entries)).buffer;
-        indexCache.add(MANIFEST_CACHE_KEY, cacheBuf, { etag: `W/"${cacheBuf.byteLength}"`, lastModified: Date.now() }, Date.now());
-        return entries;
-    })();
-
-    indexCache.pending.set(MANIFEST_CACHE_KEY, fetchPromise);
-    try { return await fetchPromise; }
-    finally { if (indexCache.pending.get(MANIFEST_CACHE_KEY) === fetchPromise) indexCache.pending.delete(MANIFEST_CACHE_KEY); }
-}
-
-// ── Index Generators ─────────────────────────────────────────────────────────
-
-/**
- * Generates Classic LXC index-system CSV from cached listing.
- *
- * @param {Array<Object>} entries - Parsed image entries.
- * @returns {string} Semicolon-delimited index text.
- */
-function generateLxcIndex(entries) {
-    const seen = new Set();
-    const lines = [];
-    for (const { os, release, arch, variant, version } of entries) {
-        const key = `${os}-${release}-${arch}-${variant}-${version}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        lines.push(`${os};${release};${arch};${variant};${version};/images/${os}/${release}/${arch}/${variant}/${version}/`);
-    }
-    return lines.join("\n") + (lines.length ? "\n" : "");
-}
-
-/**
- * Generates Incus simplestreams JSON tree from cached listing.
- *
- * @param {Array<Object>} entries - Parsed image entries.
- * @returns {string} Serialized JSON manifest.
- */
-function generateIncusIndex(entries) {
-    const products = {};
-    for (const { os, release, arch, variant, version, filename, key, size, sha256 } of entries) {
-        if (!sha256) continue;
-
-        let itemName;
-        if (filename === "incus.tar.xz") itemName = "incus_meta";
-        else if (filename === "rootfs.tar.xz") itemName = "rootfs";
-        else continue;
-
-        const productName = `${os}:${release}:${arch}:${variant}`;
-        if (!products[productName]) {
-            products[productName] = {
-                aliases: `${release}, ${os}/${release}, ${os}/${release}/${variant}, default`,
-                architecture: arch,
-                os,
-                release,
-                release_title: `Debian ${release.charAt(0).toUpperCase() + release.slice(1)} (debthin.org)`,
-                versions: {}
-            };
-        }
-        if (!products[productName].versions[version]) {
-            products[productName].versions[version] = { items: {} };
-        }
-        products[productName].versions[version].items[itemName] = { ftype: filename, path: key, size, sha256 };
-    }
-
-    return JSON.stringify({ format: "products:1.0", datatype: "image-downloads", products });
-}
-
-// ── Cached Response Builder ──────────────────────────────────────────────────
-
-/**
- * Serves a derived index from the shared listing cache.
- * Caches the formatted output separately so serialization only runs once per TTL.
- *
- * @param {Request} request - The inbound HTTP request.
- * @param {Object} bucket - The Cloudflare R2 bucket binding.
- * @param {string} cacheKey - Logical cache key for the formatted output.
- * @param {string} contentType - Response Content-Type header.
- * @param {Function} formatFn - Synchronous function(entries) => string.
- * @param {Object} ctx - Worker execution context for waitUntil jobs.
- * @returns {Promise<Response>} The HTTP response.
- */
-async function serveDerivedIndex(request, bucket, cacheKey, contentType, formatFn, ctx) {
-    const now = Date.now();
+async function serveL1Target(request, bucket, ctx, cacheKey, baseHeaders) {
     let cached = indexCache.get(cacheKey);
-    
-    if (cached) {
-        if (now - cached.addedAt > indexCache.ttl) {
-            if (ctx && typeof ctx.waitUntil === 'function') {
-                ctx.waitUntil(warmAllIndexes(bucket).catch(e => console.error(e)));
-            }
-        }
-        return buildResponse(request, cached.meta, request.method === "HEAD" ? null : cached.buf, true, cached.hits, contentType);
-    }
-
-    if (indexCache.pending.has(cacheKey)) {
-        try { await indexCache.pending.get(cacheKey); } catch (e) { console.error(e.stack || e); }
+    if (!cached) {
+        await hydrateRegistryState(bucket);
         cached = indexCache.get(cacheKey);
-        if (cached) {
-            return buildResponse(request, cached.meta, request.method === "HEAD" ? null : cached.buf, true, cached.hits, contentType);
-        }
+        if (!cached) return new Response("Not Found", { status: 404 });
+    } else if (Date.now() - cached.addedAt > indexCache.ttl && ctx && typeof ctx.waitUntil === 'function') {
+        ctx.waitUntil(hydrateRegistryState(bucket).catch(() => { }));
     }
-
-    const fetchPromise = (async () => {
-        const entries = await fetchManifest(bucket);
-        const textData = formatFn(entries);
-        const buf = _textEncoder.encode(textData).buffer;
-        const meta = { etag: `W/"${buf.byteLength}"`, lastModified: Date.now() };
-        indexCache.add(cacheKey, buf, meta, Date.now());
-        return { buf, meta };
-    })();
-
-    indexCache.pending.set(cacheKey, fetchPromise);
-    try {
-        const result = await fetchPromise;
-        return buildResponse(request, result.meta, request.method === "HEAD" ? null : result.buf, false, 0, contentType);
-    } finally {
-        if (indexCache.pending.get(cacheKey) === fetchPromise) indexCache.pending.delete(cacheKey);
-    }
+    return buildDerivedResponse(request, cached.meta, request.method === "HEAD" ? null : cached.buf, true, cached.hits, baseHeaders);
 }
-
-function buildResponse(request, meta, buf, isCached, hits, contentType) {
-    const headers = {
-        ...H_CACHED,
-        "Content-Type": contentType,
-        "ETag": meta.etag,
-        "Last-Modified": new Date(meta.lastModified).toUTCString(),
-        "X-Debthin": isCached ? "hit-isolate-cache" : "hit-generated",
-        "X-Cache": isCached ? "HIT" : "MISS",
-        "X-Cache-Hits": (hits || 0).toString()
-    };
-
-    if (isNotModified(request.headers, meta)) {
-        return new Response(null, { status: 304, headers });
-    }
-    return new Response(buf, { headers });
-}
-
-// ── Exported Handlers ────────────────────────────────────────────────────────
 
 export async function handleLxcIndex(request, bucket, ctx) {
-    return serveDerivedIndex(request, bucket, "meta/1.0/index-system", "text/plain; charset=utf-8", generateLxcIndex, ctx);
-}
-
-export async function handleIncusPointer(request, bucket, ctx) {
-    const now = Date.now();
-    const cacheKey = "streams/v1/index.json";
-    let cached = indexCache.get(cacheKey);
-    
-    if (cached) {
-        if (now - cached.addedAt > indexCache.ttl) {
-            if (ctx && typeof ctx.waitUntil === 'function') {
-                ctx.waitUntil(warmAllIndexes(bucket).catch(e => console.error(e)));
-            }
-        }
-        return buildResponse(request, cached.meta, request.method === "HEAD" ? null : cached.buf, true, cached.hits, "application/json; charset=utf-8");
-    }
-    
-    const text = JSON.stringify({
-        format: "index:1.0",
-        index: { images: { datatype: "image-downloads", path: "streams/v1/images.json" } }
-    });
-    const buf = _textEncoder.encode(text).buffer;
-    const meta = { etag: `W/"${buf.byteLength}"`, lastModified: now };
-    indexCache.add(cacheKey, buf, meta, now);
-    
-    if (ctx && typeof ctx.waitUntil === 'function') {
-        ctx.waitUntil(warmAllIndexes(bucket).catch(e => console.error(e)));
-    }
-    
-    return buildResponse(request, meta, request.method === "HEAD" ? null : buf, false, 0, "application/json; charset=utf-8");
+    return serveL1Target(request, bucket, ctx, "meta/1.0/index-system", H_LXC_CSV);
 }
 
 export async function handleIncusIndex(request, bucket, ctx) {
-    return serveDerivedIndex(request, bucket, "streams/v1/images.json", "application/json; charset=utf-8", generateIncusIndex, ctx);
+    return serveL1Target(request, bucket, ctx, "streams/v1/images.json", H_INCUS_JSON);
 }
 
+// Stable metadata for the static Incus pointer payload. Since the content
+// never changes at runtime, the timestamp is fixed at module load time.
+const POINTER_META = Object.freeze({
+    etag: `W/"${STATIC_INCUS_POINTER.byteLength}"`,
+    lastModified: Date.now(),
+    lastModifiedStr: new Date().toUTCString()
+});
+
+export async function handleIncusPointer(request, bucket, ctx) {
+    return buildDerivedResponse(request, POINTER_META, request.method === "HEAD" ? null : STATIC_INCUS_POINTER, false, 0, H_INCUS_JSON);
+}
+
+export async function handleOciRegistry(request, bucket, ctx, rawPath, env) {
+    if (rawPath === "v2" || rawPath === "v2/") {
+        return new Response("{}", { headers: H_V2_ROOT });
+    }
+
+    // Zero-allocation string isolation (No RegEx)
+    const typeIdx = Math.max(rawPath.lastIndexOf("/manifests/"), rawPath.lastIndexOf("/blobs/"));
+    if (typeIdx === -1) return new Response("Not Found", { status: 404 });
+
+    const typeStart = rawPath.indexOf("/", typeIdx + 1);
+    const type = rawPath.slice(typeIdx + 1, typeStart); // "manifests" or "blobs"
+    const repo = rawPath.slice(3, typeIdx); // extract repo name
+    const ref = rawPath.slice(typeStart + 1);
+
+    const { blobs, manifests } = await getOciState(bucket, ctx);
+
+    if (type === "blobs") {
+        const blobPath = blobs[ref];
+        if (!blobPath) return new Response(ERR_BLOB, { status: 404, headers: H_V2_ROOT });
+        // Blobs are content-addressable hashes. Route to the Immutable Redirect.
+        return handleImageRedirect('/' + blobPath, env);
+    }
+
+    if (type === "manifests") {
+        const isInner = ref.startsWith("sha256:");
+        const r2Key = isInner ? blobs[ref] : manifests[`${repo}:${ref}`];
+
+        if (!r2Key) return new Response(ERR_MANIFEST, { status: 404, headers: H_V2_ROOT });
+
+        // SWR: serve stale manifest but refresh in background if TTL exceeded
+        let cachedManifest = indexCache.get(r2Key);
+        if (!cachedManifest) {
+            const r2Res = await bucket.get(r2Key);
+            if (!r2Res) return new Response(ERR_MANIFEST, { status: 404, headers: H_V2_ROOT });
+            const buf = await r2Res.arrayBuffer();
+            const now = Date.now();
+            const meta = { etag: r2Res.etag, lastModified: now, lastModifiedStr: new Date(now).toUTCString() };
+            indexCache.add(r2Key, buf, meta, now);
+            cachedManifest = { buf, meta, hits: 0 };
+        } else if (Date.now() - cachedManifest.addedAt > indexCache.ttl && ctx && typeof ctx.waitUntil === 'function') {
+            ctx.waitUntil((async () => {
+                const r2Res = await bucket.get(r2Key);
+                if (r2Res) {
+                    const buf = await r2Res.arrayBuffer();
+                    const now = Date.now();
+                    indexCache.add(r2Key, buf, {
+                        etag: r2Res.etag,
+                        lastModified: now,
+                        lastModifiedStr: new Date(now).toUTCString()
+                    }, now);
+                }
+            })().catch(() => {}));
+        }
+
+        const cType = isInner ? "application/vnd.oci.image.manifest.v1+json" : "application/vnd.oci.image.index.v1+json";
+        const extra = { "Content-Type": cType, "Docker-Distribution-Api-Version": "registry/2.0" };
+        if (isInner) extra["Docker-Content-Digest"] = ref;
+
+        return buildDerivedResponse(request, cachedManifest.meta, request.method === "HEAD" ? null : cachedManifest.buf, true, cachedManifest.hits, H_CACHED, extra);
+    }
+
+    return new Response("Not Found", { status: 404 });
+}
+
+/**
+ * Redirects large binary download requests to the unmetered R2 public domain.
+ * Returns a 301 with 1-year immutable cache headers.
+ *
+ * @param {string} rawPath - The path to redirect (e.g. '/images/debian/...').
+ * @param {Object} env - Cloudflare environment bindings containing PUBLIC_R2_URL.
+ * @returns {Response} A 301 redirect response.
+ */
 export function handleImageRedirect(rawPath, env) {
     const fallbackHost = typeof env === 'object' && env.PUBLIC_R2_URL ? env.PUBLIC_R2_URL : 'https://r2-public.debthin.org';
     return new Response(null, {
         status: 301,
         headers: {
-            "Location": `${fallbackHost}${rawPath}`,
-            "Cache-Control": "public, max-age=3600, immutable"
+            ...H_IMMUTABLE,
+            "Location": `${fallbackHost}${rawPath}`
         }
     });
 }
 
 /**
- * Pre-warms the manifest and all derived indexes if cold or expired.
- * Designed for ctx.waitUntil() — no-op if caches are fresh.
+ * Returns the hardwired oci-layout file with immutable cache headers.
+ * The content is always {"imageLayoutVersion":"1.0.0"} and never changes.
  *
- * @param {Object} bucket - The Cloudflare R2 bucket binding.
+ * @param {Request} request - The inbound HTTP request.
+ * @returns {Response} Static oci-layout JSON response.
  */
-export async function warmAllIndexes(bucket) {
-    const entries = await fetchManifest(bucket);
-    const now = Date.now();
+export function handleOciLayout(request) {
+    return buildDerivedResponse(
+        request, OCI_LAYOUT_META,
+        request.method === "HEAD" ? null : STATIC_OCI_LAYOUT,
+        false, 0, H_OCI_LAYOUT
+    );
+}
 
-    const warmups = [
-        { key: "meta/1.0/index-system", fn: () => generateLxcIndex(entries) },
-        { key: "streams/v1/images.json", fn: () => generateIncusIndex(entries) },
-    ];
+/**
+ * Resolves frozen headers for a metadata file based on its extension.
+ *
+ * @param {string} filename - Basename of the file.
+ * @returns {Object} Frozen header set with the appropriate Content-Type.
+ */
+function headersForMetadata(filename) {
+    if (filename.endsWith('.json')) return H_OCI_INDEX_JSON;
+    if (filename.endsWith('.tar.xz')) return H_TAR_XZ;
+    return H_CACHED; // fallback for any other small files
+}
 
-    for (const { key, fn } of warmups) {
-        const cached = indexCache.get(key);
-        if (cached && (now - cached.addedAt <= indexCache.ttl)) continue;
-        if (indexCache.pending.has(key)) continue;
-
-        const textData = fn();
-        const buf = _textEncoder.encode(textData).buffer;
-        const meta = { etag: `W/"${buf.byteLength}"`, lastModified: now };
-        indexCache.add(key, buf, meta, now);
+/**
+ * Serves small metadata files from the LRU cache, fetching from R2 on miss.
+ * Files are classified as metadata by the manifest's file_sizes map
+ * (anything under 100KB).
+ *
+ * @param {Request} request - The inbound HTTP request.
+ * @param {Object} bucket - The Cloudflare R2 bucket binding.
+ * @param {Object} ctx - Worker execution context.
+ * @param {string} r2Key - The R2 object key.
+ * @param {string} filename - Basename for Content-Type resolution.
+ * @returns {Promise<Response>} Cached or freshly-fetched metadata response.
+ */
+export async function handleImageMetadata(request, bucket, ctx, r2Key, filename) {
+    let cached = indexCache.get(r2Key);
+    if (cached) {
+        if (Date.now() - cached.addedAt > indexCache.ttl && ctx && typeof ctx.waitUntil === 'function') {
+            ctx.waitUntil((async () => {
+                const obj = await bucket.get(r2Key);
+                if (obj) {
+                    const buf = await obj.arrayBuffer();
+                    const now = Date.now();
+                    indexCache.add(r2Key, buf, {
+                        etag: obj.etag || `W/"${buf.byteLength}"`,
+                        lastModified: now,
+                        lastModifiedStr: new Date(now).toUTCString()
+                    }, now);
+                }
+            })().catch(() => {}));
+        }
+        return buildDerivedResponse(
+            request, cached.meta,
+            request.method === "HEAD" ? null : cached.buf,
+            true, cached.hits, headersForMetadata(filename)
+        );
     }
+
+    const obj = await bucket.get(r2Key);
+    if (!obj) return new Response("Not Found\n", { status: 404 });
+
+    const buf = await obj.arrayBuffer();
+    const now = Date.now();
+    const meta = {
+        etag: obj.etag || `W/"${buf.byteLength}"`,
+        lastModified: now,
+        lastModifiedStr: new Date(now).toUTCString()
+    };
+    indexCache.add(r2Key, buf, meta, now);
+
+    return buildDerivedResponse(
+        request, meta,
+        request.method === "HEAD" ? null : buf,
+        false, 0, headersForMetadata(filename)
+    );
+}
+
+/**
+ * Routes an `/images/` path to the metadata cache, the hardwired oci-layout
+ * response, or a 301 redirect based on the manifest file_sizes map.
+ * Files under 100KB are served from cache; everything else is redirected.
+ *
+ * @param {Request} request - The inbound HTTP request.
+ * @param {Object} env - Cloudflare environment bindings.
+ * @param {Object} ctx - Worker execution context.
+ * @param {string} rawPath - URL path without leading slash.
+ * @returns {Promise<Response>|Response} The response.
+ */
+export async function routeImagePath(request, env, ctx, rawPath) {
+    const lastSlash = rawPath.lastIndexOf('/');
+    const filename = lastSlash !== -1 ? rawPath.slice(lastSlash + 1) : rawPath;
+
+    // Hardwired static response for oci-layout (immutable, 30 bytes)
+    if (filename === 'oci-layout') {
+        return handleOciLayout(request);
+    }
+
+    // Look up file size from the hydrated manifest
+    const sizes = await getFileSizes(env.IMAGES_BUCKET, ctx);
+    const fileSize = sizes[rawPath];
+
+    if (fileSize !== undefined && fileSize <= METADATA_SIZE_LIMIT) {
+        return handleImageMetadata(request, env.IMAGES_BUCKET, ctx, rawPath, filename);
+    }
+
+    // Large files or files not in the manifest → 301 redirect
+    return handleImageRedirect('/' + rawPath, env);
 }
