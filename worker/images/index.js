@@ -1,81 +1,64 @@
+/**
+ * @fileoverview Main entrypoint for the Image Distribution Worker.
+ * Handles request validation, routing, and environment binding.
+ */
+
 import { parseURL } from '../core/utils.js';
 import { getCacheStats } from './cache.js';
+import { hydrateRegistryState } from './indexes.js';
 import {
     handleLxcIndex,
     handleIncusPointer,
     handleIncusIndex,
-    handleImageRedirect,
-    warmAllIndexes
+    handleOciRegistry,
+    routeImagePath
 } from './handlers/index.js';
 
 // ── Main Entry ───────────────────────────────────────────────────────────────
 
 /**
- * Evaluates and maps the inbound request for the image indexer worker.
- * Checks validity of HTTP methods, path traversal, and dispatches to specific handlers.
+ * Evaluates the inbound request and dispatches to the appropriate handler.
+ * Checks HTTP method, path traversal, and routes to specific endpoints.
  *
  * @param {Request} request - The inbound HTTP request.
  * @param {Object} env - Cloudflare environment bindings.
  * @param {Object} ctx - Worker execution context.
- * @returns {Promise<Response>} The constructed runtime Response.
+ * @returns {Promise<Response>} The constructed response.
  */
 async function handleRequest(request, env, ctx) {
     if (request.method !== "GET" && request.method !== "HEAD") {
         return new Response("Method Not Allowed\n", { status: 405, headers: { "Allow": "GET, HEAD" } });
     }
-    if (request.url.indexOf("?") !== -1) {
-        return new Response("Bad Request\n", { status: 400 });
-    }
+    if (request.url.indexOf("?") !== -1) return new Response("Bad Request\n", { status: 400 });
 
     const { rawPath } = parseURL(request);
-
-    if (rawPath.includes("..")) {
-        return new Response("Bad Request\n", { status: 400 });
-    }
-
-    if (rawPath === "robots.txt") {
-        return new Response("User-agent: *\nAllow: /$\nDisallow: /\n", { 
-            headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "public, max-age=3600" } 
-        });
-    }
-
-    if (rawPath === "") {
-        return new Response("debthin container registry interface natively operating at the Edge.", { 
-            headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "public, max-age=3600" } 
-        });
-    }
+    if (rawPath.includes("..")) return new Response("Bad Request\n", { status: 400 });
 
     if (rawPath === "health") {
-        let r2 = "OK";
-        try { await env.IMAGES_BUCKET.head("healthcheck-ping"); } catch (e) { r2 = "ERROR"; }
-        const stats = {
-          status: r2 === "OK" ? "OK" : "DEGRADED",
-          r2,
-          cache: getCacheStats(),
-          time: Date.now()
-        };
-        const hh = new Headers({ "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store", "X-Debthin": "hit-synthetic" });
-        return new Response(JSON.stringify(stats, null, 2) + "\n", { headers: hh, status: r2 === "OK" ? 200 : 503 });
+        const stats = getCacheStats();
+        return new Response(JSON.stringify({ status: "ok", service: "debthin-images", cache: stats }), {
+            status: 200,
+            headers: { "Content-Type": "application/json", "Cache-Control": "no-store" }
+        });
     }
 
-    // 1. Classic LXC (lxc-create -t download)
-    if (rawPath === "meta/1.0/index-system") {
-        return await handleLxcIndex(request, env.IMAGES_BUCKET, ctx);
-    }
-
-    // 2. Incus/LXD Pointer
-    if (rawPath === "streams/v1/index.json") {
-        return await handleIncusPointer(request, env.IMAGES_BUCKET, ctx);
-    }
-
-    // 3. Incus/LXD Database
-    if (rawPath === "streams/v1/images.json") {
-        return await handleIncusIndex(request, env.IMAGES_BUCKET, ctx);
-    }
-
-    // 4. Direct Downloads (Redirect to unmetered R2)
+    // 1. Image file paths — cache metadata, redirect binaries
     if (rawPath.startsWith("images/")) {
-        return handleImageRedirect('/' + rawPath, env);
+        return await routeImagePath(request, env, ctx, rawPath);
+    }
+
+    // 2. Classic LXC
+    if (rawPath === "meta/1.0/index-system") return await handleLxcIndex(request, env.IMAGES_BUCKET, ctx);
+
+    // 3. Incus/LXD Pointer
+    if (rawPath === "streams/v1/index.json") return await handleIncusPointer(request, env.IMAGES_BUCKET, ctx);
+
+    // 4. Incus/LXD Database
+    if (rawPath === "streams/v1/images.json") return await handleIncusIndex(request, env.IMAGES_BUCKET, ctx);
+
+    // 5. Docker / OCI Registry
+    if (rawPath === "v2" || rawPath.startsWith("v2/")) {
+        return await handleOciRegistry(request, env.IMAGES_BUCKET, ctx, rawPath, env);
     }
 
     return new Response("Not Found. debthin image server.", { status: 404 });
@@ -83,20 +66,20 @@ async function handleRequest(request, env, ctx) {
 
 export default {
     /**
-     * Primary edge invocation block for the images worker.
-     * Incorporates protective try/catch routing and embeds synthetic performance tracking headers.
-     * 
+     * Primary fetch handler for the images worker.
+     * Wraps handleRequest in error handling and appends performance tracking headers.
+     *
      * @param {Request} request - The inbound HTTP request.
      * @param {Object} env - Cloudflare environment bindings.
      * @param {Object} ctx - Worker execution context.
-     * @returns {Promise<Response>} The final HTTP response payload.
+     * @returns {Promise<Response>} The final HTTP response.
      */
     async fetch(request, env, ctx) {
         const _now = Date.now();
 
-        // Trigger global background warm-up on any incoming route natively
+        // Background-warm the registry state on every inbound request
         if (ctx && typeof ctx.waitUntil === 'function') {
-            ctx.waitUntil(warmAllIndexes(env.IMAGES_BUCKET).catch(e => console.error("Warmup Error:", e)));
+            ctx.waitUntil(hydrateRegistryState(env.IMAGES_BUCKET).catch(e => console.error("Warmup Error:", e)));
         }
 
         let response;

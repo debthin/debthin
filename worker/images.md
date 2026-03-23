@@ -2,81 +2,120 @@
 
 ## 1. System Overview
 
-The `debthin` image distribution network utilizes a "Dumb Factory / Smart Edge" architecture. Rather than relying on a fragile Continuous Integration (CI) pipeline to maintain state and generate static indexes, the heavy lifting of state management is deferred entirely to a **Cloudflare Worker** at the edge.
+The `debthin` image distribution network uses a "Pre-compiled State / Smart Edge" architecture. A CI pipeline generates a `registry-state.json` manifest containing all index data (LXC CSV, Incus/LXD JSON, OCI blob/manifest dictionaries) and uploads it to R2. A **Cloudflare Worker** at the edge hydrates this state into RAM and serves it to clients.
 
-The Worker acts as an intelligent API gateway sitting in front of a raw Cloudflare R2 object storage bucket. It dynamically maps the bucket's contents on the fly to serve the required metadata formats for different container hypervisors (Classic LXC and Incus/LXD).
+The Worker also implements an OCI Distribution API (`v2/`) for container registry operations, mapping manifest and blob requests against the pre-compiled state.
 
 ## 2. Request Flow Diagram
 
 ```mermaid
 sequenceDiagram
-    participant Client as LXC / Incus Client
+    participant Client as LXC / Incus / Docker Client
     participant Edge as Cloudflare Worker (Edge)
     participant R2 as R2 Bucket (Storage)
     participant Public as R2 Public Domain
 
     Client->>Edge: Request Metadata (e.g., /streams/v1/images.json)
-    Edge->>Edge: Consult Local LRU Isolate
+    Edge->>Edge: Consult L1 LRU Cache
     alt Cache Fresh
-        Edge-->>Client: Instantly Return JSON/CSV (HIT)
+        Edge-->>Client: Return JSON/CSV (HIT)
     else Cache Stale / Miss
         Edge-->>Client: Serve Stale Content (SWR) OR Block (MISS)
-        Edge-xR2: Background Worker: list(prefix="images/debian/")
-        R2--xEdge: Return Paginated Array (Paths, Sizes, SHA256)
-        Edge-xEdge: Compute JSON/CSV & Cache Natively in RAM
+        Edge-xR2: Background: Fetch registry-state.json
+        R2--xEdge: Return JSON manifest
+        Edge-xEdge: Hydrate LRU cache from state
     end
-    
+
     Client->>Edge: Request Binary (e.g., /images/.../rootfs.tar.xz)
     Edge-->>Client: HTTP 301 Redirect -> PUBLIC_R2_URL
-    Client->>Public: Download File directly
+    Client->>Public: Download file directly
+
+    Client->>Edge: OCI v2 Request (e.g., /v2/debian/blobs/sha256:abc...)
+    Edge->>Edge: Lookup blob/manifest in hydrated state
+    alt Blob Request
+        Edge-->>Client: HTTP 301 Redirect -> PUBLIC_R2_URL
+    else Manifest Request
+        Edge-xR2: Fetch manifest from R2 (if not cached)
+        Edge-->>Client: Return OCI manifest JSON
+    end
 ```
 
-## 3. Core Responsibilities
+## 3. Module Structure
 
-The Worker is designed to be stateless and fast, adhering to four primary responsibilities:
+```
+worker/images/
+├── index.js          # Entry point: request validation, routing, fetch handler
+├── cache.js          # LRU cache instance (wraps core/cache.js)
+├── http.js           # Frozen header sets, static payloads, response builder
+├── indexes.js        # Registry state hydration from registry-state.json
+└── handlers/
+    └── index.js      # Route handlers: LXC, Incus, OCI, image redirects
+```
 
-### A. Dynamic Protocol Translation
-Different hypervisors expect different protocols. The Worker reads the raw directory structure of the R2 bucket (`/images/{os}/{release}/{arch}/{variant}/{version}/`) and translates it into:
-* **Classic LXC:** A flat semicolon-separated CSV (`index-system`).
-* **Incus / LXD:** A nested JSON metadata tree (`simplestreams`).
+### Data Flow
 
-### B. Resolving the CI Race Condition
-When GitHub Actions build multiple architectures simultaneously (e.g., `amd64` and `arm64`), they upload files concurrently. If the CI pipeline attempted to write the `images.json` index, they would overwrite each other. 
-By generating the index dynamically at the edge via an S3 `list` operation, the Worker guarantees a perfectly accurate, real-time reflection of the bucket with zero risk of file corruption.
+1. **`index.js`** validates the request and dispatches to a handler
+2. **`indexes.js`** manages the `registry-state.json` lifecycle (fetch, parse, cache populate)
+3. **`handlers/index.js`** serves cached indexes or performs OCI lookups
+4. **`http.js`** builds conditional responses (304/200) with frozen header sets
+5. **`cache.js`** provides the shared LRU cache instance
 
-### C. Background Generative Caching (SWR)
-To circumvent V8 isolate cold-starts and strict CPU limits on 100k+ object buckets, the Worker leverages the `ctx.waitUntil` primitive. Inbound requests immediately serve available data from RAM utilizing a **Stale-While-Revalidate (SWR)** philosophy. Concurrently, the Worker spins up a background thread that executes an asynchronous R2 pagination loop, refreshing all internal indexes (`images.json`, `index-system`) natively for future traffic.
+## 4. Core Responsibilities
 
-### D. Bandwidth Optimization (The 301 Pattern)
-Cloudflare Workers have execution time limits and charge for CPU time. R2 public buckets offer free, unmetered egress. 
-To optimize costs, the Worker **never** proxies the actual 32MB container binaries. If a client requests a binary file, the Worker instantly returns an `HTTP 301 Moved Permanently`, redirecting the client to download directly from the unmetered `env.PUBLIC_R2_URL` payload binding environment setting.
+### A. Pre-compiled State Hydration
 
-## 4. State & Hashing Strategy
+The CI pipeline pre-computes all index data into `registry-state.json`:
+- `lxc_csv`: Flat semicolon-separated CSV for classic LXC (`lxc-create -t download`)
+- `incus_json`: Nested Simplestreams JSON tree for Incus/LXD
+- `oci_blobs`: Dictionary mapping `sha256:...` digests to R2 keys
+- `oci_manifests`: Dictionary mapping `repo:tag` to R2 manifest keys
 
-Incus requires a `sha256` hash for every binary in its `images.json` manifest. Because a Worker cannot download and hash a 32MB file on the fly without timing out, the system uses **S3 Custom Metadata**.
+The Worker fetches this once and caches the decoded payloads in-memory.
 
-1.  **The CI Phase:** The GitHub Action calculates the `sha256` hash of the tarball locally.
-2.  **The Upload Phase:** The hash is attached to the R2 upload as a custom HTTP header (`--metadata "sha256=..."`).
-3.  **The Edge Phase:** When the Worker queries the bucket, it requests the `customMetadata` payload. Cloudflare returns the pre-calculated hashes alongside the file paths instantly.
+### B. Stale-While-Revalidate (SWR)
+
+On every inbound request, the entry point calls `hydrateRegistryState()` via `ctx.waitUntil()`. If the cache is fresh, this is a no-op. If stale, it triggers a background refresh while serving the existing cached data.
+
+### C. OCI Distribution API
+
+The `/v2/` route implements a subset of the OCI Distribution Spec:
+- `GET /v2/` — Version check (returns `{}` with `Docker-Distribution-Api-Version` header)
+- `GET /v2/<repo>/blobs/<digest>` — 301 redirect to R2 public domain
+- `GET /v2/<repo>/manifests/<ref>` — Serves OCI manifest JSON from R2 (cached in LRU)
+
+### D. Metadata Caching
+
+Files under `/images/` are classified by size using the `file_sizes` map from `registry-state.json`. Files at or below 100KB are served from the worker's LRU cache (fetched from R2 on miss). The `oci-layout` file is hardwired as a static 30-byte immutable response.
+
+### E. Bandwidth Optimization (301 Pattern)
+
+Large binary downloads (`rootfs.*`, `rootfs.squashfs`, `oci/blobs/*`) are never proxied. The Worker returns a `301 Moved Permanently` redirect to the unmetered R2 public domain (`env.PUBLIC_R2_URL`), keeping Worker CPU and bandwidth costs minimal.
 
 ## 5. Routing Table
 
 | Route | Client | Action | Cache Strategy |
-| :--- | :--- | :--- | :--- |
-| `/meta/1.0/index-system` | Classic LXC (`lxc-create`) | Generates flat CSV index mapping. | V8 Isolate SWR Engine |
-| `/streams/v1/index.json` | Incus (`incus remote add`) | Serves static JSON pointer file. | V8 Isolate SWR Trigger |
-| `/streams/v1/images.json` | Incus (`incus launch`) | Generates Simplestreams JSON tree. | V8 Isolate SWR Engine |
-| `/images/*` | All Clients | `HTTP 301` to public runtime R2 endpoint. | Fast Lambda Redirect |
-| `/`, `/robots.txt` | Spiders / Viewers | Active generic edge termination bounds. | V8 Isolate Memory |
+|:---|:---|:---|:---|
+| `/meta/1.0/index-system` | Classic LXC (`lxc-create`) | Serve pre-compiled CSV index | L1 LRU + SWR |
+| `/streams/v1/index.json` | Incus (`incus remote add`) | Serve static JSON pointer | Frozen in-memory |
+| `/streams/v1/images.json` | Incus (`incus launch`) | Serve pre-compiled Simplestreams JSON | L1 LRU + SWR |
+| `/v2/` | Docker / OCI clients | Return version handshake | Static |
+| `/v2/<repo>/blobs/<digest>` | Docker / OCI clients | 301 redirect to R2 public | Immutable (1 year) |
+| `/v2/<repo>/manifests/<ref>` | Docker / OCI clients | Serve OCI manifest from R2 | L1 LRU |
+| `/images/*/oci/oci-layout` | OCI clients | Hardwired static response | Immutable (1 year) |
+| `/images/*` (≤100KB) | All clients | Serve from R2 via LRU cache | L1 LRU (1 hour) |
+| `/images/*` (>100KB) | All clients | 301 redirect to R2 public | Immutable (1 year) |
+| `/health` | Monitoring | Return cache stats JSON | No-store |
 
-## 6. Safety, Limits, and Fault Tolerances
+## 6. Safety and Fault Tolerances
 
-* **Circuit Breakers:** A runaway R2 loop is strictly capped at `100` pages dynamically to prevent CPU time threshold terminations scaling linearly.
-* **Corrupt Metadata Handlers:** Extracted nodes uploaded without requisite `.customMetadata.sha256` signatures are surgically bypassed by the iterator rather than manifesting as fatal literal gaps preventing client segmentation panics.
-* **Domain Isolation:** The worker executes clean encapsulation. It imports generic configurations internally from `core/` to inherently bypass cross-contamination risks across the core upstream `debthin` proxy sequence logic.
-* **HEAD Optimizations:** `HEAD` bandwidth dynamically exercises the full caching sequence but correctly evaluates memory allocations natively stripping stream outputs (`null`) conserving aggressive RAM bindings.
+* **Deduplication:** Concurrent hydration requests are coalesced via the `indexCache.pending` map, preventing thundering herd on cold starts.
+* **Missing State:** If `registry-state.json` is absent from R2, the hydration throws and individual handlers return 404.
+* **Missing OCI Keys:** Unknown blob digests return `BLOB_UNKNOWN`; unknown manifest refs return `MANIFEST_UNKNOWN` (both with structured JSON error bodies).
+* **Path Traversal:** Requests containing `..` are rejected with 400.
+* **HEAD Optimization:** HEAD requests skip body generation (pass `null` buffer) while still exercising the full cache/conditional path.
 
-## 7. Performance & Scaling
+## 7. Performance
 
-* **Cost:** Because the R2 bucket handles the heavy binary egress for free, and the generative index cache drops native load loops asynchronously via the Stale-While-Revalidate sequence, millions of concurrent downloads compute natively on standard Cloudflare Free Tiers.
-* **Maintenance:** The generative tier mandates zero active maintenance overhead. Integrating a new Linux iteration to the storage layer natively triggers edge manifestation upon the subsequent background SWR trigger block globally.
+* **Cost:** R2 public domain handles binary egress for free. The Worker only serves small JSON/CSV metadata and redirect responses.
+* **Memory:** The LRU cache is bounded to 20MB / 256 slots with automatic eviction.
+* **Cold Start:** `ctx.waitUntil()` background hydration pre-warms the cache on every request, minimising the impact of isolate restarts.

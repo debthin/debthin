@@ -1,13 +1,13 @@
 /**
- * @fileoverview Caching orchestrator for the image distribution worker.
- * Connects the generic core LRU primitive to cache dynamically generated JSON/CSV indexes.
+ * @fileoverview Cache instance for the image distribution worker.
+ * Wraps the core LRU cache with image-specific size limits.
  */
 
 import { LRUCache } from '../core/cache.js';
 import { CACHE_TTL_MS } from '../core/constants.js';
 
-// Index manifests can be natively large, so we assign a 20MB ArrayBuffer isolate limit.
-export const indexCache = LRUCache(16, 20 * 1024 * 1024, CACHE_TTL_MS);
+// Index manifests can be large; allow up to 20MB total with 256 slots.
+export const indexCache = LRUCache(256, 20 * 1024 * 1024, CACHE_TTL_MS);
 
 /**
  * Returns aggregated memory cache statistics.
