@@ -165,7 +165,7 @@ run_filter_batch() {
     fi
 
     # Check for script modifications recursively
-    local filter_script="scripts/filter.py"
+    local filter_script="scripts/debthin/filter.py"
 
     while IFS= read -r -d "" cachefile; do
         local outfile="${cachefile/.tmp_cache\/$distro\//dist_output\/dists\/$distro\/}"
@@ -195,7 +195,7 @@ run_filter_batch() {
     fi
 
     echo "  Filtering $distro/$suite: $n jobs..." >&2
-    python3 scripts/filter.py --allowed "$allowed" --batch "$jobfile" --stats
+    python3 scripts/debthin/filter.py --allowed "$allowed" --batch "$jobfile" --stats
     rm -f "$jobfile"
     [[ "$allowed" == /tmp/* ]] && rm -f "$allowed"
 }
@@ -270,7 +270,7 @@ while read -r distro suite; do
             needs_head=0
             if [[ ! -f "$out_file" ]]; then
                 needs_head=1
-            elif [[ "scripts/merge_packages.py" -nt "$out_file" ]]; then
+            elif [[ "scripts/debthin/merge_packages.py" -nt "$out_file" ]]; then
                 needs_head=1
             else
                 for in_f in "${inputs[@]}"; do
@@ -283,7 +283,7 @@ while read -r distro suite; do
 
             if [[ $needs_head -eq 1 ]]; then
                 mkdir -p "$(dirname "$out_file")"
-                python3 scripts/merge_packages.py "${inputs[@]}" -o "$out_file"
+                python3 scripts/debthin/merge_packages.py "${inputs[@]}" -o "$out_file"
             fi
         fi
     done
@@ -293,7 +293,7 @@ done < <(distro_suites)
 
 echo "Phase 3: signing..." >&2
 
-GPG_KEY_ID=$GPG_KEY_ID bash scripts/sign_all.sh dist_output "$CONFIG_FILE"
+GPG_KEY_ID=$GPG_KEY_ID bash scripts/debthin/sign_all.sh dist_output "$CONFIG_FILE"
 
 # ── Upload ────────────────────────────────────────────────────────────────────
 
@@ -307,7 +307,7 @@ find dist_output -name "Packages" -not -name "*.gz" -delete
 
 echo "Validating dist_output/..." >&2
 DURATION=$(( $(date +%s) - BUILD_START ))
-bash scripts/validate.sh dist_output \
+bash scripts/debthin/validate.sh dist_output \
     --json dist_output/status.json \
     --cache-dir .tmp_cache \
     --built-at "$BUILT_AT" \
@@ -315,7 +315,7 @@ bash scripts/validate.sh dist_output \
 
 if [[ "$NO_UPLOAD" != "1" ]]; then
     echo "Uploading to Cloudflare R2..." >&2
-    python3 scripts/r2_upload.py \
+    python3 scripts/debthin/r2_upload.py \
         --dir dist_output \
         --account "$R2_ACCOUNT_ID" \
         --access-key "$R2_ACCESS_KEY" \

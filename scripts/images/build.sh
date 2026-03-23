@@ -3,10 +3,10 @@ set -e
 
 # PATH RESOLUTION & SETUP
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
 CONFIG_FILE="${REPO_ROOT}/config.json"
-TEMPLATE_DIR="${REPO_ROOT}/images/yaml-templates"
+TEMPLATE_DIR="${REPO_ROOT}/yaml-templates"
 OUTPUT_BASE="${REPO_ROOT}/images_output/images"
 TMP_DIR="${REPO_ROOT}/.build_tmp"
 

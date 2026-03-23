@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # validate.sh - Sanity-check dist_output/ before upload
-# Usage: bash scripts/validate.sh [dist_output] [--json path/to/status.json] [--cache-dir cached] [--built-at ISO8601] [--duration-seconds N]
+# Usage: bash scripts/debthin/validate.sh [dist_output] [--json path/to/status.json] [--cache-dir cached] [--built-at ISO8601] [--duration-seconds N]
 DIST_OUTPUT="${1:-dist_output}"
 ERRORS=0
 WARNINGS=0

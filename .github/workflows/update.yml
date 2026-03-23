@@ -50,7 +50,7 @@ jobs:
           github.event.inputs.force_recurate == 'true' ||
           (github.event_name == 'schedule' && github.event.schedule == '0 3 * * 0')
         run: |
-          python3 scripts/curate.py \
+          python3 scripts/debthin/curate.py \
             --arch amd64
 
 
@@ -67,4 +67,4 @@ jobs:
           R2_SECRET_KEY: ${{ secrets.R2_SECRET_KEY }}
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
         run: |
-          bash scripts/build.sh
+          bash scripts/debthin/build.sh
