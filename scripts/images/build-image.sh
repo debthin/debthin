@@ -108,8 +108,8 @@ mkdir -p "$SOURCES_DIR"
 
 cd "$WORK_DIR" || exit 1
 
-# Mount rootfs as tmpfs on Linux (size controlled by TMPFS_SIZE, default 768M)
-TMPFS_SIZE="${TMPFS_SIZE:-768M}"
+# Mount rootfs as tmpfs on Linux (size controlled by TMPFS_SIZE, default 512M)
+TMPFS_SIZE="${TMPFS_SIZE:-512M}"
 ROOTFS_MNT="${TMP_DIR}/rootfs_${DISTRO}_${SUITE}_${ARCH}"
 mkdir -p "$ROOTFS_MNT"
 if [ "$(uname -s)" = "Linux" ]; then
