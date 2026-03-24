@@ -9,3 +9,7 @@ netplan.io
 networkd-dispatcher
 ubuntu-keyring
 ubuntu-minimal
+libffi8
+libsemanage2
+libsepol2
+ubuntu-advantage-tools
