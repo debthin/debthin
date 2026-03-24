@@ -2,7 +2,7 @@
 
 debthin is a Cloudflare Worker that acts as a curated, caching apt repository proxy. It serves Debian and Ubuntu package indices from an R2 bucket, handling the full range of requests an apt client makes during `apt update`: release files, package indices, by-hash lookups, and `.deb` redirects.
 
-The core logic is divided into library components under `worker/core/` and isolated route handlers under `worker/handlers/` to keep the main edge router (`worker/index.js`) as robust and lean as possible.
+The core logic is divided into library components under `workers/core/` and isolated route handlers under `workers/handlers/` to keep the main edge router (`workers/index.js`) as robust and lean as possible.
 
 ---
 
@@ -15,10 +15,10 @@ apt client
 CF edge (HTTP/1.1 termination, TLS)
     │
     ▼
-worker/index.js: fetch() handler
+workers/index.js: fetch() handler
     │  adds X-Timer, X-Served-By
     ▼
-worker/index.js: handleRequest()
+workers/index.js: handleRequest()
     │
     ├── method/query/path guard → 400/405 (bare, no headers)
     ├── robots.txt / config.json → handlers: handleStaticAssets

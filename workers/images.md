@@ -43,7 +43,7 @@ sequenceDiagram
 ## 3. Module Structure
 
 ```
-worker/images/
+workers/images/
 ├── index.js          # Entry point: request validation, routing, fetch handler
 ├── cache.js          # LRU cache instance (wraps core/cache.js)
 ├── http.js           # Frozen header sets, static payloads, response builder

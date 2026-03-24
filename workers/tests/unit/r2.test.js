@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { isNotModified } from '../../worker/core/http.js';
+import { isNotModified } from '../../core/http.js';
 
 test('r2/isNotModified Strict ETags', () => {
   const reqObj = { etag: '"abcdef"' };
@@ -30,7 +30,7 @@ test('r2/isNotModified Last-Modified bounds', () => {
   assert.equal(isNotModified(headersMiss, reqObj), false, 'Client cache strictly older than file');
 });
 
-import { warmRamCacheFromRelease, _hashIndexes } from '../../worker/debthin/indexes.js';
+import { warmRamCacheFromRelease, _hashIndexes } from '../../debthin/indexes.js';
 
 test('r2/warmRamCacheFromRelease - hashes only Packages.gz', () => {
   const mockParams = "\nSHA256:\n" +
@@ -48,8 +48,8 @@ test('r2/warmRamCacheFromRelease - hashes only Packages.gz', () => {
 
 // ── L2 Colo Cache Tests ──────────────────────────────────────────────────────
 
-import { r2Get } from '../../worker/core/r2.js';
-import { LRUCache } from '../../worker/core/cache.js';
+import { r2Get } from '../../core/r2.js';
+import { LRUCache } from '../../core/cache.js';
 
 /**
  * Creates a minimal mock of the CF `caches.default` API.

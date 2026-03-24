@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { reduceStreamToLatest } from '../../worker/proxy/packages.js';
+import { reduceStreamToLatest } from '../../proxy/packages.js';
 
 test('proxy/packages/Streaming Chunk Boundaries', async () => {
   // We feed a mock stream that breaks exactly in the middle of a stanza, 

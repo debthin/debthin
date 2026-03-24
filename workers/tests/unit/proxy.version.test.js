@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseVersion, charOrder, compareVersionPart, compareDebianVersions } from '../../worker/proxy/version.js';
+import { parseVersion, charOrder, compareVersionPart, compareDebianVersions } from '../../proxy/version.js';
 
 test('proxyVersion/parseVersion', () => {
   assert.deepEqual(parseVersion("1:2.3.4-5"), { epoch: 1, upstream: "2.3.4", revision: "5" });

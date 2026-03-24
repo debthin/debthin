@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import worker from '../../worker/proxy/index.js';
-import { proxyMetaCache, proxyDataCache } from '../../worker/proxy/cache.js';
+import worker from '../../proxy/index.js';
+import { proxyMetaCache, proxyDataCache } from '../../proxy/cache.js';
 
 const mockCtx = {
   waitUntil: (promise) => { promise.catch(() => {}); }

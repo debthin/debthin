@@ -1,6 +1,6 @@
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { handleStaticAssets, handleUpstreamRedirect } from '../../worker/debthin/handlers/index.js';
+import { handleStaticAssets, handleUpstreamRedirect } from '../../debthin/handlers/index.js';
 
 // Stub the CF Cache API so r2Get's L2 layer is transparent in unit tests.
 before(() => {
@@ -67,7 +67,7 @@ test('handlers/handleStaticAssets -> /health (fail)', async () => {
   assert.equal(data.r2, 'ERROR');
 });
 
-import { handleDistributionHashIndex } from '../../worker/debthin/handlers/index.js';
+import { handleDistributionHashIndex } from '../../debthin/handlers/index.js';
 
 test('handlers/handleDistributionHashIndex permits headless components inherently', async () => {
   const req = { method: 'GET', headers: new Headers() };

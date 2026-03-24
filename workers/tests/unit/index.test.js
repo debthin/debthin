@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import worker from '../../worker/debthin/index.js';
+import worker from '../../debthin/index.js';
 
 test('index/Method Rejection (POST)', async () => {
   const req = new Request('https://debthin.org/config.json', { method: 'POST' });

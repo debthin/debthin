@@ -7,11 +7,11 @@
 
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import worker from '../../worker/images/index.js';
-import { indexCache } from '../../worker/images/cache.js';
-import { hydrateRegistryState, getOciState, getFileSizes } from '../../worker/images/indexes.js';
-import { buildDerivedResponse, H_CACHED, STATIC_OCI_LAYOUT } from '../../worker/images/http.js';
-import { handleImageRedirect, handleIncusPointer, handleOciLayout, handleImageMetadata, routeImagePath } from '../../worker/images/handlers/index.js';
+import worker from '../../images/index.js';
+import { indexCache } from '../../images/cache.js';
+import { hydrateRegistryState, getOciState, getFileSizes } from '../../images/indexes.js';
+import { buildDerivedResponse, H_CACHED, STATIC_OCI_LAYOUT } from '../../images/http.js';
+import { handleImageRedirect, handleIncusPointer, handleOciLayout, handleImageMetadata, routeImagePath } from '../../images/handlers/index.js';
 
 // ── Synthetic State & Mocks ─────────────────────────────────────────────────
 

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseProxySuitePath, proxyCacheBase, extractInReleaseHash } from '../../worker/proxy/utils.js';
+import { parseProxySuitePath, proxyCacheBase, extractInReleaseHash } from '../../proxy/utils.js';
 
 test('proxyUtils/parseProxySuitePath (InRelease)', () => {
   const result = parseProxySuitePath("apt.grafana.com/stable/main/InRelease");
