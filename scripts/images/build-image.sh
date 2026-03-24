@@ -10,7 +10,7 @@ TEMPLATE_DIR="${REPO_ROOT}/yaml-templates"
 OUTPUT_BASE="${REPO_ROOT}/images_output/images"
 TMP_DIR="${REPO_ROOT}/.build_tmp"
 
-# Force all xz operations to use exactly 1 thread and compression level 6 (9 eats a chunk of memory when decompressing)
+# Force all xz operations to use exactly 1 thread and compression level 6
 export XZ_OPT="-T1 -6"
 
 # Inherit BUILD_DATE from Make or generate a standalone timestamp
@@ -27,7 +27,7 @@ else
     exit 1
 fi
 
-# Native trap guaranteeing orphaned tmpfs arrays gracefully abort on unexpected failures
+# Native trap guaranteeing orphaned tmpfs mounts gracefully abort on unexpected failures
 cleanup() {
     if [ -n "${ROOTFS_MNT:-}" ]; then
         if [ "$(uname -s)" = "Linux" ]; then
@@ -95,11 +95,11 @@ fi
 HOST_APT="${REPO_ROOT}/.cache/apt/${DISTRO}_${SUITE}_${ARCH}"
 mkdir -p "$HOST_APT"
 
-# Process YAML template converting architecture definitions natively
+# Process YAML template converting architecture definitions
 sed "s/architecture: .*/architecture: \"${ARCH}\"/" "$YAML_SRC" | \
 sed "s/lxc.arch = .*/lxc.arch = ${ARCH}/" > "$YAML_RUN"
 
-# Create distrobuilder cache directory preserving isolated source archives natively
+# Create distrobuilder cache directory preserving isolated source archives
 CACHE_DIR="${REPO_ROOT}/.cache/distrobuilder"
 mkdir -p "$CACHE_DIR"
 
@@ -108,16 +108,14 @@ mkdir -p "$SOURCES_DIR"
 
 cd "$WORK_DIR" || exit 1
 
-# Mount rootfs as tmpfs on Linux natively handling volatile file matrices
-ROOTFS_MNT="${OUT_DIR}/rootfs"
+# Mount rootfs as tmpfs on Linux
+ROOTFS_MNT="${TMP_DIR}/rootfs_${DISTRO}_${SUITE}_${ARCH}"
 mkdir -p "$ROOTFS_MNT"
 if [ "$(uname -s)" = "Linux" ]; then
     sudo mount -t tmpfs -o size=2G tmpfs "$ROOTFS_MNT"
 fi
 
-
-
-# Create a debootstrap wrapper to pre-inject cached packages before bootstrap network pulls 
+# Create a debootstrap wrapper to pre-inject cached packages before bootstrap network pulls
 mkdir -p "${WORK_DIR}/bin"
 cat <<EOF > "${WORK_DIR}/bin/debootstrap"
 #!/usr/bin/env bash
@@ -129,36 +127,48 @@ exec /usr/sbin/debootstrap "\$@"
 EOF
 chmod +x "${WORK_DIR}/bin/debootstrap"
 
-# Build rootfs directory
-if ! sudo env PATH="${WORK_DIR}/bin:$PATH" distrobuilder build-dir "$YAML_RUN" "$ROOTFS_MNT" --cache-dir="$CACHE_DIR" --sources-dir="$SOURCES_DIR"; then
-     echo "ERROR: Distrobuilder failed to construct rootfs for $DISTRO $SUITE $ARCH"
-     exit 1
+# Build rootfs directory - --with-post-files ensures post-files actions run
+if ! sudo env PATH="${WORK_DIR}/bin:$PATH" distrobuilder build-dir \
+        --with-post-files \
+        --cache-dir="$CACHE_DIR" \
+        --sources-dir="$SOURCES_DIR" \
+        "$YAML_RUN" "$ROOTFS_MNT"; then
+    echo "ERROR: Distrobuilder failed to construct rootfs for $DISTRO $SUITE $ARCH"
+    exit 1
 fi
 
 # Synchronize newly fetched debootstrap packages back into the persistent host cache
 sudo cp -u "${ROOTFS_MNT}/var/cache/apt/archives/"*.deb "$HOST_APT/" 2>/dev/null || true
-# Clean underlying apt cache copied during the bootstrap wrapper phase
 sudo rm -f "${ROOTFS_MNT}/var/cache/apt/archives/"*.deb 2>/dev/null || true
 
-sudo distrobuilder pack-lxc "$YAML_RUN" "$ROOTFS_MNT" "$OUT_DIR"
+# Pack LXC and Incus images from the rootfs
+sudo distrobuilder pack-lxc   "$YAML_RUN" "$ROOTFS_MNT" "$OUT_DIR"
 sudo distrobuilder pack-incus "$YAML_RUN" "$ROOTFS_MNT" "$OUT_DIR"
 
+# Build OCI image directly from rootfs - no tarball unpack needed
 if command -v buildah >/dev/null 2>&1; then
-    CTR=$(sudo buildah from scratch)
-    sudo buildah add "$CTR" "${OUT_DIR}/rootfs.tar.xz" /
-    sudo buildah config --env PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin "$CTR"
-    # Create OCI layout directory
-    sudo buildah commit --disable-compression=false --format oci "$CTR" "oci:${OUT_DIR}/oci" > /dev/null
-    sudo buildah rm "$CTR" > /dev/null
+    OCI_DIR="${OUT_DIR}/oci"
+    mkdir -p "$OCI_DIR"
+
+    CTR=$(buildah from scratch)
+    # Copy rootfs directly - requires relaxed perms or newuidmap; use sudo if needed
+    sudo buildah copy "$CTR" "$ROOTFS_MNT" /
+    buildah config \
+        --os linux \
+        --arch "$ARCH" \
+        --env PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+        "$CTR"
+    buildah commit --disable-compression=false --format oci "$CTR" "oci:${OUT_DIR}/oci" > /dev/null
+    buildah rm "$CTR" > /dev/null
 fi
 
-# Tear down the rootfs mount before hashing so find doesn't recurse into the unpacked tree
+# Tear down the rootfs tmpfs before hashing
 if [ "$(uname -s)" = "Linux" ]; then
     sudo umount -l "$ROOTFS_MNT" 2>/dev/null || true
 fi
 sudo rm -rf "$ROOTFS_MNT" 2>/dev/null || true
 
-# Reclaim ownership from root so hashing and downstream tools work without sudo
+# Reclaim ownership from root
 sudo chown -R "$(id -u):$(id -g)" "$OUT_DIR"
 
 echo "Calculating SHA256 hashes..."
@@ -169,7 +179,6 @@ if ! command -v sha256sum >/dev/null 2>&1; then
     SHA_CMD="shasum -a 256"
 fi
 
-# Generate SHA256 hashes for all output files
 find . -type f ! -name "hashes.txt" | sort | xargs $SHA_CMD > hashes.txt
 
 echo "[DONE] Artefacts saved to: $OUT_DIR"
