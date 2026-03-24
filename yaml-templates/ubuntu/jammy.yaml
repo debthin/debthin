@@ -7,6 +7,8 @@ image:
 source:
   downloader: "debootstrap"
   url: "http://debthin.org/ubuntu"
+  include: "systemd,wget"
+  exclude: "udev,netplan.io,locales,debconf-i18n,python3.10,networkd-dispatcher,ubuntu-advantage-tools,krb5-locales,libicu70,iso-codes"
 
 files:
   # 1. Copy the debthin GPG key into the container
@@ -108,11 +110,6 @@ actions:
       export DEBIAN_FRONTEND=noninteractive
 
       apt-get update
-      apt-get install -y systemd wget
-      apt-get remove -y udev netplan.io \
-        locales debconf-i18n python3.10 \
-        networkd-dispatcher ubuntu-advantage-tools \
-        krb5-locales libicu70 iso-codes 2>/dev/null || true
       apt-get autoremove -y
       apt-get clean
 
