@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # check-bootstrap-deps.sh - Identify packages required by debootstrap that
-# are missing from the debthin Packages.gz index.
+# are missing from the local debthin dist_output Packages.gz.
 #
 # Resolves the full debootstrap dependency tree against the UPSTREAM mirror,
-# then diffs the resulting package list against debthin's Packages.gz to
-# find what's missing from the curation.
+# then diffs the resulting package list against the local dist_output/
+# Packages.gz to find what's missing from the curation.
 #
 # Usage:
 #   bash scripts/images/check-bootstrap-deps.sh debian trixie amd64
@@ -14,6 +14,10 @@
 # tree and reports gaps.
 
 set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+DIST_OUTPUT="${REPO_ROOT}/dist_output"
 
 if [ "$#" -ne 3 ]; then
     echo "Usage: $0 <distro> <suite> <arch>"
@@ -25,31 +29,40 @@ DISTRO="$1"
 SUITE="$2"
 ARCH="$3"
 
-# Resolve mirrors
+# Resolve upstream mirror for debootstrap --print-debs
 case "$DISTRO" in
     debian)
         UPSTREAM="http://deb.debian.org/debian"
-        DEBTHIN="http://debthin.org/debian"
+        LOCAL_DISTRO="debian"
         ;;
     ubuntu)
         case "$ARCH" in
             amd64|i386) UPSTREAM="http://archive.ubuntu.com/ubuntu" ;;
             *)          UPSTREAM="http://ports.ubuntu.com/ubuntu-ports" ;;
         esac
-        DEBTHIN="http://debthin.org/ubuntu"
+        LOCAL_DISTRO="ubuntu"
         ;;
     raspbian)
         UPSTREAM="http://archive.raspbian.org/raspbian"
-        DEBTHIN="http://debthin.org/debian"
+        LOCAL_DISTRO="debian"
         ;;
     *)
         echo "Unknown distro: $DISTRO"; exit 1
         ;;
 esac
 
+# Local Packages.gz path in dist_output
+LOCAL_PKG="${DIST_OUTPUT}/dists/${LOCAL_DISTRO}/${SUITE}/main/binary-${ARCH}/Packages.gz"
+
+if [ ! -f "$LOCAL_PKG" ]; then
+    echo "ERROR: Local Packages.gz not found at: $LOCAL_PKG"
+    echo "Run the debthin build pipeline first."
+    exit 1
+fi
+
 echo "=== Bootstrap dependency check: $DISTRO $SUITE $ARCH ==="
-echo "Upstream: $UPSTREAM"
-echo "Debthin:  $DEBTHIN"
+echo "Upstream:    $UPSTREAM"
+echo "Local index: $LOCAL_PKG"
 echo ""
 
 WORK=$(mktemp -d)
@@ -73,29 +86,42 @@ NEEDED_COUNT=$(echo "$NEEDED_SORTED" | wc -l | tr -d ' ')
 echo "Debootstrap requires $NEEDED_COUNT packages for $DISTRO/$SUITE/$ARCH"
 echo ""
 
-# Step 2: Fetch the Packages index from debthin
-echo "--- Checking availability in debthin Packages.gz ---"
-PACKAGES_URL="${DEBTHIN}/dists/${SUITE}/main/binary-${ARCH}/Packages.gz"
-AVAILABLE=$(curl -sL "$PACKAGES_URL" 2>/dev/null | gunzip 2>/dev/null | grep "^Package: " | sed 's/^Package: //' | sort -u)
-
-if [ -z "$AVAILABLE" ]; then
-    echo "WARNING: Could not fetch Packages index from $PACKAGES_URL"
-    exit 1
-fi
+# Step 2: Read the local dist_output Packages.gz
+echo "--- Checking availability in local dist_output ---"
+AVAILABLE=$(gunzip -c "$LOCAL_PKG" | grep "^Package: " | sed 's/^Package: //' | sort -u)
 
 AVAILABLE_COUNT=$(echo "$AVAILABLE" | wc -l | tr -d ' ')
-echo "Debthin Packages.gz has $AVAILABLE_COUNT packages for $SUITE/binary-$ARCH"
+echo "Local Packages.gz has $AVAILABLE_COUNT packages for $SUITE/binary-$ARCH"
 echo ""
 
-# Step 3: Find the gap
+# Step 3: Also check which packages exist upstream (to filter ghosts)
+echo "--- Checking which packages exist in upstream main ---"
+UPSTREAM_PKG_URL="${UPSTREAM}/dists/${SUITE}/main/binary-${ARCH}/Packages.gz"
+UPSTREAM_AVAILABLE=$(curl -sL "$UPSTREAM_PKG_URL" 2>/dev/null | gunzip 2>/dev/null | grep "^Package: " | sed 's/^Package: //' | sort -u)
+
+# Step 4: Find the gap
 echo "--- Missing from debthin ---"
 MISSING=$(comm -23 <(echo "$NEEDED_SORTED") <(echo "$AVAILABLE"))
 
 if [ -z "$MISSING" ]; then
-    echo "All debootstrap packages are present in debthin Packages.gz."
+    echo "All debootstrap packages are present in local Packages.gz."
 else
-    MISSING_COUNT=$(echo "$MISSING" | wc -l | tr -d ' ')
-    echo "$MISSING_COUNT packages required by debootstrap are MISSING from debthin:"
-    echo ""
-    echo "$MISSING"
+    # Split into packages that exist upstream vs packages that don't
+    MISSING_AND_EXISTS=$(comm -12 <(echo "$MISSING") <(echo "$UPSTREAM_AVAILABLE"))
+    MISSING_AND_GHOST=$(comm -23 <(echo "$MISSING") <(echo "$UPSTREAM_AVAILABLE"))
+
+    if [ -n "$MISSING_AND_EXISTS" ]; then
+        REAL_COUNT=$(echo "$MISSING_AND_EXISTS" | wc -l | tr -d ' ')
+        echo "$REAL_COUNT packages MISSING (exist upstream, need curation):"
+        echo ""
+        echo "$MISSING_AND_EXISTS"
+        echo ""
+    fi
+
+    if [ -n "$MISSING_AND_GHOST" ]; then
+        GHOST_COUNT=$(echo "$MISSING_AND_GHOST" | wc -l | tr -d ' ')
+        echo "$GHOST_COUNT packages MISSING but NOT in upstream main (virtual/transitional, skip):"
+        echo ""
+        echo "$MISSING_AND_GHOST"
+    fi
 fi
