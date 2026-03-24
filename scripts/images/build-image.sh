@@ -95,15 +95,9 @@ fi
 HOST_APT="${REPO_ROOT}/.cache/apt/${DISTRO}_${SUITE}_${ARCH}"
 mkdir -p "$HOST_APT"
 
-# Process YAML template: set architecture, strip custom source keys
+# Process YAML template: set architecture for the target build
 sed "s/architecture: .*/architecture: \"${ARCH}\"/" "$YAML_SRC" | \
-sed "s/lxc.arch = .*/lxc.arch = ${ARCH}/" | \
-sed '/^  include:/d; /^  exclude:/d' > "$YAML_RUN"
-
-# Extract debootstrap --include/--exclude lists from the YAML source section
-# These are comma-separated package lists under source.include and source.exclude
-DEBOOTSTRAP_INCLUDE=$(grep '^  include:' "$YAML_SRC" | head -1 | sed 's/.*include: *"\{0,1\}\([^"]*\)"\{0,1\}/\1/' || true)
-DEBOOTSTRAP_EXCLUDE=$(grep '^  exclude:' "$YAML_SRC" | head -1 | sed 's/.*exclude: *"\{0,1\}\([^"]*\)"\{0,1\}/\1/' || true)
+sed "s/lxc.arch = .*/lxc.arch = ${ARCH}/" > "$YAML_RUN"
 
 # Create distrobuilder cache directory preserving isolated source archives
 CACHE_DIR="${REPO_ROOT}/.cache/distrobuilder"
@@ -128,11 +122,6 @@ if [ -f "${WORK_DIR}/debthin-keyring-binary.gpg" ]; then
     KEYRING_OPT="--keyring=${WORK_DIR}/debthin-keyring-binary.gpg"
 fi
 
-# Build debootstrap extra options from YAML-defined include/exclude lists
-DEBOOTSTRAP_EXTRA=""
-[ -n "${DEBOOTSTRAP_INCLUDE}" ] && DEBOOTSTRAP_EXTRA="${DEBOOTSTRAP_EXTRA} --include=${DEBOOTSTRAP_INCLUDE}"
-[ -n "${DEBOOTSTRAP_EXCLUDE}" ] && DEBOOTSTRAP_EXTRA="${DEBOOTSTRAP_EXTRA} --exclude=${DEBOOTSTRAP_EXCLUDE}"
-
 # Create a debootstrap wrapper to pre-inject cached packages before bootstrap network pulls
 mkdir -p "${WORK_DIR}/bin"
 cat <<EOF > "${WORK_DIR}/bin/debootstrap"
@@ -141,7 +130,7 @@ mkdir -p "${ROOTFS_MNT}/var/cache/apt/archives"
 if ls "${HOST_APT}/"*.deb >/dev/null 2>&1; then
     cp -u "${HOST_APT}/"*.deb "${ROOTFS_MNT}/var/cache/apt/archives/"
 fi
-exec /usr/sbin/debootstrap ${KEYRING_OPT} ${DEBOOTSTRAP_EXTRA} "\$@"
+exec /usr/sbin/debootstrap ${KEYRING_OPT} "\$@"
 EOF
 chmod +x "${WORK_DIR}/bin/debootstrap"
 
