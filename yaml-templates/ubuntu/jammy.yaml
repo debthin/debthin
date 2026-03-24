@@ -113,7 +113,6 @@ actions:
         networkd-dispatcher ubuntu-advantage-tools \
         krb5-locales libicu70 iso-codes 2>/dev/null || true
       apt-get autoremove -y
-      apt-get clean
 
       rm -rf /usr/share/doc/* /usr/share/man/* /usr/share/locale/*
       rm -f /var/cache/apt/*.bin

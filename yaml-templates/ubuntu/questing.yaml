@@ -115,7 +115,6 @@ actions:
         coreutils-from-uutils rust-coreutils sudo-rs \
         linux-sysctl-defaults libicu76 iso-codes 2>/dev/null || true
       apt-get autoremove -y
-      apt-get clean
 
       rm -rf /usr/share/doc/* /usr/share/man/* /usr/share/locale/*
       rm -f /var/cache/apt/*.bin
