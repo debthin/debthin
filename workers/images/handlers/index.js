@@ -8,7 +8,7 @@ import { indexCache } from '../cache.js';
 import {
     buildDerivedResponse, H_LXC_CSV, H_INCUS_JSON, H_V2_ROOT, H_IMMUTABLE, H_CACHED,
     H_TAR_XZ, H_OCI_INDEX_JSON, H_OCI_LAYOUT,
-    STATIC_INCUS_POINTER, STATIC_OCI_LAYOUT, OCI_LAYOUT_META,
+    STATIC_OCI_LAYOUT, OCI_LAYOUT_META,
     ERR_BLOB, ERR_MANIFEST
 } from '../http.js';
 import { hydrateRegistryState, getOciState, getFileSizes } from '../indexes.js';
@@ -92,16 +92,8 @@ export async function handleIncusIndex(request, bucket, ctx) {
     return serveL1Target(request, bucket, ctx, "streams/v1/images.json", H_INCUS_JSON);
 }
 
-// Stable metadata for the static Incus pointer payload. Since the content
-// never changes at runtime, the timestamp is fixed at module load time.
-const POINTER_META = Object.freeze({
-    etag: `W/"${STATIC_INCUS_POINTER.byteLength}"`,
-    lastModified: Date.now(),
-    lastModifiedStr: new Date().toUTCString()
-});
-
 export async function handleIncusPointer(request, bucket, ctx) {
-    return buildDerivedResponse(request, POINTER_META, request.method === "HEAD" ? null : STATIC_INCUS_POINTER, false, 0, H_INCUS_JSON);
+    return serveL1Target(request, bucket, ctx, "streams/v1/index.json", H_INCUS_JSON);
 }
 
 export async function handleOciRegistry(request, bucket, ctx, rawPath, env) {
@@ -123,7 +115,7 @@ export async function handleOciRegistry(request, bucket, ctx, rawPath, env) {
     if (type === "blobs") {
         const blobPath = blobs[ref];
         if (!blobPath) return new Response(ERR_BLOB, { status: 404, headers: H_V2_ROOT });
-        // Blobs are content-addressable hashes. Route to the Immutable Redirect.
+        // Blobs are content-addressable hashes. OCI clients follow redirects.
         return handleImageRedirect('/' + blobPath, env);
     }
 
@@ -177,12 +169,52 @@ export async function handleOciRegistry(request, bucket, ctx, rawPath, env) {
  * @returns {Response} A 301 redirect response.
  */
 export function handleImageRedirect(rawPath, env) {
-    const fallbackHost = typeof env === 'object' && env.PUBLIC_R2_URL ? env.PUBLIC_R2_URL : 'https://r2-public.debthin.org';
+    const fallbackHost = typeof env === 'object' && env.PUBLIC_R2_URL ? env.PUBLIC_R2_URL : 'https://images-repo.debthin.org';
     return new Response(null, {
         status: 301,
         headers: {
             ...H_IMMUTABLE,
             "Location": `${fallbackHost}${rawPath}`
+        }
+    });
+}
+
+/**
+ * Streams a large image file directly from R2 through the worker.
+ * Simplestreams clients (Incus/LXD) don't follow 301 redirects for file
+ * downloads, so we stream through the worker with aggressive cache headers
+ * to leverage Cloudflare's CDN edge caching.
+ *
+ * @param {Request} request - The inbound HTTP request.
+ * @param {Object} bucket - The Cloudflare R2 bucket binding.
+ * @param {string} r2Key - The R2 object key (no leading slash).
+ * @returns {Promise<Response>} Streamed R2 response with cache headers.
+ */
+export async function handleImageStream(request, bucket, r2Key) {
+    if (request.method === "HEAD") {
+        const head = await bucket.head(r2Key);
+        if (!head) return new Response("Not Found\n", { status: 404 });
+        return new Response(null, {
+            status: 200,
+            headers: {
+                ...H_IMMUTABLE,
+                "Content-Type": "application/octet-stream",
+                "Content-Length": String(head.size),
+                "ETag": head.etag,
+            }
+        });
+    }
+
+    const obj = await bucket.get(r2Key);
+    if (!obj) return new Response("Not Found\n", { status: 404 });
+
+    return new Response(obj.body, {
+        status: 200,
+        headers: {
+            ...H_IMMUTABLE,
+            "Content-Type": "application/octet-stream",
+            "Content-Length": String(obj.size),
+            "ETag": obj.etag,
         }
     });
 }
@@ -297,6 +329,11 @@ export async function routeImagePath(request, env, ctx, rawPath) {
         return handleImageMetadata(request, env.IMAGES_BUCKET, ctx, rawPath, filename);
     }
 
-    // Large files or files not in the manifest → 301 redirect
+    // Incus simplestreams doesn't follow 301s; stream squashfs directly
+    if (filename === 'rootfs.squashfs') {
+        return handleImageStream(request, env.IMAGES_BUCKET, rawPath);
+    }
+
+    // Everything else → 301 redirect to public R2
     return handleImageRedirect('/' + rawPath, env);
 }

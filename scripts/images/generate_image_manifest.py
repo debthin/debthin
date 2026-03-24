@@ -33,6 +33,7 @@ Usage:
 """
 
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -151,16 +152,23 @@ def build_lxc_csv(entries):
             continue
         seen.add(key)
 
-        path = f'/images/{e["os"]}/{e["release"]}/{e["arch"]}/{e["variant"]}/{e["version"]}/'
+        path = f'images/{e["os"]}/{e["release"]}/{e["arch"]}/{e["variant"]}/{e["version"]}'
         lines.append(f'{e["os"]};{e["release"]};{e["arch"]};{e["variant"]};{e["version"]};{path}')
 
     return "\n".join(sorted(lines))
 
 
-def build_incus_json(entries):
+def build_incus_json(entries, images_dir):
     """
     Builds the Simplestreams products tree consumed by Incus/LXD clients.
     Only includes version-level files (depth 6) with valid sha256 hashes.
+    Computes combined_squashfs_sha256 (SHA256 of metadata + rootfs concatenated)
+    which Incus uses as the image fingerprint.
+
+    Args:
+        entries: List of file entry dicts from walk_images.
+        images_dir: Path to images_output/ root, for reading files to compute
+                    combined hashes.
 
     Returns:
         dict: The complete Simplestreams JSON structure.
@@ -179,6 +187,7 @@ def build_incus_json(entries):
                 "arch": e["arch"],
                 "os": e["os"].capitalize(),
                 "release": e["release"],
+                "release_title": e["release"],
                 "variant": e["variant"],
                 "versions": {},
             }
@@ -189,11 +198,52 @@ def build_incus_json(entries):
         if e["version"] not in versions:
             versions[e["version"]] = {"items": {}}
 
-        versions[e["version"]]["items"][e["filename"]] = {
-            "ftype": e["filename"],
+        # Map on-disk filenames to Incus-expected item keys and ftypes
+        fname = e["filename"]
+        if fname == "incus.tar.xz":
+            item_key, ftype = "incus.tar.xz", "incus.tar.xz"
+        elif fname == "rootfs.squashfs":
+            item_key, ftype = "root.squashfs", "squashfs"
+        else:
+            continue  # LXC files (meta.tar.xz, rootfs.tar.xz) handled separately
+
+        items = versions[e["version"]]["items"]
+        items[item_key] = {
+            "ftype": ftype,
+            "path": e["key"],
             "size": e["size"],
             "sha256": e["sha256"],
         }
+
+    # Compute combined_squashfs_sha256 for each version that has both files.
+    # This is SHA256(incus.tar.xz || rootfs.squashfs) — the image fingerprint.
+    for product in products.values():
+        for version_data in product["versions"].values():
+            items = version_data["items"]
+            meta_item = items.get("incus.tar.xz")
+            root_item = items.get("root.squashfs")
+            if not meta_item or not root_item:
+                continue
+
+            meta_path = images_dir / meta_item["path"]
+            root_path = images_dir / root_item["path"]
+            if not meta_path.is_file() or not root_path.is_file():
+                continue
+
+            h = hashlib.sha256()
+            for fpath in (meta_path, root_path):
+                with open(fpath, "rb") as f:
+                    while True:
+                        chunk = f.read(65536)
+                        if not chunk:
+                            break
+                        h.update(chunk)
+            combined = h.hexdigest()
+
+            meta_item["combined_squashfs_sha256"] = combined
+            # Add lxd.tar.xz alias pointing to same metadata
+            items["lxd.tar.xz"] = dict(meta_item)
+            items["lxd.tar.xz"]["ftype"] = "lxd.tar.xz"
 
     return {
         "content_id": "images",
@@ -215,6 +265,10 @@ def build_oci_maps(entries):
     blobs = {}
     manifests = {}
 
+    # Collect per-arch OCI manifests grouped by repo
+    # Key: (os, release, version) → list of (arch, index_key)
+    repo_arches = {}
+
     for e in entries:
         if e["depth"] == 6:
             continue
@@ -226,13 +280,28 @@ def build_oci_maps(entries):
             digest = f"sha256:{e['filename']}"
             blobs[digest] = e["key"]
 
-        # OCI image index: oci/index.json
+        # OCI image index: oci/index.json (per-arch)
         elif subpath == "oci" and e["filename"] == "index.json":
-            repo = f'{e["os"]}/{e["release"]}'
-            tag = e["version"]
-            manifests[f"{repo}:{tag}"] = e["key"]
+            group_key = (e["os"], e["release"], e["version"])
+            repo_arches.setdefault(group_key, []).append(
+                (e["arch"], e["key"])
+            )
 
-    return blobs, manifests
+    # For each repo+version, point the manifest tags at all per-arch indexes.
+    # If there's only one arch, use that index directly.
+    # Multi-arch selection happens at the OCI index level — each per-arch
+    # index.json already contains the platform info podman/docker needs.
+    for (os_name, release, version), arch_list in repo_arches.items():
+        repo = f"{os_name}/{release}"
+        for arch, key in arch_list:
+            manifests[f"{repo}:{version}:{arch}"] = key
+        # For single-arch repos, latest/version point to the only index.
+        # For multi-arch, we need a combined index — handled separately.
+        if len(arch_list) == 1:
+            manifests[f"{repo}:{version}"] = arch_list[0][1]
+            manifests[f"{repo}:latest"] = arch_list[0][1]
+
+    return blobs, manifests, repo_arches
 
 
 def build_file_sizes(entries):
@@ -243,6 +312,79 @@ def build_file_sizes(entries):
         dict: R2 key to file size in bytes.
     """
     return {e["key"]: e["size"] for e in entries}
+
+
+def build_combined_oci_index(images_dir, repo_arches, blobs, manifests, file_sizes):
+    """
+    For repos with multiple architectures, reads each per-arch OCI index.json
+    and composes a combined multi-arch OCI Image Index. The combined index
+    allows podman/docker to select the correct arch automatically.
+
+    Writes combined indexes to disk and registers them in the manifest and
+    file_sizes maps.
+
+    Args:
+        images_dir: Path to images_output/ root.
+        repo_arches: Dict of (os, release, version) → [(arch, r2_key)].
+        blobs: OCI blobs dict (mutated to add combined index digests).
+        manifests: OCI manifests dict (mutated to add latest/version tags).
+        file_sizes: File sizes dict (mutated to add combined index sizes).
+    """
+    for (os_name, release, version), arch_list in repo_arches.items():
+        if len(arch_list) < 2:
+            continue
+
+        repo = f"{os_name}/{release}"
+        combined_manifests = []
+
+        for arch, r2_key in sorted(arch_list):
+            # Read the per-arch index.json from disk
+            local_path = images_dir / r2_key
+            if not local_path.is_file():
+                print(f"  WARN: {local_path} missing, skipping arch {arch}", file=sys.stderr)
+                continue
+
+            with open(local_path) as f:
+                arch_index = json.load(f)
+
+            # Each per-arch index has a manifests array; extract entries
+            for m in arch_index.get("manifests", []):
+                entry = dict(m)
+                # Ensure platform is set
+                if "platform" not in entry:
+                    entry["platform"] = {"os": "linux", "architecture": arch}
+                combined_manifests.append(entry)
+
+        if not combined_manifests:
+            continue
+
+        # Build the combined OCI Image Index
+        combined_index = {
+            "schemaVersion": 2,
+            "mediaType": "application/vnd.oci.image.index.v1+json",
+            "manifests": combined_manifests,
+        }
+
+        combined_bytes = json.dumps(combined_index, separators=(",", ":")).encode()
+        combined_digest = hashlib.sha256(combined_bytes).hexdigest()
+        digest_ref = f"sha256:{combined_digest}"
+
+        # Write to disk alongside the per-arch images
+        combined_dir = images_dir / "images" / os_name / release / "oci"
+        combined_dir.mkdir(parents=True, exist_ok=True)
+        combined_path = combined_dir / "index.json"
+        combined_path.write_bytes(combined_bytes)
+
+        # R2 key for the combined index
+        combined_r2_key = f"images/{os_name}/{release}/oci/index.json"
+
+        # Register in all maps
+        blobs[digest_ref] = combined_r2_key
+        manifests[f"{repo}:{version}"] = combined_r2_key
+        manifests[f"{repo}:latest"] = combined_r2_key
+        file_sizes[combined_r2_key] = len(combined_bytes)
+
+        print(f"  Combined OCI index: {repo}:latest ({len(arch_list)} arches, {len(combined_bytes)} bytes)")
 
 
 def build_registry_state(images_dir):
@@ -256,14 +398,18 @@ def build_registry_state(images_dir):
         dict: The registry state ready for JSON serialisation.
     """
     entries = walk_images(images_dir)
-    oci_blobs, oci_manifests = build_oci_maps(entries)
+    oci_blobs, oci_manifests, repo_arches = build_oci_maps(entries)
+    file_sizes = build_file_sizes(entries)
+
+    # Generate combined multi-arch OCI indexes for repos with >1 arch
+    build_combined_oci_index(images_dir, repo_arches, oci_blobs, oci_manifests, file_sizes)
 
     return {
         "lxc_csv": build_lxc_csv(entries),
-        "incus_json": build_incus_json(entries),
+        "incus_json": build_incus_json(entries, images_dir),
         "oci_blobs": oci_blobs,
         "oci_manifests": oci_manifests,
-        "file_sizes": build_file_sizes(entries),
+        "file_sizes": file_sizes,
     }
 
 
