@@ -108,11 +108,12 @@ mkdir -p "$SOURCES_DIR"
 
 cd "$WORK_DIR" || exit 1
 
-# Mount rootfs as tmpfs on Linux
+# Mount rootfs as tmpfs on Linux (size controlled by TMPFS_SIZE, default 1G)
+TMPFS_SIZE="${TMPFS_SIZE:-1G}"
 ROOTFS_MNT="${TMP_DIR}/rootfs_${DISTRO}_${SUITE}_${ARCH}"
 mkdir -p "$ROOTFS_MNT"
 if [ "$(uname -s)" = "Linux" ]; then
-    sudo mount -t tmpfs -o size=2G tmpfs "$ROOTFS_MNT"
+    sudo mount -t tmpfs -o size=${TMPFS_SIZE} tmpfs "$ROOTFS_MNT"
 fi
 
 # Create a debootstrap wrapper to pre-inject cached packages before bootstrap network pulls
@@ -145,21 +146,21 @@ sudo rm -f "${ROOTFS_MNT}/var/cache/apt/archives/"*.deb 2>/dev/null || true
 sudo distrobuilder pack-lxc   "$YAML_RUN" "$ROOTFS_MNT" "$OUT_DIR"
 sudo distrobuilder pack-incus "$YAML_RUN" "$ROOTFS_MNT" "$OUT_DIR"
 
-# Build OCI image directly from rootfs - no tarball unpack needed
+# Build OCI image from rootfs under a single rootful context
 if command -v buildah >/dev/null 2>&1; then
-    OCI_DIR="${OUT_DIR}/oci"
-    mkdir -p "$OCI_DIR"
-
-    CTR=$(buildah from scratch)
-    # Copy rootfs directly - requires relaxed perms or newuidmap; use sudo if needed
-    sudo buildah copy "$CTR" "$ROOTFS_MNT" /
-    buildah config \
-        --os linux \
-        --arch "$ARCH" \
-        --env PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
-        "$CTR"
-    buildah commit --disable-compression=false --format oci "$CTR" "oci:${OUT_DIR}/oci" > /dev/null
-    buildah rm "$CTR" > /dev/null
+    mkdir -p "${OUT_DIR}/oci"
+    sudo bash -c '
+        set -e
+        CTR=$(buildah from scratch)
+        buildah copy "$CTR" "'"$ROOTFS_MNT"'" /
+        buildah config \
+            --os linux \
+            --arch "'"$ARCH"'" \
+            --env PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+            "$CTR"
+        buildah commit --disable-compression=false --format oci "$CTR" "oci:'"${OUT_DIR}"'/oci" > /dev/null
+        buildah rm "$CTR" > /dev/null
+    '
 fi
 
 # Tear down the rootfs tmpfs before hashing

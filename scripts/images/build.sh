@@ -8,7 +8,8 @@
 # Environment variables:
 #   R2_ACCOUNT_ID, R2_ACCESS_KEY, R2_SECRET_KEY  - required unless NO_UPLOAD=1
 #   NO_UPLOAD=1   - skip R2 upload (local build only)
-#   PARALLEL=N    - max parallel build jobs (default: number of CPUs)
+#   PARALLEL=N    - max parallel build jobs (default: 4)
+#   TMPFS_SIZE=1G - tmpfs mount size per build (default: 1G)
 
 set -euo pipefail
 
@@ -34,11 +35,12 @@ for cmd in distrobuilder debootstrap buildah jq python3; do
     fi
 done
 
-JOBS="${PARALLEL:-$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)}"
+JOBS="${PARALLEL:-4}"
 
 exec make -C "$SCRIPT_DIR" -j "$JOBS" \
     NO_UPLOAD="$NO_UPLOAD" \
     FORCE="${FORCE:-0}" \
+    TMPFS_SIZE="${TMPFS_SIZE:-1G}" \
     R2_ACCOUNT_ID="${R2_ACCOUNT_ID:-}" \
     R2_ACCESS_KEY="${R2_ACCESS_KEY:-}" \
     R2_SECRET_KEY="${R2_SECRET_KEY:-}"

@@ -30,6 +30,28 @@ import boto3
 
 BUCKET_NAME = "debthin-images"
 UPLOAD_WORKERS = 16
+MD5_CHUNK_SIZE = 64 * 1024  # 64KB chunks for MD5 calculation
+
+
+def md5_file(file_path):
+    """
+    Calculates the MD5 hash of a file using chunked reads to avoid
+    loading the entire file into memory.
+
+    Args:
+        file_path: Path to the file.
+
+    Returns:
+        Hex digest string.
+    """
+    h = hashlib.md5()
+    with open(file_path, "rb") as f:
+        while True:
+            chunk = f.read(MD5_CHUNK_SIZE)
+            if not chunk:
+                break
+            h.update(chunk)
+    return h.hexdigest()
 
 
 def content_type_for(path):
@@ -140,7 +162,9 @@ def collect_uploads(images_dir, repo_root):
 
 def _put_one(args):
     """
-    Uploads a single file to R2 with appropriate Content-Type and Cache-Control.
+    Uploads a single file to R2 by streaming from disk. The file object
+    is passed directly to boto3 so the entire payload is not buffered
+    in memory.
 
     Args:
         args: Tuple of (client, bucket, key, file_path, dry_run).
@@ -149,21 +173,22 @@ def _put_one(args):
         Tuple of (key, size, error_string_or_None).
     """
     client, bucket, key, file_path, dry_run = args
-    data = file_path.read_bytes()
+    size = file_path.stat().st_size
     ct = content_type_for(key)
     if dry_run:
-        return key, len(data), None
+        return key, size, None
     try:
-        client.put_object(
-            Bucket=bucket,
-            Key=key,
-            Body=data,
-            ContentType=ct,
-            CacheControl="public, max-age=3600",
-        )
-        return key, len(data), None
+        with open(file_path, "rb") as fh:
+            client.put_object(
+                Bucket=bucket,
+                Key=key,
+                Body=fh,
+                ContentType=ct,
+                CacheControl="public, max-age=3600",
+            )
+        return key, size, None
     except Exception as e:
-        return key, len(data), str(e)
+        return key, size, str(e)
 
 
 def delete_keys(client, bucket, keys, dry_run=False):
@@ -213,7 +238,7 @@ def sync(images_dir, repo_root, account_id, access_key, secret_key,
     jobs = []
     skipped = 0
     for key, file_path in sorted(uploads.items()):
-        md5 = hashlib.md5(file_path.read_bytes()).hexdigest()
+        md5 = md5_file(file_path)
         if key in existing and existing[key] == md5:
             skipped += 1
             continue
