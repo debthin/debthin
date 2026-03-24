@@ -109,7 +109,7 @@ actions:
 
       apt-get update
       apt-get install -y systemd wget
-      apt-get remove -y udev libicu74 netplan.io netplan-generator \
+      apt-get remove -y udev libicu74 libicudata netplan.io netplan-generator \
         locales debconf-i18n python3.12 python3-netplan \
         networkd-dispatcher ubuntu-pro-client ubuntu-pro-client-l10n \
         gir1.2-girepository-2.0 systemd-dev systemd-hwe-hwdb \
