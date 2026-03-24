@@ -112,7 +112,6 @@ actions:
       apt-get install -y systemd wget
       apt-get remove -y udev 2>/dev/null || true
       apt-get autoremove -y
-      apt-get clean
 
       rm -rf /usr/share/doc/* /usr/share/man/* /usr/share/locale/*
       rm -f /var/cache/apt/*.bin
