@@ -13,3 +13,5 @@ libffi8
 libsemanage2
 libsepol2
 ubuntu-advantage-tools
+libgnutls30
+systemd-sysv
