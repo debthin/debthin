@@ -13,6 +13,62 @@ import {
 } from '../http.js';
 import { hydrateRegistryState, getOciState, getFileSizes } from '../indexes.js';
 
+/**
+ * Serves a static file from R2 using the LRU cache and standard response
+ * builder. Follows the same cache-then-R2 pattern as handleImageMetadata:
+ * returns from cache on hit (with SWR background refresh), fetches from R2
+ * on miss, and uses buildDerivedResponse for conditional 304 handling.
+ *
+ * @param {Request} request - The inbound HTTP request.
+ * @param {Object} bucket - The Cloudflare R2 bucket binding.
+ * @param {Object} ctx - Worker execution context.
+ * @param {string} key - The R2 object key to fetch.
+ * @param {Object} baseHeaders - Frozen header set (e.g. H_HTML, H_ICON).
+ * @returns {Promise<Response>} Cached or freshly-fetched response.
+ */
+export async function serveR2Static(request, bucket, ctx, key, baseHeaders) {
+    let cached = indexCache.get(key);
+    if (cached) {
+        if (Date.now() - cached.addedAt > indexCache.ttl && ctx && typeof ctx.waitUntil === 'function') {
+            ctx.waitUntil((async () => {
+                const obj = await bucket.get(key);
+                if (obj) {
+                    const buf = await obj.arrayBuffer();
+                    const now = Date.now();
+                    indexCache.add(key, buf, {
+                        etag: obj.etag || `W/"${buf.byteLength}"`,
+                        lastModified: now,
+                        lastModifiedStr: new Date(now).toUTCString()
+                    }, now);
+                }
+            })().catch(() => {}));
+        }
+        return buildDerivedResponse(
+            request, cached.meta,
+            request.method === "HEAD" ? null : cached.buf,
+            true, cached.hits, baseHeaders
+        );
+    }
+
+    const obj = await bucket.get(key);
+    if (!obj) return new Response("Not Found\n", { status: 404 });
+
+    const buf = await obj.arrayBuffer();
+    const now = Date.now();
+    const meta = {
+        etag: obj.etag || `W/"${buf.byteLength}"`,
+        lastModified: now,
+        lastModifiedStr: new Date(now).toUTCString()
+    };
+    indexCache.add(key, buf, meta, now);
+
+    return buildDerivedResponse(
+        request, meta,
+        request.method === "HEAD" ? null : buf,
+        false, 0, baseHeaders
+    );
+}
+
 /** Size threshold in bytes. Files at or below this are served from cache. */
 const METADATA_SIZE_LIMIT = 102400;
 
