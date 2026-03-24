@@ -22,7 +22,6 @@ files:
     generator: dump
     content: |-
       deb [signed-by=/etc/apt/keyrings/debthin.gpg] http://debthin.org/ubuntu plucky main
-      deb http://security.ubuntu.com/ubuntu plucky-security main
 
   # 3. Inject dpkg exclusions - apply to packages installed after debootstrap
   - path: /etc/dpkg/dpkg.cfg.d/01_nodoc
