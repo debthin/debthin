@@ -85,6 +85,9 @@ fi
 
 mkdir -p "$OUT_DIR"
 
+# Capture all build output to a log file in the output directory
+exec > >(tee "${OUT_DIR}/build.log") 2>&1
+
 YAML_RUN="${WORK_DIR}/current_build.yaml"
 
 if [ -f "${REPO_ROOT}/static/debthin-keyring-binary.gpg" ]; then
@@ -95,9 +98,14 @@ fi
 HOST_APT="${REPO_ROOT}/.cache/apt/${DISTRO}_${SUITE}_${ARCH}"
 mkdir -p "$HOST_APT"
 
-# Process YAML template: set architecture for the target build
+# Process YAML template: set architecture
 sed "s/architecture: .*/architecture: \"${ARCH}\"/" "$YAML_SRC" | \
 sed "s/lxc.arch = .*/lxc.arch = ${ARCH}/" > "$YAML_RUN"
+
+# arm64 security updates come from ports.ubuntu.com, not security.ubuntu.com
+if [ "$ARCH" = "arm64" ]; then
+    sed -i 's|security.ubuntu.com/ubuntu|ports.ubuntu.com/ubuntu-ports|g' "$YAML_RUN"
+fi
 
 # Create distrobuilder cache directory preserving isolated source archives
 CACHE_DIR="${REPO_ROOT}/.cache/distrobuilder"
@@ -108,8 +116,8 @@ mkdir -p "$SOURCES_DIR"
 
 cd "$WORK_DIR" || exit 1
 
-# Mount rootfs as tmpfs on Linux (size controlled by TMPFS_SIZE, default 768M)
-TMPFS_SIZE="${TMPFS_SIZE:-768M}"
+# Mount rootfs as tmpfs on Linux (size controlled by TMPFS_SIZE, default 512M)
+TMPFS_SIZE="${TMPFS_SIZE:-512M}"
 ROOTFS_MNT="${TMP_DIR}/rootfs_${DISTRO}_${SUITE}_${ARCH}"
 mkdir -p "$ROOTFS_MNT"
 if [ "$(uname -s)" = "Linux" ]; then

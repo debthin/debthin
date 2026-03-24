@@ -20,7 +20,6 @@ files:
     generator: dump
     content: |-
       deb [signed-by=/etc/apt/keyrings/debthin.gpg] http://debthin.org/ubuntu questing main
-      deb http://security.ubuntu.com/ubuntu questing-security main
 
   # 3. Inject dpkg exclusions - apply to packages installed after debootstrap
   - path: /etc/dpkg/dpkg.cfg.d/01_nodoc
@@ -107,18 +106,15 @@ actions:
 
       export DEBIAN_FRONTEND=noninteractive
 
-      apt-get update
+      apt-get update || true
       apt-get install -y systemd wget
-      for pkg in udev netplan.io netplan-generator \
+      apt-get remove -y udev netplan.io netplan-generator \
         locales debconf-i18n python3.13 python3-netplan \
         networkd-dispatcher ubuntu-pro-client ubuntu-pro-client-l10n \
         systemd-hwe-hwdb krb5-locales libgpg-error-l10n \
         coreutils-from-uutils rust-coreutils sudo-rs \
-        linux-sysctl-defaults libicu76 iso-codes; do
-        apt-get remove -y "$pkg" 2>/dev/null || true
-      done
+        linux-sysctl-defaults libicu76 iso-codes 2>/dev/null || true
       apt-get autoremove -y
-      apt-get clean
 
       rm -rf /usr/share/doc/* /usr/share/man/* /usr/share/locale/*
       rm -f /var/cache/apt/*.bin
