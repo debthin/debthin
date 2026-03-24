@@ -1,8 +1,8 @@
 image:
   distribution: "ubuntu"
-  release: "jammy"
+  release: "noble"
   architecture: "amd64"
-  description: "Ubuntu 22.04 Jammy (debthin.org Minimal)"
+  description: "Ubuntu 24.04 Noble (debthin.org Minimal)"
 
 source:
   downloader: "debootstrap"
@@ -18,8 +18,8 @@ files:
   - path: /etc/apt/sources.list
     generator: dump
     content: |-
-      deb [signed-by=/etc/apt/keyrings/debthin.gpg] http://debthin.org/ubuntu jammy main
-      deb http://security.ubuntu.com/ubuntu jammy-security main
+      deb [signed-by=/etc/apt/keyrings/debthin.gpg] http://debthin.org/ubuntu noble main
+      deb http://security.ubuntu.com/ubuntu noble-security main
 
   - path: /etc/dpkg/dpkg.cfg.d/01_nodoc
     generator: dump
@@ -89,7 +89,7 @@ actions:
 
       export DEBIAN_FRONTEND=noninteractive
       apt-get update
-      apt-get remove -y udev || true
+      apt-get remove -y udev libicu74 netplan.io locales debconf-i18n python3.12 || true
       apt-get install -y --no-install-recommends systemd-resolved curl
       apt-get clean
 

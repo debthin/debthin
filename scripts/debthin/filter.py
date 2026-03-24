@@ -70,6 +70,11 @@ def process_one(input_path: str, output_path: str, allowed: set, gen_allowed: se
     raw = decompress(raw_input, input_path or "")
     total_in = count_packages(raw)
 
+    # Write upstream count sidecar so validate.sh can skip decompression
+    if input_path:
+        count_path = Path(input_path).with_suffix(".count")
+        count_path.write_text(str(total_in))
+
     if stats:
         print(f"  {input_path}: {total_in} packages", file=sys.stderr)
 

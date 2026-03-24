@@ -67,7 +67,7 @@ gen_release() {
         needs_release=1
     elif [[ -f "$inrelease_cache" && "$inrelease_cache" -nt "$dist_dir/Release" ]]; then
         needs_release=1
-    elif [[ "scripts/sign_all.sh" -nt "$dist_dir/Release" ]]; then
+    elif [[ "scripts/debthin/sign_all.sh" -nt "$dist_dir/Release" ]]; then
         needs_release=1
     else
         while IFS= read -r -d '' f; do
