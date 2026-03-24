@@ -95,25 +95,9 @@ fi
 HOST_APT="${REPO_ROOT}/.cache/apt/${DISTRO}_${SUITE}_${ARCH}"
 mkdir -p "$HOST_APT"
 
-# Process YAML template: set architecture and override the source URL with
-# the upstream mirror for debootstrap (debthin's curated mirror is too sparse
-# for a full bootstrap). The sources.list in the template switches to debthin
-# post-bootstrap.
-case "$DISTRO" in
-    debian)  UPSTREAM_URL="http://deb.debian.org/debian" ;;
-    ubuntu)
-        case "$ARCH" in
-            amd64|i386) UPSTREAM_URL="http://archive.ubuntu.com/ubuntu" ;;
-            *)          UPSTREAM_URL="http://ports.ubuntu.com/ubuntu-ports" ;;
-        esac
-        ;;
-    raspbian) UPSTREAM_URL="http://archive.raspbian.org/raspbian" ;;
-    *)        UPSTREAM_URL="http://deb.debian.org/debian" ;;
-esac
-
+# Process YAML template: set architecture for the target build
 sed "s/architecture: .*/architecture: \"${ARCH}\"/" "$YAML_SRC" | \
-sed "s/lxc.arch = .*/lxc.arch = ${ARCH}/" | \
-sed "s|url: .*|url: \"${UPSTREAM_URL}\"|" > "$YAML_RUN"
+sed "s/lxc.arch = .*/lxc.arch = ${ARCH}/" > "$YAML_RUN"
 
 # Create distrobuilder cache directory preserving isolated source archives
 CACHE_DIR="${REPO_ROOT}/.cache/distrobuilder"
