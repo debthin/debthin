@@ -113,9 +113,9 @@ actions:
         locales debconf-i18n python3.12 python3-netplan \
         networkd-dispatcher ubuntu-pro-client ubuntu-pro-client-l10n \
         gir1.2-girepository-2.0 systemd-dev systemd-hwe-hwdb \
-        krb5-locales libunistring5  || true
+        krb5-locales libunistring5 2>/dev/null || true
       apt-get autoremove -y
-      apt-get remove -y libicu74  || true
+      apt-get remove -y libicu74 2>/dev/null || true
       apt-get autoremove -y
       apt-get clean
 
