@@ -28,7 +28,7 @@ RAW_TARGETS := $(shell jq -r ' \
     .key as $$s | (.value.arches // $$def)[] | "debian/\($$s)/\(.)" \
   ), \
   ( \
-    .ubuntu | (.archive_arches + .ports_arches) as $$arch | .suites | to_entries[] | \
+    .ubuntu | ["amd64", "arm64"] as $$arch | .suites | to_entries[] | \
     .key as $$s | $$arch[] | "ubuntu/\($$s)/\(.)" \
   ), \
   ( \
