@@ -44,14 +44,15 @@ trap 'rm -rf "$WORK"' EXIT
 
 # Step 1: Get the list of packages debootstrap needs for a minimal system
 echo "--- Resolving debootstrap dependency tree ---"
-NEEDED=$(debootstrap --print-debs --arch="$ARCH" "$SUITE" "$WORK" "$MIRROR" 2>/dev/null || true)
+NEEDED=$(debootstrap --print-debs --arch="$ARCH" "$SUITE" "$WORK/target" "$MIRROR" 2>/dev/null || true)
 
 if [ -z "$NEEDED" ]; then
     echo "ERROR: debootstrap --print-debs returned nothing."
     echo "This usually means debootstrap can't reach the mirror or the suite is unknown."
     echo ""
     echo "Trying with verbose output to identify the error:"
-    debootstrap --print-debs --arch="$ARCH" "$SUITE" "$WORK" "$MIRROR" 2>&1 || true
+    rm -rf "$WORK/target"
+    debootstrap --print-debs --arch="$ARCH" "$SUITE" "$WORK/target" "$MIRROR" 2>&1 || true
     exit 1
 fi
 
