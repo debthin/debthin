@@ -1,0 +1,11 @@
+# Ubuntu Jammy (22.04) - packages required for debootstrap that aren't
+# in the base curation
+debconf-i18n
+init
+libicu70
+libnetplan0
+libssl3
+netplan.io
+networkd-dispatcher
+ubuntu-keyring
+ubuntu-minimal

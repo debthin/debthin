@@ -1,3 +1,22 @@
 libcurl4t64
 libpsl5t64
 libldap2
+# Packages required for debootstrap
+debconf-i18n
+gir1.2-girepository-2.0
+init
+krb5-locales
+libicu74
+libnetplan1
+libunistring5
+netplan-generator
+netplan.io
+networkd-dispatcher
+python3-netplan
+systemd-dev
+systemd-hwe-hwdb
+ubuntu-keyring
+ubuntu-minimal
+ubuntu-pro-client
+ubuntu-pro-client-l10n
+usrmerge
