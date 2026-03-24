@@ -108,12 +108,18 @@ mkdir -p "$SOURCES_DIR"
 
 cd "$WORK_DIR" || exit 1
 
-# Mount rootfs as tmpfs on Linux (size controlled by TMPFS_SIZE, default 1G)
-TMPFS_SIZE="${TMPFS_SIZE:-1G}"
+# Mount rootfs as tmpfs on Linux (size controlled by TMPFS_SIZE, default 768M)
+TMPFS_SIZE="${TMPFS_SIZE:-768M}"
 ROOTFS_MNT="${TMP_DIR}/rootfs_${DISTRO}_${SUITE}_${ARCH}"
 mkdir -p "$ROOTFS_MNT"
 if [ "$(uname -s)" = "Linux" ]; then
     sudo mount -t tmpfs -o size=${TMPFS_SIZE} tmpfs "$ROOTFS_MNT"
+fi
+
+# Override the default keyring if the debthin key exists
+KEYRING_OPT=""
+if [ -f "${WORK_DIR}/debthin-keyring-binary.gpg" ]; then
+    KEYRING_OPT="--keyring=${WORK_DIR}/debthin-keyring-binary.gpg"
 fi
 
 # Create a debootstrap wrapper to pre-inject cached packages before bootstrap network pulls
@@ -124,7 +130,7 @@ mkdir -p "${ROOTFS_MNT}/var/cache/apt/archives"
 if ls "${HOST_APT}/"*.deb >/dev/null 2>&1; then
     cp -u "${HOST_APT}/"*.deb "${ROOTFS_MNT}/var/cache/apt/archives/"
 fi
-exec /usr/sbin/debootstrap "\$@"
+exec /usr/sbin/debootstrap ${KEYRING_OPT} "\$@"
 EOF
 chmod +x "${WORK_DIR}/bin/debootstrap"
 
