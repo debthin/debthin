@@ -85,6 +85,9 @@ fi
 
 mkdir -p "$OUT_DIR"
 
+# Capture all build output to a log file in the output directory
+exec > >(tee "${OUT_DIR}/build.log") 2>&1
+
 YAML_RUN="${WORK_DIR}/current_build.yaml"
 
 if [ -f "${REPO_ROOT}/static/debthin-keyring-binary.gpg" ]; then
