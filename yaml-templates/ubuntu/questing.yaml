@@ -116,7 +116,7 @@ actions:
         coreutils-from-uutils rust-coreutils sudo-rs \
         linux-sysctl-defaults 2>/dev/null || true
       apt-get autoremove -y
-      apt-get remove -y libicu76 2>/dev/null || true
+      apt-get remove -y libicu76 iso-codes locales 2>/dev/null || true
       apt-get autoremove -y
       apt-get clean
 

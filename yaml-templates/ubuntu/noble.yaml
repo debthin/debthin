@@ -115,7 +115,7 @@ actions:
         gir1.2-girepository-2.0 systemd-dev systemd-hwe-hwdb \
         krb5-locales libunistring5 2>/dev/null || true
       apt-get autoremove -y
-      apt-get remove -y libicu74 2>/dev/null || true
+      apt-get remove -y libicu74 iso-codes locales 2>/dev/null || true
       apt-get autoremove -y
       apt-get clean
 

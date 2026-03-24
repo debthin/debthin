@@ -114,7 +114,7 @@ actions:
         networkd-dispatcher ubuntu-pro-client ubuntu-pro-client-l10n \
         systemd-hwe-hwdb krb5-locales libgpg-error-l10n 2>/dev/null || true
       apt-get autoremove -y
-      apt-get remove -y libicu76 2>/dev/null || true
+      apt-get remove -y libicu76 iso-codes locales 2>/dev/null || true
       apt-get autoremove -y
       apt-get clean
 
