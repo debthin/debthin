@@ -16,7 +16,6 @@ ubuntu-keyring
 ubuntu-minimal
 ubuntu-pro-client
 ubuntu-pro-client-l10n
-usrmerge
 libgnutls30t64
 systemd-sysv
 

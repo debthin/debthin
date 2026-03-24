@@ -112,11 +112,8 @@ actions:
       for pkg in udev netplan.io netplan-generator \
         locales debconf-i18n python3.13 python3-netplan \
         networkd-dispatcher ubuntu-pro-client ubuntu-pro-client-l10n \
-        systemd-hwe-hwdb krb5-locales libgpg-error-l10n; do
-        apt-get remove -y "$pkg" 2>/dev/null || true
-      done
-      apt-get autoremove -y
-      for pkg in libicu76 iso-codes locales; do
+        systemd-hwe-hwdb krb5-locales libgpg-error-l10n \
+        libicu76 iso-codes; do
         apt-get remove -y "$pkg" 2>/dev/null || true
       done
       apt-get autoremove -y

@@ -112,11 +112,7 @@ actions:
       for pkg in udev netplan.io \
         locales debconf-i18n python3.10 \
         networkd-dispatcher ubuntu-advantage-tools \
-        krb5-locales; do
-        apt-get remove -y "$pkg" 2>/dev/null || true
-      done
-      apt-get autoremove -y
-      for pkg in libicu70 iso-codes locales; do
+        krb5-locales libicu70 iso-codes; do
         apt-get remove -y "$pkg" 2>/dev/null || true
       done
       apt-get autoremove -y
