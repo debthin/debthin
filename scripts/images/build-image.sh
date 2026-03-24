@@ -95,9 +95,25 @@ fi
 HOST_APT="${REPO_ROOT}/.cache/apt/${DISTRO}_${SUITE}_${ARCH}"
 mkdir -p "$HOST_APT"
 
-# Process YAML template converting architecture definitions
+# Process YAML template: set architecture and override the source URL with
+# the upstream mirror for debootstrap (debthin's curated mirror is too sparse
+# for a full bootstrap). The sources.list in the template switches to debthin
+# post-bootstrap.
+case "$DISTRO" in
+    debian)  UPSTREAM_URL="http://deb.debian.org/debian" ;;
+    ubuntu)
+        case "$ARCH" in
+            amd64|i386) UPSTREAM_URL="http://archive.ubuntu.com/ubuntu" ;;
+            *)          UPSTREAM_URL="http://ports.ubuntu.com/ubuntu-ports" ;;
+        esac
+        ;;
+    raspbian) UPSTREAM_URL="http://archive.raspbian.org/raspbian" ;;
+    *)        UPSTREAM_URL="http://deb.debian.org/debian" ;;
+esac
+
 sed "s/architecture: .*/architecture: \"${ARCH}\"/" "$YAML_SRC" | \
-sed "s/lxc.arch = .*/lxc.arch = ${ARCH}/" > "$YAML_RUN"
+sed "s/lxc.arch = .*/lxc.arch = ${ARCH}/" | \
+sed "s|url: .*|url: \"${UPSTREAM_URL}\"|" > "$YAML_RUN"
 
 # Create distrobuilder cache directory preserving isolated source archives
 CACHE_DIR="${REPO_ROOT}/.cache/distrobuilder"
@@ -148,6 +164,10 @@ if ! sudo env PATH="${WORK_DIR}/bin:$PATH" distrobuilder build-dir \
     echo "ERROR: Distrobuilder failed to construct rootfs for $DISTRO $SUITE $ARCH"
     exit 1
 fi
+
+# Capture the package manifest from the bootstrapped rootfs for curation review
+sudo chroot "$ROOTFS_MNT" dpkg-query -W -f '${Package}\n' 2>/dev/null | sort > "${OUT_DIR}/bootstrap-packages.txt" || true
+echo "[INFO] Package manifest: ${OUT_DIR}/bootstrap-packages.txt ($(wc -l < "${OUT_DIR}/bootstrap-packages.txt") packages)"
 
 # Synchronize newly fetched debootstrap packages back into the persistent host cache
 sudo cp -u "${ROOTFS_MNT}/var/cache/apt/archives/"*.deb "$HOST_APT/" 2>/dev/null || true
