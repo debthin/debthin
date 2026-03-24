@@ -18,6 +18,7 @@ NO_UPLOAD     ?= 0
 R2_ACCOUNT_ID ?=
 R2_ACCESS_KEY ?=
 R2_SECRET_KEY ?=
+FORCE         ?= 0
 
 # Parse target combinations dynamically from the repository config
 RAW_TARGETS := $(shell jq -r ' \
@@ -40,6 +41,7 @@ TARGETS := $(foreach t,$(RAW_TARGETS),$(if $(wildcard $(ROOT_DIR)/yaml-templates
 
 # Daily build stamp (YYYYMMDD)
 export BUILD_DATE := $(shell date +%Y%m%d)
+export FORCE
 
 .PHONY: all build prune manifest upload clean $(TARGETS)
 

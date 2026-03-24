@@ -76,6 +76,13 @@ if [ "$ARCH" != "$HOST_ARCH" ]; then
 fi
 
 OUT_DIR="${OUTPUT_BASE}/${DISTRO}/${SUITE}/${ARCH}/default/${BUILD_DATE}"
+
+# Skip if this date's build already exists (hashes.txt marks a completed build)
+if [ -f "${OUT_DIR}/hashes.txt" ] && [ "${FORCE:-0}" != "1" ]; then
+    echo "[SKIP] ${DISTRO}/${SUITE}/${ARCH} already built for ${BUILD_DATE} (use FORCE=1 to rebuild)"
+    exit 0
+fi
+
 mkdir -p "$OUT_DIR"
 
 YAML_RUN="${WORK_DIR}/current_build.yaml"
