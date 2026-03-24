@@ -2,16 +2,18 @@
 
 External tools and libraries required to build, test, and deploy.
 
-## Scripts (`scripts/`)
+## Package Index Pipeline (`scripts/debthin/`)
+
+The build pipeline is orchestrated by the Makefile, which calls helper scripts
+for each phase. `build.sh` is a thin wrapper that invokes `make`.
 
 ### Python (3.8+)
 
 | Script | External Deps | Purpose |
 |---|---|---|
 | `curate.py` | — | Popcon-based package curation |
-| `filter.py` | — | Packages.gz allowlist filtering |
+| `filter.py` | — | Packages.gz allowlist filtering, writes `.count` sidecars |
 | `merge_packages.py` | — | Headless meta-suite merging |
-| `generate_image_manifest.py` | — | Build-time image manifest for R2 |
 | `r2_upload.py` | `boto3` | S3-compatible upload to Cloudflare R2 |
 
 All scripts except `r2_upload.py` use Python stdlib only.
@@ -24,19 +26,31 @@ pip install boto3
 
 | Tool | Used By | Notes |
 |---|---|---|
-| `bash` 4+ | `build.sh`, `sign_all.sh`, `validate.sh` | Requires `set -euo pipefail`, process substitution |
-| `jq` | `build.sh`, `sign_all.sh`, `validate.sh` | Parses `config.json` |
-| `curl` | `build.sh`, `sign_all.sh` | Fetches upstream Packages.gz and InRelease |
+| `bash` 4+ | all `.sh` scripts | Requires associative arrays, process substitution |
+| `make` | `Makefile`, `build.sh` | Orchestrates the pipeline; `build.sh` calls `make -j` |
+| `jq` | `Makefile`, `sign_all.sh`, `validate.sh` | Parses `config.json` for dynamic target generation |
+| `curl` | `fetch.sh`, `sign_all.sh` | Fetches upstream Packages.gz and InRelease |
 | `gpg` | `sign_all.sh` | Signs Release files |
-| `xz` / `xzcat` | `build.sh` | Fallback decompress when `.gz` unavailable |
-| `gzip` | `build.sh`, `validate.sh` | Compress/validate Packages files |
+| `xz` / `xzcat` | `fetch.sh` | Fallback decompress when `.gz` unavailable |
+| `gzip` | `filter.sh`, `validate.sh` | Compress/validate Packages files |
 | `sha256sum` | `sign_all.sh`, `validate.sh` | Hash verification (falls back to `shasum -a 256` on macOS) |
-| `xargs` | `build.sh` | Parallel fetch via `-P` flag |
+| `xargs` | `Makefile` | Parallel fetch via `-P` flag |
 | `find`, `sort`, `sed`, `awk`, `wc` | various | Standard coreutils |
+
+### Scripts
+
+| Script | Phase | Purpose |
+|---|---|---|
+| `build.sh` | — | Thin wrapper: validates R2 credentials, calls `make -j` |
+| `fetch.sh` | fetch | Downloads one Packages.gz or InRelease from upstream |
+| `filter.sh` | filter | Resolves allowlist and runs `filter.py` for one distro/suite |
+| `headless.sh` | headless | Generates deduplicated headless meta-suite for one distro/suite |
+| `sign_all.sh` | sign | Generates Release files and GPG-signs all suites |
+| `validate.sh` | validate | Sanity-checks `dist_output/` before upload (parallel per distro) |
 
 ---
 
-## Container Images (`images/`)
+## Container Images (`scripts/images/`)
 
 | Tool | Required | Purpose |
 |---|---|---|
@@ -48,9 +62,16 @@ pip install boto3
 | `qemu-user-static` + `binfmt-support` | cross-arch only | Required when `$ARCH != $HOST_ARCH` |
 | `buildah` | optional | OCI image packing, skipped if not installed |
 
+Image YAML templates are at `yaml-templates/` (repo root), not inside `scripts/images/`.
+
+| Script | Purpose |
+|---|---|
+| `build.sh` | Builds a single distro/suite/arch rootfs and packs LXC/Incus/OCI |
+| `generate_image_manifest.py` | Generates `registry-state.json` for the worker |
+
 ---
 
-## Worker (`worker/`)
+## Workers (`workers/`)
 
 | Tool | Purpose |
 |---|---|
@@ -71,6 +92,6 @@ Required for upload/deploy (not needed for local build with `NO_UPLOAD=1`):
 | `R2_ACCESS_KEY` | `r2_upload.py`, `build.sh` |
 | `R2_SECRET_KEY` | `r2_upload.py`, `build.sh` |
 | `R2_BUCKET` | `r2_upload.py`, `build.sh` (default: `debthin`) |
-| `GPG_KEY_ID` | `sign_all.sh` (hardcoded in `build.sh`) |
-| `NO_UPLOAD` | `build.sh` (set to `1` to skip R2 upload) |
-| `PARALLEL` | `build.sh` (default: `8`) |
+| `GPG_KEY_ID` | `sign_all.sh`, `Makefile` (default hardcoded in both) |
+| `NO_UPLOAD` | `Makefile`, `build.sh` (set to `1` to skip R2 upload) |
+| `PARALLEL` | `build.sh`, `Makefile` (default: `8`) |

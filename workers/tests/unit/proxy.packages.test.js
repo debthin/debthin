@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parsePackages, parseDeps, reduceToLatest, filterPackages, serializePackages } from '../../worker/proxy/packages.js';
+import { parsePackages, parseDeps, reduceToLatest, filterPackages, serializePackages } from '../../proxy/packages.js';
 
 const mockPackages = `
 Package: testA

@@ -1,164 +1,106 @@
 # debthin
 
-Lean Debian and Ubuntu package indexes at [debthin.org](https://debthin.org).
+Lean Debian, Ubuntu, and Raspbian package indexes and container images at [debthin.org](https://debthin.org).
 
-A minimal container image is around 90MB. The first thing you do is `apt update` - and apt downloads another 90-210MB of index files describing 60,000-90,000 packages, the overwhelming majority of which will never be installed on a headless server. They sit in `/var/lib/apt/lists`, consuming space and bandwidth on every container, on every host, on every update cycle, indefinitely.
+## What this is
 
-debthin serves curated `Packages.gz` indexes filtered to ~6,700-7,500 server-relevant packages - admin, database, devel, networking, interpreters, libs, web and related sections. Desktop, GUI, games, fonts and hardware-specific packages are excluded. The result is an index 90-93% smaller than upstream. Everything else - the actual `.deb` files - redirects transparently to the official mirrors. Nothing is rehosted.
+debthin serves curated `Packages.gz` indexes filtered to ~6,700-7,500 server-relevant packages — 90-93% smaller than upstream. Actual `.deb` files redirect transparently to official mirrors. Nothing is rehosted.
 
-The list is rebuilt daily from upstream Packages files, ranked by popcon install counts with a minimum threshold of 2,500 reported installations. Obscure but legitimate packages can be added via pull request.
+This repo contains:
 
-## Architecture
+1. **Package index pipeline** — fetches, filters, signs, and uploads curated indexes to Cloudflare R2
+2. **Container image pipeline** — builds minimal LXC/Incus/OCI rootfs images using distrobuilder
+3. **Cloudflare Workers** — three edge workers that serve the indexes, images, and upstream proxy
+
+## Repository Layout
 
 ```
-apt client
-  │
-  ├── GET dists/trixie/InRelease                      → Cloudflare R2 (signed)
-  ├── GET dists/trixie/main/binary-amd64/Packages.gz → Cloudflare R2 (~6700 pkgs)
-  └── GET pool/main/a/apt/apt_2.x_amd64.deb          → 301 → deb.debian.org
+config.json                  Central configuration for all distros, suites, arches
+curated/                     Curated package lists (auto-generated from popcon)
+required_packages/           Manual package overrides
+
+scripts/
+  debthin/                   Package index pipeline (Makefile-orchestrated)
+  images/                    Container image pipeline
+
+workers/
+  core/                      Shared worker primitives (HTTP, R2, caching, utils)
+  debthin/                   Package index worker (debthin.org)
+  images/                    Container image registry worker
+  proxy/                     Upstream proxy worker (pkg redirects)
+  tests/                     Unit tests for workers
+  wrangler.toml              Worker config: debthin
+  wrangler-images.toml       Worker config: images
+  wrangler-proxy.toml        Worker config: proxy
+
+yaml-templates/              distrobuilder YAML definitions per distro/suite
+static/                      Static assets (index.html, GPG keyrings)
 ```
 
-## Suites & Architectures
+## Documentation
 
-### Debian
+| Document | Scope |
+|---|---|
+| [README-DEBTHIN.md](README-DEBTHIN.md) | Package indexes: suites, setup, configuration, running locally |
+| [README-IMAGES.md](README-IMAGES.md) | Container images: targets, building, output format |
+| [scripts/debthin/architecture.md](scripts/debthin/architecture.md) | Pipeline phases, directory layout, parallelism |
+| [scripts/images/architecture.md](scripts/images/architecture.md) | Image build flow, cross-compilation, caching |
+| [build-dependencies.md](build-dependencies.md) | External tools and libraries |
 
-| Suite                | Architectures                  |
-|----------------------|--------------------------------|
-| forky                | amd64 arm64 armhf i386 riscv64 |
-| trixie, trixie-updates | amd64 arm64 armhf i386 riscv64 |
-| bookworm, bookworm-updates | amd64 arm64 armhf i386   |
-| bullseye, bullseye-updates | amd64 arm64 armhf i386   |
+### Workers
 
-Components: `main contrib non-free non-free-firmware` (bullseye: no `non-free-firmware`)
+Each worker has its own architecture doc:
 
-### Ubuntu
+| Worker | Doc | Wrangler config |
+|---|---|---|
+| debthin (package indexes) | [workers/debthin.md](workers/debthin.md) | `workers/wrangler.toml` |
+| images (container registry) | [workers/images.md](workers/images.md) | `workers/wrangler-images.toml` |
+| proxy (upstream redirect) | [workers/proxy.md](workers/proxy.md) | `workers/wrangler-proxy.toml` |
+| shared primitives | [workers/index.md](workers/index.md) | — |
 
-| Suite                          | Architectures         |
-|--------------------------------|-----------------------|
-| jammy (22.04 LTS), noble (24.04 LTS), plucky (25.04), questing (25.10) | amd64 i386 arm64 riscv64 |
-| \*-updates, \*-backports       | same as base suite    |
+## Quick Start
 
-Components: `main restricted universe multiverse`
+### Use debthin indexes
 
-Security goes direct for both distros - keep it independent of debthin.
-
-## Setup
-
-### Install key
-
-The same GPG key covers both Debian and Ubuntu.
-
-If `gpg` is available:
-
-```bash
-curl -fsSL http://debthin.org/debthin-keyring.gpg \
-  | gpg --dearmor \
-  | tee /etc/apt/trusted.gpg.d/debthin.gpg > /dev/null
-```
-
-Without `gpg` (binary key, works on bare containers):
+See [README-DEBTHIN.md](README-DEBTHIN.md) for full setup. Short version:
 
 ```bash
 curl -fsSL http://debthin.org/debthin-keyring-binary.gpg \
   -o /etc/apt/trusted.gpg.d/debthin.gpg
 ```
 
-### Debian - /etc/apt/sources.list.d/debthin.sources
+Then point your `sources.list` at `http://debthin.org`.
 
-```
-Types: deb
-URIs: http://debthin.org
-Suites: trixie
-Components: main contrib non-free non-free-firmware
-Signed-By: /etc/apt/trusted.gpg.d/debthin.gpg
-
-Types: deb
-URIs: https://security.debian.org/debian-security
-Suites: trixie-security
-Components: main
-Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
-```
-
-### Ubuntu - /etc/apt/sources.list.d/debthin.sources
-
-```
-Types: deb
-URIs: http://debthin.org
-Suites: noble
-Components: main restricted universe multiverse
-Signed-By: /etc/apt/trusted.gpg.d/debthin.gpg
-
-Types: deb
-URIs: https://security.ubuntu.com/ubuntu
-Suites: noble-security
-Components: main restricted universe multiverse
-Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
-```
-
-### /etc/apt/apt.conf.d/99thin
-
-apt fetches package indexes uncompressed by default. This config tells apt to request `.gz` indexes and store them compressed on disk - cutting index storage from ~80-210MB to ~5-15MB. Translation files add another ~30MB for languages you'll never use on a headless server; stripping those is free.
-
-```
-// Strip translation files and use compressed indexes
-Acquire::Languages "none";
-Acquire::GzipIndexes "true";
-Acquire::CompressionTypes::Order:: "gz";
-```
-
-## Configuration & Curation
-
-Distributions, aliases, and architectures are centrally defined in `config.json`.
-
-Curated package lists are organized by distribution and suite:
-```
-curated/<distro>/<suite>/all.txt     ~6,700-7,500 server packages + dependencies
-required_packages/                   manual dependency overrides
-```
-
-To ensure a specific package is always included, add it to the appropriate override file, commit, and push. Overrides apply automatically in this order of precedence falling back to general defaults:
-1. `required_packages/<distro>/<suite>.txt`
-2. `required_packages/<distro>.txt`
-3. `required_packages/debian.txt`
-
-To rebuild lists dynamically from Debian popcon:
-```bash
-python3 scripts/curate.py --distro debian --suite trixie --arch amd64
-```
-
-Or trigger via GitHub Actions with `force_recurate: true`.
-
-## Running locally
+### Build package indexes locally
 
 ```bash
-export GPG_KEY_ID=<fingerprint>
-export R2_ACCOUNT_ID=<id>
-export R2_ACCESS_KEY=<key>
-export R2_SECRET_KEY=<secret>
-export R2_BUCKET=debthin
-
-bash scripts/build.sh
+make -C scripts/debthin -j8 NO_UPLOAD=1
 ```
 
-To validate output without uploading:
+### Build container images locally
+
 ```bash
-bash scripts/validate.sh dist_output
+make -C scripts/images debian/bookworm/amd64
+```
+
+### Deploy a worker
+
+```bash
+cd workers
+npx wrangler deploy -c wrangler.toml            # debthin
+npx wrangler deploy -c wrangler-images.toml      # images
+npx wrangler deploy -c wrangler-proxy.toml       # proxy
+```
+
+### Run tests
+
+```bash
+node --test workers/tests/unit/
 ```
 
 ## Pipeline
 
-Runs daily at 04:00 UTC. Re-curates from popcon on Sundays.
-
-GitHub secrets required:
-
-| Secret | Value |
-|--------|-------|
-| `GPG_PRIVATE_KEY` | `gpg --armor --export-secret-keys mirror@debthin.org` |
-| `GPG_KEY_ID` | key fingerprint |
-| `R2_ACCOUNT_ID` | Cloudflare account ID |
-| `R2_ACCESS_KEY` | R2 access key ID |
-| `R2_SECRET_KEY` | R2 secret access key |
-| `R2_BUCKET` | R2 bucket name |
+Runs daily at 04:00 UTC via GitHub Actions. Re-curates from popcon on Sundays.
 
 ## Trademark notice
 

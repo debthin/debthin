@@ -13,6 +13,8 @@ export const H_V2_ROOT = Object.freeze({ ...H_CACHED, "Content-Type": "applicati
 export const H_TAR_XZ = Object.freeze({ ...H_CACHED, "Content-Type": "application/x-xz" });
 export const H_OCI_INDEX_JSON = Object.freeze({ ...H_CACHED, "Content-Type": "application/vnd.oci.image.index.v1+json" });
 export const H_OCI_LAYOUT = Object.freeze({ ...H_IMMUTABLE, "Content-Type": "application/json" });
+export const H_HTML = Object.freeze({ ...H_CACHED, "Content-Type": "text/html; charset=utf-8" });
+export const H_ICON = Object.freeze({ ...H_CACHED, "Content-Type": "image/x-icon" });
 
 // Export the core header sets for handlers
 export { H_IMMUTABLE, H_CACHED };

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { metaCache, dataCache, getCacheStats, purgeAllCaches } from '../../worker/debthin/cache.js';
+import { metaCache, dataCache, getCacheStats, purgeAllCaches } from '../../debthin/cache.js';
 
 function selectCache(key) {
   return (key.endsWith(".gz") || key.endsWith(".xz") || key.endsWith(".lz4")) ? dataCache : metaCache;

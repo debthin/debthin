@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { isHex64, getContentType, parseURL, tokenizePath } from '../../worker/core/utils.js';
-import { inReleaseToRelease } from '../../worker/debthin/utils.js';
+import { isHex64, getContentType, parseURL, tokenizePath } from '../../core/utils.js';
+import { inReleaseToRelease } from '../../debthin/utils.js';
 
 test('utils/isHex64', () => {
   assert.equal(isHex64('0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'), true, 'valid 64 char hex lowercase');

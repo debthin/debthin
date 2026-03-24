@@ -78,7 +78,7 @@ When the client executes an install sequence, it requests the deb from the proxy
 GET /pkg/apt.grafana.com/pool/main/g/grafana/grafana_1.10.deb
 ```
 
-The independent `worker/proxy.js` process intercepts any `pkg/` prefix. It immediately issues an HTTP 301 Location Redirect directly back to the upstream vendor's original domain:
+The independent `workers/proxy.js` process intercepts any `pkg/` prefix. It immediately issues an HTTP 301 Location Redirect directly back to the upstream vendor's original domain:
 ```http
 HTTP/1.1 301 Moved Permanently
 Location: https://apt.grafana.com/pool/main/g/grafana/grafana_1.10.deb

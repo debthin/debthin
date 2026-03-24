@@ -1,0 +1,602 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>debthin images - lean container images</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link
+    href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500&display=swap"
+    rel="stylesheet">
+  <style>
+    :root {
+      --red: #c0392b;
+      --red-dim: #7a1f15;
+      --bg: #0e0e0e;
+      --bg2: #161616;
+      --bg3: #1e1e1e;
+      --border: #2a2a2a;
+      --muted: #555;
+      --text: #d4d4d4;
+      --bright: #f0f0f0;
+      --mono: 'IBM Plex Mono', monospace;
+      --sans: 'IBM Plex Sans', sans-serif;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--sans);
+      font-size: 15px;
+      line-height: 1.7;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .wrap { max-width: 760px; margin: 0 auto; padding: 0 2rem; }
+
+    /* ── Header ── */
+    header {
+      border-bottom: 1px solid var(--border);
+      padding: 3.5rem 0 3rem;
+      position: relative;
+      overflow: hidden;
+    }
+    header::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 3px;
+      background: var(--red);
+    }
+    .logo {
+      font-family: var(--mono);
+      font-size: 2.2rem;
+      font-weight: 600;
+      color: var(--bright);
+      letter-spacing: -0.03em;
+    }
+    .logo-deb { color: var(--red); }
+    .tagline {
+      font-family: var(--mono);
+      font-size: 0.8rem;
+      color: var(--muted);
+      margin-top: 0.4rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    /* ── Sections ── */
+    section {
+      padding: 2.8rem 0;
+      border-bottom: 1px solid var(--border);
+    }
+    section:last-child { border-bottom: none; }
+
+    h2 {
+      font-family: var(--mono);
+      font-size: 0.7rem;
+      font-weight: 500;
+      color: var(--red);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      margin-bottom: 1.2rem;
+    }
+    h3 {
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      font-weight: 500;
+      color: var(--bright);
+      letter-spacing: 0.06em;
+      margin: 2rem 0 0.6rem;
+    }
+    p { color: var(--text); font-weight: 300; max-width: 62ch; }
+    p + p { margin-top: 0.9rem; }
+
+    /* ── Stats bar ── */
+    .stats {
+      display: flex;
+      gap: 0;
+      margin: 2rem 0 0;
+      border: 1px solid var(--border);
+    }
+    .stat { flex: 1; padding: 1rem 1.4rem; border-right: 1px solid var(--border); }
+    .stat:last-child { border-right: none; }
+    .stat-val {
+      font-family: var(--mono);
+      font-size: 1.5rem;
+      font-weight: 600;
+      color: var(--bright);
+      display: block;
+      line-height: 1.2;
+    }
+    .stat-label {
+      font-family: var(--mono);
+      font-size: 0.68rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    /* ── Code blocks ── */
+    .code-block {
+      margin-top: 1.4rem;
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--red);
+    }
+    .code-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.55rem 1rem;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg3);
+    }
+    .code-filename {
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      color: var(--muted);
+      letter-spacing: 0.04em;
+    }
+    .copy-btn {
+      font-family: var(--mono);
+      font-size: 0.65rem;
+      color: var(--muted);
+      background: none;
+      border: 1px solid var(--border);
+      padding: 0.2rem 0.6rem;
+      cursor: pointer;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      transition: color 0.15s, border-color 0.15s;
+    }
+    .copy-btn:hover { color: var(--bright); border-color: var(--muted); }
+    .copy-btn.copied { color: #4caf50; border-color: #4caf50; }
+
+    pre {
+      font-family: var(--mono);
+      font-size: 0.82rem;
+      line-height: 1.65;
+      color: var(--text);
+      padding: 1.1rem 1rem;
+      overflow-x: auto;
+      white-space: pre;
+    }
+
+    .cm { color: var(--muted); }
+    .ck { color: #7eb8d4; }
+    .cv { color: #b5c9a0; }
+    .cs { color: #c9956e; }
+
+    .hint { font-size: 0.82rem; color: var(--muted); margin-top: 1rem; }
+
+    /* ── Suite table ── */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 1.4rem;
+      font-family: var(--mono);
+      font-size: 0.82rem;
+    }
+    th {
+      text-align: left;
+      font-weight: 500;
+      color: var(--muted);
+      font-size: 0.68rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      padding: 0.5rem 1rem 0.5rem 0;
+      border-bottom: 1px solid var(--border);
+    }
+    td {
+      padding: 0.55rem 1rem 0.55rem 0;
+      border-bottom: 1px solid var(--border);
+      color: var(--text);
+    }
+    td:first-child { color: var(--bright); }
+    tr:last-child td { border-bottom: none; }
+
+    /* ── Format cards ── */
+    .formats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 1rem;
+      margin-top: 1.4rem;
+    }
+    .format-card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      padding: 1.2rem;
+    }
+    .format-card h3 {
+      margin: 0 0 0.4rem;
+      font-size: 0.8rem;
+    }
+    .format-card p {
+      font-size: 0.82rem;
+      color: var(--muted);
+      margin: 0;
+    }
+
+    /* ── Trademark notice ── */
+    .notice {
+      margin-top: 1.4rem;
+      padding: 1rem 1.2rem;
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      font-size: 0.82rem;
+      color: var(--muted);
+      line-height: 1.6;
+    }
+    .notice a { color: #7eb8d4; text-decoration: none; }
+    .notice a:hover { text-decoration: underline; }
+
+    /* ── Footer ── */
+    footer {
+      padding: 2rem 0;
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      color: var(--muted);
+    }
+
+    /* ── Animations ── */
+    @keyframes fadein {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    header, section { animation: fadein 0.4s ease both; }
+    section:nth-child(2) { animation-delay: 0.05s; }
+    section:nth-child(3) { animation-delay: 0.10s; }
+    section:nth-child(4) { animation-delay: 0.15s; }
+    section:nth-child(5) { animation-delay: 0.20s; }
+    section:nth-child(6) { animation-delay: 0.25s; }
+    section:nth-child(7) { animation-delay: 0.30s; }
+    section:nth-child(8) { animation-delay: 0.35s; }
+    section:nth-child(9) { animation-delay: 0.40s; }
+  </style>
+</head>
+
+<body>
+  <div class="wrap">
+
+    <header>
+      <div class="logo"><span class="logo-deb">deb</span>thin <span style="font-size:0.5em;color:var(--muted);font-weight:400;">images</span></div>
+      <div class="tagline">lean container images &middot; images.debthin.org</div>
+    </header>
+
+    <!-- ── What ── -->
+    <section>
+      <h2>What</h2>
+      <p>
+        Official container images from Docker Hub and Canonical weigh 75&ndash;120MB
+        compressed. The first thing they do on boot is <code>apt update</code>,
+        downloading another 90&ndash;216MB of package indexes describing
+        60,000&ndash;90,000 packages your server will never install. The indexes
+        sit in <code>/var/lib/apt/lists</code>, consuming disk and bandwidth on
+        every container, on every host, on every update cycle, indefinitely.
+      </p>
+      <p>
+        debthin images are purpose-built for headless infrastructure. Each image
+        ships with <a href="https://debthin.org" style="color:#7eb8d4;text-decoration:none">debthin.org</a>
+        package indexes pre-configured, dpkg path exclusions for docs, man pages,
+        locales, and hardware databases, and apt tuned to use compressed indexes
+        with no translation files. The result is a rootfs that starts lean and
+        stays lean through every <code>apt update</code> cycle.
+      </p>
+      <p>
+        Built daily from upstream with
+        <a href="https://github.com/lxc/distrobuilder" style="color:#7eb8d4;text-decoration:none">distrobuilder</a>.
+        Available as LXC, Incus, and OCI container images. Served from
+        Cloudflare R2 with edge caching.
+      </p>
+
+      <div class="stats">
+        <div class="stat">
+          <span class="stat-val" id="stat-distros">3</span>
+          <span class="stat-label">distros</span>
+        </div>
+        <div class="stat">
+          <span class="stat-val" id="stat-suites">&mdash;</span>
+          <span class="stat-label">suites</span>
+        </div>
+        <div class="stat">
+          <span class="stat-val" id="stat-arches">&mdash;</span>
+          <span class="stat-label">architectures</span>
+        </div>
+        <div class="stat">
+          <span class="stat-val" id="stat-formats">3</span>
+          <span class="stat-label">formats</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Image Sizes ── -->
+    <section>
+      <h2>Image Sizes</h2>
+      <p>
+        Compressed download sizes for reference. OCI images include
+        a gzip layer wrapper around the xz-compressed rootfs. The uncompressed
+        column shows the on-disk footprint after extraction &mdash; what actually
+        matters for storage and overlay filesystem performance.
+      </p>
+      <table>
+        <thead>
+          <tr>
+            <th>Image</th>
+            <th>LXC / Incus</th>
+            <th>OCI</th>
+            <th>Uncompressed</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>Debian Trixie</td><td>~32MB</td><td>~48MB</td><td>~131MB</td></tr>
+          <tr><td>Ubuntu Noble</td><td>~44MB</td><td>~61MB</td><td>~266MB</td></tr>
+        </tbody>
+      </table>
+      <p class="hint">
+        Ubuntu images are larger because Canonical's base includes more systemd
+        units, snapd residuals, and heavier core libraries (libicu, python3).
+        The YAML templates strip what they can, but the base package set is bigger.
+      </p>
+    </section>
+
+    <!-- ── What's inside ── -->
+    <section>
+      <h2>What&rsquo;s inside</h2>
+      <p>
+        Every image is built from a YAML template that defines the base system,
+        package sources, and post-install cleanup. The key decisions are baked in
+        at build time so containers boot ready to use without manual configuration.
+      </p>
+
+      <h3>debthin package indexes</h3>
+      <p>
+        <code>/etc/apt/sources.list</code> points at
+        <code>debthin.org</code> instead of the upstream archive.
+        The debthin GPG keyring is pre-installed at
+        <code>/etc/apt/keyrings/debthin.gpg</code>.
+        Security sources go direct to <code>security.debian.org</code> or
+        <code>security.ubuntu.com</code> &mdash; kept independent of debthin.
+      </p>
+      <p>
+        The result: <code>apt update</code> downloads ~2&ndash;5MB of curated
+        indexes instead of 90&ndash;216MB from upstream. Every subsequent update
+        cycle stays that small.
+      </p>
+
+      <h3>dpkg path exclusions</h3>
+      <p>
+        Man pages, info files, groff data, lintian checks, non-English locales,
+        gconv character set converters, and hardware database files are excluded
+        at install time via <code>/etc/dpkg/dpkg.cfg.d/</code>. This prevents
+        bloat from accumulating as packages are installed, not just at image
+        build time.
+      </p>
+
+      <h3>apt configuration</h3>
+      <p>
+        Indexes are fetched and stored compressed (<code>Acquire::GzipIndexes
+        "true"</code>). Translation files are disabled. Package caches
+        (<code>pkgcache</code> / <code>srcpkgcache</code>) are disabled.
+        Recommends and suggests are not installed by default.
+      </p>
+
+      <h3>Networking</h3>
+      <p>
+        <code>systemd-networkd</code> and <code>systemd-resolved</code> are
+        enabled with a DHCP configuration for <code>eth0</code>. No
+        <code>netplan</code>, no <code>NetworkManager</code>.
+        <code>curl</code> is included as the only non-essential package.
+      </p>
+
+      <h3>What gets stripped</h3>
+      <p>
+        Post-install cleanup removes <code>udev</code> (not needed in
+        containers), cached <code>.deb</code> files, compiled hardware
+        databases, and apt binary caches. Ubuntu templates additionally
+        remove <code>libicu</code>, <code>python3</code>,
+        <code>netplan.io</code>, <code>locales</code>, and
+        <code>debconf-i18n</code>.
+      </p>
+    </section>
+
+    <!-- ── Formats ── -->
+    <section>
+      <h2>Formats</h2>
+      <div class="formats">
+        <div class="format-card">
+          <h3>Incus / LXD</h3>
+          <p>Native image server compatible with <code>incus image</code>
+            and <code>lxc image</code> commands via SimpleStreams.</p>
+        </div>
+        <div class="format-card">
+          <h3>LXC</h3>
+          <p>Classic LXC download template index at
+            <code>/meta/1.0/index-system</code>.</p>
+        </div>
+        <div class="format-card">
+          <h3>OCI / Docker</h3>
+          <p>OCI Distribution Spec v2 registry. Pull with
+            <code>docker pull</code> or <code>podman pull</code>.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Usage ── -->
+    <section>
+      <h2>Usage</h2>
+
+      <h3>Incus / LXD</h3>
+      <div class="code-block">
+        <div class="code-header">
+          <span class="code-filename">add remote</span>
+          <button class="copy-btn" onclick="copyCode(this)">copy</button>
+        </div>
+        <pre><span class="cv">incus remote add debthin https://images.debthin.org --protocol simplestreams --public
+incus launch debthin:debian/trixie/amd64 mycontainer</span></pre>
+      </div>
+
+      <h3>Docker / OCI</h3>
+      <div class="code-block">
+        <div class="code-header">
+          <span class="code-filename">pull image</span>
+          <button class="copy-btn" onclick="copyCode(this)">copy</button>
+        </div>
+        <pre><span class="cv">docker pull images.debthin.org/debian/trixie:amd64
+podman pull images.debthin.org/ubuntu/noble:arm64</span></pre>
+      </div>
+
+      <h3>LXC</h3>
+      <div class="code-block">
+        <div class="code-header">
+          <span class="code-filename">lxc-create</span>
+          <button class="copy-btn" onclick="copyCode(this)">copy</button>
+        </div>
+        <pre><span class="cv">lxc-create -t download -n mycontainer -- \
+  --server images.debthin.org \
+  --dist debian --release trixie --arch amd64</span></pre>
+      </div>
+    </section>
+
+    <!-- ── Available images ── -->
+    <section>
+      <h2>Available Images</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Distro</th>
+            <th>Suite</th>
+            <th>Architectures</th>
+          </tr>
+        </thead>
+        <tbody id="image-table-body">
+          <tr><td colspan="3" style="color:var(--muted)">Loading image index...</td></tr>
+        </tbody>
+      </table>
+      <p class="hint">Images are rebuilt daily. Each build is tagged with a timestamp.</p>
+    </section>
+
+    <!-- ── API Endpoints ── -->
+    <section>
+      <h2>API Endpoints</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Path</th>
+            <th>Protocol</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>/streams/v1/index.json</td><td>Incus / LXD SimpleStreams</td></tr>
+          <tr><td>/streams/v1/images.json</td><td>Incus / LXD image database</td></tr>
+          <tr><td>/meta/1.0/index-system</td><td>LXC index</td></tr>
+          <tr><td>/v2/</td><td>OCI Distribution Spec v2</td></tr>
+          <tr><td>/health</td><td>Health check (JSON)</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- ── Trademark ── -->
+    <section>
+      <h2>Trademark notice</h2>
+      <div class="notice">
+        Debian is a registered trademark of
+        <a href="https://www.spi-inc.org/">Software in the Public Interest, Inc</a>.
+        Ubuntu is a registered trademark of Canonical Ltd.
+        debthin is an independent project and is not affiliated with,
+        endorsed by, or sponsored by the Debian Project or Canonical.
+      </div>
+    </section>
+
+    <!-- ── Source ── -->
+    <section>
+      <h2>Source</h2>
+      <p>
+        Pipeline, worker and build scripts are open source.<br>
+        <a href="https://github.com/debthin/debthin"
+          style="font-family:var(--mono);font-size:0.85rem;color:#7eb8d4;text-decoration:none">
+          github.com/debthin/debthin
+        </a>
+      </p>
+    </section>
+
+    <footer>
+      images.debthin.org &mdash;
+      <a href="https://debthin.org" style="color:var(--muted);text-decoration:none">debthin.org</a>
+      &mdash; no cookies, no tracking, no ads
+    </footer>
+
+  </div>
+
+  <script>
+    function copyCode(btn) {
+      const pre = btn.closest('.code-block').querySelector('pre');
+      navigator.clipboard.writeText(pre.innerText).then(() => {
+        btn.textContent = 'copied';
+        btn.classList.add('copied');
+        setTimeout(() => {
+          btn.textContent = 'copy';
+          btn.classList.remove('copied');
+        }, 1800);
+      });
+    }
+
+    /**
+     * Loads the LXC index from the API and populates the available images table.
+     * Parses the semicolon-delimited CSV format used by the LXC index endpoint.
+     */
+    async function loadImages() {
+      try {
+        const res = await fetch('/meta/1.0/index-system');
+        if (!res.ok) throw new Error('Failed to load index');
+        const text = await res.text();
+
+        // Parse LXC index: distro;version;arch;variant;date;path;...
+        const images = {};
+        for (const line of text.split('\n')) {
+          if (!line.trim()) continue;
+          const parts = line.split(';');
+          if (parts.length < 5) continue;
+          const [distro, suite, arch] = parts;
+          const key = `${distro}/${suite}`;
+          if (!images[key]) images[key] = { distro, suite, arches: new Set() };
+          images[key].arches.add(arch);
+        }
+
+        let html = '';
+        const distroOrder = ['debian', 'ubuntu', 'raspbian'];
+        const sorted = Object.values(images).sort((a, b) => {
+          const da = distroOrder.indexOf(a.distro);
+          const db = distroOrder.indexOf(b.distro);
+          if (da !== db) return da - db;
+          return a.suite.localeCompare(b.suite);
+        });
+
+        const suiteSet = new Set();
+        const archSet = new Set();
+        for (const img of sorted) {
+          suiteSet.add(img.suite);
+          for (const a of img.arches) archSet.add(a);
+          const arches = [...img.arches].sort().join(' ');
+          html += `<tr><td>${img.distro}</td><td>${img.suite}</td><td>${arches}</td></tr>`;
+        }
+
+        document.getElementById('image-table-body').innerHTML = html || '<tr><td colspan="3" style="color:var(--muted)">No images available.</td></tr>';
+        if (suiteSet.size > 0) document.getElementById('stat-suites').textContent = suiteSet.size;
+        if (archSet.size > 0) document.getElementById('stat-arches').textContent = archSet.size;
+      } catch (e) {
+        console.error(e);
+        document.getElementById('image-table-body').innerHTML = '<tr><td colspan="3" style="color:var(--muted)">Failed to load image index.</td></tr>';
+      }
+    }
+
+    loadImages();
+  </script>
+</body>
+</html>
