@@ -106,7 +106,7 @@ actions:
 
       export DEBIAN_FRONTEND=noninteractive
 
-      apt-get update || true
+      apt-get update
       apt-get install -y systemd wget
       apt-get remove -y udev netplan.io \
         locales debconf-i18n python3.10 \
