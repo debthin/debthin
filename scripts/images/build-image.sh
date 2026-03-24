@@ -95,9 +95,10 @@ fi
 HOST_APT="${REPO_ROOT}/.cache/apt/${DISTRO}_${SUITE}_${ARCH}"
 mkdir -p "$HOST_APT"
 
-# Process YAML template: set architecture for the target build
+# Process YAML template: set architecture, strip custom source keys
 sed "s/architecture: .*/architecture: \"${ARCH}\"/" "$YAML_SRC" | \
-sed "s/lxc.arch = .*/lxc.arch = ${ARCH}/" > "$YAML_RUN"
+sed "s/lxc.arch = .*/lxc.arch = ${ARCH}/" | \
+sed '/^  include:/d; /^  exclude:/d' > "$YAML_RUN"
 
 # Extract debootstrap --include/--exclude lists from the YAML source section
 # These are comma-separated package lists under source.include and source.exclude
