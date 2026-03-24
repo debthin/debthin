@@ -95,7 +95,7 @@ fi
 HOST_APT="${REPO_ROOT}/.cache/apt/${DISTRO}_${SUITE}_${ARCH}"
 mkdir -p "$HOST_APT"
 
-# Process YAML template converting architecture definitions
+# Process YAML template: set architecture for the target build
 sed "s/architecture: .*/architecture: \"${ARCH}\"/" "$YAML_SRC" | \
 sed "s/lxc.arch = .*/lxc.arch = ${ARCH}/" > "$YAML_RUN"
 
@@ -140,9 +140,18 @@ if ! sudo env PATH="${WORK_DIR}/bin:$PATH" distrobuilder build-dir \
         --cache-dir="$CACHE_DIR" \
         --sources-dir="$SOURCES_DIR" \
         "$YAML_RUN" "$ROOTFS_MNT"; then
+    # Rescue the debootstrap log before cleanup wipes the rootfs
+    if [ -f "${ROOTFS_MNT}/debootstrap/debootstrap.log" ]; then
+        cp "${ROOTFS_MNT}/debootstrap/debootstrap.log" "${OUT_DIR}/debootstrap-failure.log" 2>/dev/null || true
+        echo "Debootstrap log saved to: ${OUT_DIR}/debootstrap-failure.log"
+    fi
     echo "ERROR: Distrobuilder failed to construct rootfs for $DISTRO $SUITE $ARCH"
     exit 1
 fi
+
+# Capture the package manifest from the bootstrapped rootfs for curation review
+sudo chroot "$ROOTFS_MNT" dpkg-query -W -f '${Package}\n' 2>/dev/null | sort > "${OUT_DIR}/bootstrap-packages.txt" || true
+echo "[INFO] Package manifest: ${OUT_DIR}/bootstrap-packages.txt ($(wc -l < "${OUT_DIR}/bootstrap-packages.txt") packages)"
 
 # Synchronize newly fetched debootstrap packages back into the persistent host cache
 sudo cp -u "${ROOTFS_MNT}/var/cache/apt/archives/"*.deb "$HOST_APT/" 2>/dev/null || true

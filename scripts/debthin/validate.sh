@@ -278,6 +278,7 @@ validate_distro() {
                 _fail "no Packages.gz files found under $suite"
             fi
 
+
             # Suite metadata for JSON
             if [[ -n "$JSON_TMPDIR" && -f "$suite_dir/InRelease" ]]; then
                 local suite_date suite_version

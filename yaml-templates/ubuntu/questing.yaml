@@ -109,7 +109,14 @@ actions:
 
       apt-get update
       apt-get install -y systemd wget
-      apt-get remove -y udev libicu76 netplan.io locales debconf-i18n python3.13 2>/dev/null || true
+      for pkg in udev netplan.io netplan-generator \
+        locales debconf-i18n python3.13 python3-netplan \
+        networkd-dispatcher ubuntu-pro-client ubuntu-pro-client-l10n \
+        systemd-hwe-hwdb krb5-locales libgpg-error-l10n \
+        coreutils-from-uutils rust-coreutils sudo-rs \
+        linux-sysctl-defaults libicu76 iso-codes; do
+        apt-get remove -y "$pkg" 2>/dev/null || true
+      done
       apt-get autoremove -y
       apt-get clean
 

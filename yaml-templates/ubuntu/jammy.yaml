@@ -109,7 +109,12 @@ actions:
 
       apt-get update
       apt-get install -y systemd wget
-      apt-get remove -y udev libicu70 netplan.io locales debconf-i18n python3.10 2>/dev/null || true
+      for pkg in udev netplan.io \
+        locales debconf-i18n python3.10 \
+        networkd-dispatcher ubuntu-advantage-tools \
+        krb5-locales libicu70 iso-codes; do
+        apt-get remove -y "$pkg" 2>/dev/null || true
+      done
       apt-get autoremove -y
       apt-get clean
 
