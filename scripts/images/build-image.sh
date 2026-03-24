@@ -140,6 +140,11 @@ if ! sudo env PATH="${WORK_DIR}/bin:$PATH" distrobuilder build-dir \
         --cache-dir="$CACHE_DIR" \
         --sources-dir="$SOURCES_DIR" \
         "$YAML_RUN" "$ROOTFS_MNT"; then
+    # Rescue the debootstrap log before cleanup wipes the rootfs
+    if [ -f "${ROOTFS_MNT}/debootstrap/debootstrap.log" ]; then
+        cp "${ROOTFS_MNT}/debootstrap/debootstrap.log" "${OUT_DIR}/debootstrap-failure.log" 2>/dev/null || true
+        echo "Debootstrap log saved to: ${OUT_DIR}/debootstrap-failure.log"
+    fi
     echo "ERROR: Distrobuilder failed to construct rootfs for $DISTRO $SUITE $ARCH"
     exit 1
 fi
