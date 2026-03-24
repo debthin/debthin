@@ -278,6 +278,38 @@ validate_distro() {
                 _fail "no Packages.gz files found under $suite"
             fi
 
+            # ── Required packages check ───────────────────────────────────────
+            # Verify that packages listed in required_packages/ are present
+            # in the generated Packages.gz for this suite.
+            local repo_root
+            repo_root=$(cd "$DIST_OUTPUT/.." && pwd)
+            local req_file=""
+            if [[ -f "$repo_root/required_packages/$distro/$suite.txt" ]]; then
+                req_file="$repo_root/required_packages/$distro/$suite.txt"
+            elif [[ -f "$repo_root/required_packages/$distro.txt" ]]; then
+                req_file="$repo_root/required_packages/$distro.txt"
+            fi
+
+            if [[ -n "$req_file" ]]; then
+                # Build a set of all packages available across all main arches
+                local all_available
+                all_available=$(find "$suite_dir" -path "*/main/binary-*/Packages.gz" -print0 | \
+                    xargs -0 -I{} sh -c 'gunzip -c "$1" 2>/dev/null' _ {} | \
+                    grep "^Package: " | sed 's/^Package: //' | sort -u)
+
+                local req_missing=0
+                while IFS= read -r pkg; do
+                    [[ -z "$pkg" || "$pkg" == \#* ]] && continue
+                    if ! echo "$all_available" | grep -qx "$pkg"; then
+                        _fail "required package '$pkg' missing from $suite Packages.gz (from $req_file)"
+                        req_missing=$((req_missing+1))
+                    fi
+                done < "$req_file"
+                if [[ $req_missing -eq 0 ]]; then
+                    _pass "all required packages present for $suite ($(grep -cv '^\(#\|$\)' "$req_file") checked)"
+                fi
+            fi
+
             # Suite metadata for JSON
             if [[ -n "$JSON_TMPDIR" && -f "$suite_dir/InRelease" ]]; then
                 local suite_date suite_version
