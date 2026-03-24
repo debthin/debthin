@@ -32,7 +32,9 @@ async function handleRequest(request, env, ctx) {
     }
     if (request.url.indexOf("?") !== -1) return new Response("Bad Request\n", { status: 400 });
 
-    const { rawPath } = parseURL(request);
+    let { rawPath } = parseURL(request);
+    // LXC clients double-slash the base URL; strip the residual leading /
+    if (rawPath.charCodeAt(0) === 47) rawPath = rawPath.slice(1);
     if (rawPath.includes("..")) return new Response("Bad Request\n", { status: 400 });
 
     if (rawPath === "health") {

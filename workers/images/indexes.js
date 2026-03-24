@@ -43,6 +43,21 @@ export async function hydrateRegistryState(bucket) {
         const incusBuf = _textEncoder.encode(JSON.stringify(state.incus_json)).buffer;
         indexCache.add("streams/v1/images.json", incusBuf, { etag: `W/"${incusBuf.byteLength}"`, lastModified: now, lastModifiedStr: dateStr }, now);
 
+        // Build dynamic Incus pointer with products list (required by Incus client)
+        const productKeys = Object.keys(state.incus_json.products || {});
+        const pointer = {
+            format: "index:1.0",
+            index: {
+                images: {
+                    datatype: "image-downloads",
+                    path: "streams/v1/images.json",
+                    products: productKeys,
+                }
+            }
+        };
+        const pointerBuf = _textEncoder.encode(JSON.stringify(pointer)).buffer;
+        indexCache.add("streams/v1/index.json", pointerBuf, { etag: `W/"${pointerBuf.byteLength}"`, lastModified: now, lastModifiedStr: dateStr }, now);
+
         // Store OCI dictionaries and file size map in module-level state
         _ociBlobsMap = state.oci_blobs || {};
         _ociManifestsMap = state.oci_manifests || {};

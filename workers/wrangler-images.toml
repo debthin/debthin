@@ -1,6 +1,11 @@
 name = "debthin-images"
-main = "workers/images/index.js"
+main = "images/index.js"
 compatibility_date = "2026-03-18"
+
+[vars]
+PUBLIC_R2_URL = "https://images-repo.debthin.org"
+
+routes = [{ pattern = "images.debthin.org/*", zone_name = "debthin.org" }]
 
 [[r2_buckets]]
 binding = "IMAGES_BUCKET"
