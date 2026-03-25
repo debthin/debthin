@@ -11,43 +11,30 @@
  */
 
 import { parseURL } from '../core/utils.js';
-import { handleUpstreamRedirect } from '../debthin/handlers/index.js';
+import { validateRequest, routeAdminPath, wrapHandler } from '../core/admin.js';
 import { parseProxySuitePath } from './utils.js';
 import { handleProxyRepository } from './handlers/index.js';
+import { getProxyCacheStats, purgeProxyCaches } from './cache.js';
 
 // ── Main Entry ───────────────────────────────────────────────────────────────
 
 /**
- * Validates and routes incoming Edge HTTP proxy requests natively mirroring the core architecture constraints.
- * Evaluates HTTP method validity, query string blocks, directory traversal deterrence exactly 1:1 functionally natively.
+ * Validates and routes incoming proxy requests.
+ * Routes to admin endpoints, package proxying, or distribution handling.
  * 
  * @param {Request} request - The inbound HTTP request.
  * @param {Object} env - Cloudflare environment bindings.
  * @param {Object} ctx - Worker execution context for waitUntil jobs.
- * @returns {Promise<Response>} The evaluated HTTP Response resolving proxy execution commands.
+ * @returns {Promise<Response>} The evaluated HTTP Response.
  */
 async function handleRequest(request, env, ctx) {
-  // Reject unsupported HTTP methods and query strings
-  if (request.method !== "GET" && request.method !== "HEAD") {
-    return new Response("Method Not Allowed\n", { status: 405, headers: { "Allow": "GET, HEAD" } });
-  }
-  if (request.url.indexOf("?") !== -1) {
-    return new Response("Bad Request\n", { status: 400 });
-  }
+  const { rawPath } = parseURL(request);
 
-  const { protocol, rawPath } = parseURL(request);
+  const invalid = validateRequest(request, rawPath);
+  if (invalid) return invalid;
 
-  // Prevent basic directory traversal attacks
-  if (rawPath.includes("..")) {
-    return new Response("Bad Request\n", { status: 400 });
-  }
 
-  // Health check endpoint parity mapping identical to the core infrastructure
-  if (rawPath === "health") {
-    return new Response("pass\n", { status: 200, headers: { "Content-Type": "text/plain" } });
-  }
-
-  // Intercept `pkg/` blocks executing massive binary payload proxy redirect 301 mappings natively
+  // Intercept `pkg/` blocks executing binary payload proxy redirect 301 mappings
   if (rawPath.startsWith("pkg/")) {
     const origin = rawPath.slice(4);
     return Response.redirect(`https://${origin}`, 301);
@@ -62,39 +49,16 @@ async function handleRequest(request, env, ctx) {
     return handleProxyRepository(request, env, ctx, parsed);
   }
 
+  // Admin endpoints (robots.txt, health, cache status/flush)
+  const adminResponse = routeAdminPath(rawPath, env, {
+      bucket: env.DEBTHIN_BUCKET,
+      serviceName: "debthin-proxy",
+      getStats: getProxyCacheStats,
+      flush: purgeProxyCaches,
+  });
+  if (adminResponse) return adminResponse;
+
   return new Response("Proxy Not Found\n", { status: 404 });
 }
 
-export default {
-  /**
-   * Primary invocation entrypoint aligning fetch wrappers with standard index execution blocks exactly logically natively.
-   * Traps internal request handling errors and injects analytical caching metric headers
-   * like X-Timer and X-Served-By before resolving back to the edge node.
-   * 
-   * @param {Request} request - The inbound HTTP request.
-   * @param {Object} env - Cloudflare environment bindings.
-   * @param {Object} ctx - Worker execution context.
-   * @returns {Promise<Response>} The final formulated HTTP Response.
-   */
-  async fetch(request, env, ctx) {
-    const _now = Date.now();
-
-    let response;
-    try {
-      response = await handleRequest(request, env, ctx);
-    } catch (err) {
-      console.error(err.stack || err);
-      response = new Response("Internal Server Error", { status: 500 });
-    }
-
-    const h = new Headers(response.headers);
-    h.set("X-Timer", `S${_now},VS0,VE${Date.now() - _now}`);
-    h.set("X-Served-By", `cache-${request.cf?.colo ?? "UNKNOWN"}-debthin-proxy`);
-
-    return new Response(response.body, {
-      status: response.status,
-      statusText: response.statusText,
-      headers: h
-    });
-  }
-};
+export default wrapHandler(handleRequest, "debthin-proxy");
