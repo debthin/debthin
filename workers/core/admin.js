@@ -17,7 +17,9 @@ const H_JSON = Object.freeze({
 const ROBOTS_BODY = "User-agent: *\nAllow: /$\nDisallow: /\n";
 const DEFAULT_METHODS = ["GET", "HEAD"];
 const ISOLATE_ID = Math.random().toString(16).slice(2, 10);
-const ISOLATE_START_TIME = Date.now();
+// Cloudflare Workers return 0 from Date.now() at module scope.
+// Captured lazily on the first request via wrapHandler.
+let ISOLATE_START_TIME = 0;
 
 /**
  * Validates an inbound request for allowed HTTP methods, query strings,
@@ -212,6 +214,7 @@ export function wrapHandler(handler, serviceName) {
     return {
         async fetch(request, env, ctx) {
             const t0 = Date.now();
+            if (!ISOLATE_START_TIME) ISOLATE_START_TIME = t0;
 
             let response;
             try {
