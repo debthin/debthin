@@ -41,7 +41,7 @@ export async function serveR2Static(request, bucket, ctx, key, baseHeaders) {
                         lastModifiedStr: new Date(now).toUTCString()
                     }, now);
                 }
-            })().catch(() => {}));
+            })().catch(() => { }));
         }
         return buildDerivedResponse(
             request, cached.meta,
@@ -147,7 +147,7 @@ export async function handleOciRegistry(request, bucket, ctx, rawPath, env) {
                         lastModifiedStr: new Date(now).toUTCString()
                     }, now);
                 }
-            })().catch(() => {}));
+            })().catch(() => { }));
         }
 
         const cType = isInner ? "application/vnd.oci.image.manifest.v1+json" : "application/vnd.oci.image.index.v1+json";
@@ -273,7 +273,7 @@ export async function handleImageMetadata(request, bucket, ctx, r2Key, filename)
                         lastModifiedStr: new Date(now).toUTCString()
                     }, now);
                 }
-            })().catch(() => {}));
+            })().catch(() => { }));
         }
         return buildDerivedResponse(
             request, cached.meta,
@@ -330,9 +330,9 @@ export async function routeImagePath(request, env, ctx, rawPath) {
     }
 
     // Incus simplestreams doesn't follow 301s; stream squashfs directly
-    if (filename === 'rootfs.squashfs') {
-        return handleImageStream(request, env.IMAGES_BUCKET, rawPath);
-    }
+    //if (filename === 'rootfs.squashfs') {
+    //    return handleImageStream(request, env.IMAGES_BUCKET, rawPath);
+    //}
 
     // Everything else → 301 redirect to public R2
     return handleImageRedirect('/' + rawPath, env);
