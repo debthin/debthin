@@ -259,7 +259,7 @@ describe('handlers - handleImageRedirect', () => {
     it('falls back to default host when PUBLIC_R2_URL is not set', () => {
         const resp = handleImageRedirect('/images/debian/rootfs.tar.xz', {});
         assert.equal(resp.status, 301);
-        assert.ok(resp.headers.get('Location').startsWith('https://r2-public.debthin.org'));
+        assert.ok(resp.headers.get('Location').startsWith('https://images-repo.debthin.org'));
     });
 
     it('includes immutable cache headers', () => {
@@ -314,7 +314,7 @@ describe('Integration: worker.fetch()', () => {
         const res = await worker.fetch(req, mockEnv(makeSyntheticState()), mockCtx());
         assert.equal(res.status, 200);
         const json = await res.json();
-        assert.equal(json.status, 'ok');
+        assert.equal(json.status, 'OK');
     });
 
     it('redirects /images/* to R2 public domain', async () => {
