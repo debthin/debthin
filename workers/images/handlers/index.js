@@ -6,12 +6,13 @@
 
 import { indexCache } from '../cache.js';
 import {
-    buildDerivedResponse, H_LXC_CSV, H_INCUS_JSON, H_V2_ROOT, H_IMMUTABLE, H_CACHED,
-    H_TAR_XZ, H_OCI_INDEX_JSON, H_OCI_LAYOUT,
+    buildDerivedResponse, H_LXC_CSV, H_INCUS_JSON, H_V2_ROOT, H_IMMUTABLE,
+    H_CACHED, H_OCI_LAYOUT,
     STATIC_OCI_LAYOUT, OCI_LAYOUT_META,
     ERR_BLOB, ERR_MANIFEST
 } from '../http.js';
 import { hydrateRegistryState, getOciState, getFileSizes } from '../indexes.js';
+import { serveL1Target, fetchAndCache, headersForMetadata, METADATA_SIZE_LIMIT } from '../utils.js';
 
 /**
  * Serves a static file from R2 using the LRU cache and standard response
@@ -30,18 +31,7 @@ export async function serveR2Static(request, bucket, ctx, key, baseHeaders) {
     let cached = indexCache.get(key);
     if (cached) {
         if (Date.now() - cached.addedAt > indexCache.ttl && ctx && typeof ctx.waitUntil === 'function') {
-            ctx.waitUntil((async () => {
-                const obj = await bucket.get(key);
-                if (obj) {
-                    const buf = await obj.arrayBuffer();
-                    const now = Date.now();
-                    indexCache.add(key, buf, {
-                        etag: obj.etag || `W/"${buf.byteLength}"`,
-                        lastModified: now,
-                        lastModifiedStr: new Date(now).toUTCString()
-                    }, now);
-                }
-            })().catch(() => { }));
+            ctx.waitUntil(fetchAndCache(bucket, key).catch(() => { }));
         }
         return buildDerivedResponse(
             request, cached.meta,
@@ -50,50 +40,26 @@ export async function serveR2Static(request, bucket, ctx, key, baseHeaders) {
         );
     }
 
-    const obj = await bucket.get(key);
-    if (!obj) return new Response("Not Found\n", { status: 404 });
-
-    const buf = await obj.arrayBuffer();
-    const now = Date.now();
-    const meta = {
-        etag: obj.etag || `W/"${buf.byteLength}"`,
-        lastModified: now,
-        lastModifiedStr: new Date(now).toUTCString()
-    };
-    indexCache.add(key, buf, meta, now);
+    const entry = await fetchAndCache(bucket, key);
+    if (!entry) return new Response("Not Found\n", { status: 404 });
 
     return buildDerivedResponse(
-        request, meta,
-        request.method === "HEAD" ? null : buf,
+        request, entry.meta,
+        request.method === "HEAD" ? null : entry.buf,
         false, 0, baseHeaders
     );
 }
 
-/** Size threshold in bytes. Files at or below this are served from cache. */
-const METADATA_SIZE_LIMIT = 102400;
-
-async function serveL1Target(request, bucket, ctx, cacheKey, baseHeaders) {
-    let cached = indexCache.get(cacheKey);
-    if (!cached) {
-        await hydrateRegistryState(bucket);
-        cached = indexCache.get(cacheKey);
-        if (!cached) return new Response("Not Found", { status: 404 });
-    } else if (Date.now() - cached.addedAt > indexCache.ttl && ctx && typeof ctx.waitUntil === 'function') {
-        ctx.waitUntil(hydrateRegistryState(bucket).catch(() => { }));
-    }
-    return buildDerivedResponse(request, cached.meta, request.method === "HEAD" ? null : cached.buf, true, cached.hits, baseHeaders);
-}
-
 export async function handleLxcIndex(request, bucket, ctx) {
-    return serveL1Target(request, bucket, ctx, "meta/1.0/index-system", H_LXC_CSV);
+    return serveL1Target(request, bucket, ctx, "meta/1.0/index-system", H_LXC_CSV, hydrateRegistryState);
 }
 
 export async function handleIncusIndex(request, bucket, ctx) {
-    return serveL1Target(request, bucket, ctx, "streams/v1/images.json", H_INCUS_JSON);
+    return serveL1Target(request, bucket, ctx, "streams/v1/images.json", H_INCUS_JSON, hydrateRegistryState);
 }
 
 export async function handleIncusPointer(request, bucket, ctx) {
-    return serveL1Target(request, bucket, ctx, "streams/v1/index.json", H_INCUS_JSON);
+    return serveL1Target(request, bucket, ctx, "streams/v1/index.json", H_INCUS_JSON, hydrateRegistryState);
 }
 
 export async function handleOciRegistry(request, bucket, ctx, rawPath, env) {
@@ -234,46 +200,11 @@ export function handleOciLayout(request) {
     );
 }
 
-/**
- * Resolves frozen headers for a metadata file based on its extension.
- *
- * @param {string} filename - Basename of the file.
- * @returns {Object} Frozen header set with the appropriate Content-Type.
- */
-function headersForMetadata(filename) {
-    if (filename.endsWith('.json')) return H_OCI_INDEX_JSON;
-    if (filename.endsWith('.tar.xz')) return H_TAR_XZ;
-    return H_CACHED; // fallback for any other small files
-}
-
-/**
- * Serves small metadata files from the LRU cache, fetching from R2 on miss.
- * Files are classified as metadata by the manifest's file_sizes map
- * (anything under 100KB).
- *
- * @param {Request} request - The inbound HTTP request.
- * @param {Object} bucket - The Cloudflare R2 bucket binding.
- * @param {Object} ctx - Worker execution context.
- * @param {string} r2Key - The R2 object key.
- * @param {string} filename - Basename for Content-Type resolution.
- * @returns {Promise<Response>} Cached or freshly-fetched metadata response.
- */
 export async function handleImageMetadata(request, bucket, ctx, r2Key, filename) {
     let cached = indexCache.get(r2Key);
     if (cached) {
         if (Date.now() - cached.addedAt > indexCache.ttl && ctx && typeof ctx.waitUntil === 'function') {
-            ctx.waitUntil((async () => {
-                const obj = await bucket.get(r2Key);
-                if (obj) {
-                    const buf = await obj.arrayBuffer();
-                    const now = Date.now();
-                    indexCache.add(r2Key, buf, {
-                        etag: obj.etag || `W/"${buf.byteLength}"`,
-                        lastModified: now,
-                        lastModifiedStr: new Date(now).toUTCString()
-                    }, now);
-                }
-            })().catch(() => { }));
+            ctx.waitUntil(fetchAndCache(bucket, r2Key).catch(() => { }));
         }
         return buildDerivedResponse(
             request, cached.meta,
@@ -282,21 +213,12 @@ export async function handleImageMetadata(request, bucket, ctx, r2Key, filename)
         );
     }
 
-    const obj = await bucket.get(r2Key);
-    if (!obj) return new Response("Not Found\n", { status: 404 });
-
-    const buf = await obj.arrayBuffer();
-    const now = Date.now();
-    const meta = {
-        etag: obj.etag || `W/"${buf.byteLength}"`,
-        lastModified: now,
-        lastModifiedStr: new Date(now).toUTCString()
-    };
-    indexCache.add(r2Key, buf, meta, now);
+    const entry = await fetchAndCache(bucket, r2Key);
+    if (!entry) return new Response("Not Found\n", { status: 404 });
 
     return buildDerivedResponse(
-        request, meta,
-        request.method === "HEAD" ? null : buf,
+        request, entry.meta,
+        request.method === "HEAD" ? null : entry.buf,
         false, 0, headersForMetadata(filename)
     );
 }

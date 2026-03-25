@@ -19,13 +19,8 @@ test('handlers/handleUpstreamRedirect', () => {
   assert.equal(res.headers.get('Location'), 'https://deb.debian.org/debian/pool/main/f/foo/foo.deb');
 });
 
-test('handlers/handleStaticAssets -> /robots.txt', async () => {
-  const req = { headers: new Headers() };
-  const res = await handleStaticAssets("robots.txt", {}, req, "{}");
-  assert.equal(res.status, 200);
-  assert.equal(await res.text(), "User-agent: *\nAllow: /$\nDisallow: /\n");
-  assert.equal(res.headers.get('Content-Type'), 'text/plain; charset=utf-8');
-});
+// Note: robots.txt and health endpoints are now handled by core/admin.js
+// before handleStaticAssets is called. See tests/unit/admin.test.js.
 
 test('handlers/handleStaticAssets -> /config.json', async () => {
   const req = { headers: new Headers() };
@@ -36,35 +31,6 @@ test('handlers/handleStaticAssets -> /config.json', async () => {
   assert.ok(json.distributions !== undefined);
   assert.ok(res.headers.get('ETag').includes('W/'));
   assert.equal(res.headers.get('X-Debthin'), 'hit-synthetic');
-});
-
-test('handlers/handleStaticAssets -> /health (pass)', async () => {
-  const req = { headers: new Headers() };
-  const env = {
-    DEBTHIN_BUCKET: {
-      head: async () => ({ etag: 'healthy' })
-    }
-  };
-  const res = await handleStaticAssets("health", env, req, "{}");
-  assert.equal(res.status, 200);
-  const data = await res.json();
-  assert.equal(data.status, 'OK');
-  assert.equal(data.r2, 'OK');
-  assert.ok(data.cache !== undefined);
-});
-
-test('handlers/handleStaticAssets -> /health (fail)', async () => {
-  const req = { headers: new Headers() };
-  const env = {
-    DEBTHIN_BUCKET: {
-      head: async () => { throw new Error('R2 Down'); }
-    }
-  };
-  const res = await handleStaticAssets("health", env, req, "{}");
-  assert.equal(res.status, 503);
-  const data = await res.json();
-  assert.equal(data.status, 'DEGRADED');
-  assert.equal(data.r2, 'ERROR');
 });
 
 import { handleDistributionHashIndex } from '../../debthin/handlers/index.js';
