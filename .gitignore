@@ -1,5 +1,6 @@
 # Generated at pipeline time, never committed
 dist_output/
+images_output/
 cached/
 
 # Populated by curate.py, committed only when changed

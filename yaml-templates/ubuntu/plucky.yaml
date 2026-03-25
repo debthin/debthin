@@ -77,10 +77,32 @@ files:
   - path: /etc/hosts
     generator: hosts
 
-  - path: /etc/tmpfiles.d/resolv.conf
+  # 6. Zero-dependency DNS writer for networkd-only containers
+  - path: /etc/systemd/system/thin-resolv.service
     generator: dump
     content: |-
-      L+ /etc/resolv.conf - - - - ../run/systemd/resolve/resolv.conf
+      # Writes /etc/resolv.conf from networkd lease state.
+      # Skips when systemd-resolved is installed (resolvectl present),
+      # since resolved manages /etc/resolv.conf itself.
+      [Unit]
+      Description=Generate resolv.conf from networkd lease state
+      After=systemd-networkd.service
+
+      [Service]
+      Type=oneshot
+      ExecStart=/bin/sh -c "[ -x /usr/bin/resolvectl ] && exit 0; sed -n 's/^DNS=\\(.*\\)/\\1/p' /run/systemd/netif/state | tr ' ' '\\n' | sed '/^$/d; s/^/nameserver /' > /etc/resolv.conf"
+
+  - path: /etc/systemd/system/thin-resolv.path
+    generator: dump
+    content: |-
+      [Unit]
+      Description=Watch networkd state for DNS changes
+
+      [Path]
+      PathChanged=/run/systemd/netif/state
+
+      [Install]
+      WantedBy=multi-user.target
 
 packages:
   manager: apt
@@ -107,22 +129,23 @@ actions:
       export DEBIAN_FRONTEND=noninteractive
 
       apt-get update
-      apt-get install -y systemd wget
+      # Remove ubuntu-minimal metapackage first to break dependency chains
+      apt-get remove -y ubuntu-minimal 2>/dev/null || true
+      apt-get install -y systemd systemd-sysv wget
       apt-get remove -y udev netplan.io netplan-generator \
         locales debconf-i18n python3.13 python3-netplan \
         networkd-dispatcher ubuntu-pro-client ubuntu-pro-client-l10n \
         systemd-hwe-hwdb krb5-locales libgpg-error-l10n \
-        libicu76 iso-codes 2>/dev/null || true
+        iso-codes 2>/dev/null || true
       apt-get autoremove -y
 
       rm -rf /usr/share/doc/* /usr/share/man/* /usr/share/locale/*
       rm -f /var/cache/apt/*.bin
       rm -rf /var/lib/apt/lists/*
 
-      ln -sf /usr/lib/systemd/systemd /sbin/init
-
       systemctl enable systemd-networkd.service
       systemctl enable systemd-networkd.socket
+      systemctl enable thin-resolv.path
 
       mkdir -p /etc/systemd/journald.conf.d
       printf '[Journal]\nSystemMaxUse=50M\nSystemKeepFree=0\n' \
