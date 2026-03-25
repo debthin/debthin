@@ -77,10 +77,32 @@ files:
   - path: /etc/hosts
     generator: hosts
 
-  - path: /etc/tmpfiles.d/resolv.conf
+  # 6. Zero-dependency DNS writer for networkd-only containers
+  - path: /etc/systemd/system/thin-resolv.service
     generator: dump
     content: |-
-      L+ /etc/resolv.conf - - - - ../run/systemd/resolve/resolv.conf
+      # Writes /etc/resolv.conf from networkd lease state.
+      # Skips when systemd-resolved is installed (resolvectl present),
+      # since resolved manages /etc/resolv.conf itself.
+      [Unit]
+      Description=Generate resolv.conf from networkd lease state
+      After=systemd-networkd.service
+
+      [Service]
+      Type=oneshot
+      ExecStart=/bin/sh -c "[ -x /usr/bin/resolvectl ] && exit 0; sed -n 's/^DNS=\\(.*\\)/\\1/p' /run/systemd/netif/state | tr ' ' '\\n' | sed '/^$/d; s/^/nameserver /' > /etc/resolv.conf"
+
+  - path: /etc/systemd/system/thin-resolv.path
+    generator: dump
+    content: |-
+      [Unit]
+      Description=Watch networkd state for DNS changes
+
+      [Path]
+      PathChanged=/run/systemd/netif/state
+
+      [Install]
+      WantedBy=multi-user.target
 
 packages:
   manager: apt
@@ -107,7 +129,7 @@ actions:
       export DEBIAN_FRONTEND=noninteractive
 
       apt-get update
-      apt-get install -y systemd wget
+      apt-get install -y systemd systemd-sysv wget
       apt-get remove -y udev 2>/dev/null || true
       apt-get autoremove -y
 
@@ -118,10 +140,9 @@ actions:
       # Re-add security repo now that cleanup is done
       echo 'deb http://deb.debian.org/debian-security bookworm-security main' >> /etc/apt/sources.list
 
-      ln -sf /usr/lib/systemd/systemd /sbin/init
-
       systemctl enable systemd-networkd.service
       systemctl enable systemd-networkd.socket
+      systemctl enable thin-resolv.path
 
       mkdir -p /etc/systemd/journald.conf.d
       printf '[Journal]\nSystemMaxUse=50M\nSystemKeepFree=0\n' \

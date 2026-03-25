@@ -3,6 +3,7 @@ libpsl5t64
 libldap2
 # Packages required for debootstrap
 coreutils-from-uutils
+coreutils-from-gnu
 debconf-i18n
 gnu-coreutils
 init
