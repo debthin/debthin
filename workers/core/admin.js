@@ -16,6 +16,8 @@ const H_JSON = Object.freeze({
 
 const ROBOTS_BODY = "User-agent: *\nAllow: /$\nDisallow: /\n";
 const DEFAULT_METHODS = ["GET", "HEAD"];
+const ISOLATE_ID = Math.random().toString(16).slice(2, 10);
+const ISOLATE_START_TIME = Date.now();
 
 /**
  * Validates an inbound request for allowed HTTP methods, query strings,
@@ -79,8 +81,8 @@ function isValidSecret(env, provided) {
 }
 
 /**
- * Returns a health check response with R2 connectivity status and
- * aggregated cache statistics.
+ * Returns a health check response with R2 connectivity status,
+ * aggregated cache statistics, and isolate uptime telemetry.
  *
  * @param {Object} bucket - R2 bucket binding to probe.
  * @param {string} serviceName - Identifies the worker in the response.
@@ -90,17 +92,40 @@ function isValidSecret(env, provided) {
 async function handleHealth(bucket, serviceName, getStats) {
     let r2 = "OK";
     try { await bucket.head("healthcheck-ping"); } catch { r2 = "ERROR"; }
+
+    const now = Date.now();
+    const uptimeSeconds = Math.floor((now - ISOLATE_START_TIME) / 1000);
+
     const body = {
         status: r2 === "OK" ? "OK" : "DEGRADED",
         service: serviceName,
         r2,
+        isolate: {
+            id: ISOLATE_ID,
+            uptimeSeconds,
+            uptimeFormatted: formatUptime(uptimeSeconds)
+        },
         cache: getStats(),
-        time: Date.now()
+        time: now
     };
     return new Response(JSON.stringify(body, null, 2) + "\n", {
         status: r2 === "OK" ? 200 : 503,
         headers: H_JSON
     });
+}
+
+/**
+ * Formats a duration in seconds into a human-readable string.
+ *
+ * @param {number} totalSeconds - Duration in whole seconds.
+ * @returns {string} Formatted string like "2d 5h 30m 12s".
+ */
+function formatUptime(totalSeconds) {
+    const d = Math.floor(totalSeconds / 86400);
+    const h = Math.floor((totalSeconds % 86400) / 3600);
+    const m = Math.floor((totalSeconds % 3600) / 60);
+    const s = totalSeconds % 60;
+    return `${d}d ${h}h ${m}m ${s}s`;
 }
 
 /**
@@ -199,6 +224,7 @@ export function wrapHandler(handler, serviceName) {
             const h = new Headers(response.headers);
             h.set("X-Timer", `S${t0},VS0,VE${Date.now() - t0}`);
             h.set("X-Served-By", `cache-${request.cf?.colo ?? "UNKNOWN"}-${serviceName}`);
+            h.set("X-Isolate-ID", ISOLATE_ID);
 
             return new Response(response.body, {
                 status: response.status,

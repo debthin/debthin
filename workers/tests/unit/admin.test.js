@@ -99,6 +99,10 @@ test('routeAdminPath returns health with R2 OK', async () => {
   assert.equal(data.r2, 'OK');
   assert.deepEqual(data.cache, { items: 5, bytes: 1024 });
   assert.ok(data.time > 0);
+  assert.equal(typeof data.isolate.uptimeSeconds, 'number');
+  assert.ok(data.isolate.uptimeFormatted.endsWith('s'));
+  assert.equal(typeof data.isolate.id, 'string');
+  assert.equal(data.isolate.id.length, 8);
 });
 
 test('routeAdminPath returns health with R2 ERROR', async () => {
@@ -108,6 +112,7 @@ test('routeAdminPath returns health with R2 ERROR', async () => {
   const data = await res.json();
   assert.equal(data.status, 'DEGRADED');
   assert.equal(data.r2, 'ERROR');
+  assert.equal(typeof data.isolate.uptimeSeconds, 'number');
 });
 
 test('routeAdminPath returns cache status with valid secret', async () => {
@@ -164,6 +169,7 @@ test('wrapHandler adds performance headers', async () => {
   assert.equal(await res.text(), 'ok');
   assert.ok(res.headers.get('X-Timer').startsWith('S'));
   assert.equal(res.headers.get('X-Served-By'), 'cache-AMS-test-worker');
+  assert.ok(res.headers.has('X-Isolate-ID'));
 });
 
 test('wrapHandler catches errors and returns 500', async () => {
