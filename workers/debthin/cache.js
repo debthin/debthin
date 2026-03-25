@@ -19,15 +19,18 @@ export function purgeAllCaches() {
 }
 
 
+import { getDistroIndexCount } from './indexes.js';
+
 /**
- * Returns aggregated memory cache statistics.
- * @returns {Object} Meta and Data object usage stats.
+ * Returns aggregated memory cache statistics including distro index count.
+ * @returns {Object} Meta, Data, and distribution index usage stats.
  */
 export function getCacheStats() {
   const m = metaCache.getStats();
   const d = dataCache.getStats();
   return { 
     metaItems: m.items, metaBytes: m.bytes,
-    dataItems: d.items, dataBytes: d.bytes 
+    dataItems: d.items, dataBytes: d.bytes,
+    distributions: getDistroIndexCount()
   };
 }

@@ -1,15 +1,16 @@
 import { parseURL, tokenizePath } from '../core/utils.js';
+import { validateRequest, routeAdminPath, wrapHandler } from '../core/admin.js';
 import { handleStaticAssets, handleUpstreamRedirect, handleDistributionHashIndex } from './handlers/index.js';
 import { resolveUpstream } from './utils.js';
 import { DERIVED_CONFIG, CONFIG_JSON_STRING } from '../core/config.js';
+import { getCacheStats, purgeAllCaches } from './cache.js';
 
 // ── Main Entry ───────────────────────────────────────────────────────────────
 
 /**
  * Validates and routes incoming Edge HTTP requests.
- * Evaluates HTTP method validity, query string blocks, directory traversal deterrence,
- * suite configuration matching, and canonical alias redirection before
- * falling back to the proxy layer handlers.
+ * Routes to admin endpoints, static assets, distribution metadata,
+ * or upstream redirects based on path structure.
  * 
  * @param {Request} request - The inbound HTTP request.
  * @param {Object} env - Cloudflare environment bindings.
@@ -17,25 +18,23 @@ import { DERIVED_CONFIG, CONFIG_JSON_STRING } from '../core/config.js';
  * @returns {Promise<Response>} The evaluated HTTP Response or proxy instruction.
  */
 async function handleRequest(request, env, ctx) {
-  // Reject unsupported HTTP methods and query strings
-  if (request.method !== "GET" && request.method !== "HEAD") {
-    return new Response("Method Not Allowed\n", { status: 405, headers: { "Allow": "GET, HEAD" } });
-  }
-  if (request.url.indexOf("?") !== -1) {
-    return new Response("Bad Request\n", { status: 400 });
-  }
-
   const { protocol, rawPath } = parseURL(request);
 
-  // Prevent basic directory traversal attacks
-  if (rawPath.includes("..")) {
-    return new Response("Bad Request\n", { status: 400 });
-  }
+  const invalid = validateRequest(request, rawPath);
+  if (invalid) return invalid;
 
   const slash = rawPath.indexOf("/");
 
-  // Serve static root assets directly (e.g. index.html, robots.txt, config.json)
+  // Root-level paths (no slash): admin endpoints, then static assets
   if (slash === -1) {
+    const adminResponse = routeAdminPath(rawPath, env, {
+        bucket: env.DEBTHIN_BUCKET,
+        serviceName: "debthin",
+        getStats: getCacheStats,
+        flush: purgeAllCaches,
+    });
+    if (adminResponse) return adminResponse;
+
     return handleStaticAssets(rawPath, env, request, CONFIG_JSON_STRING);
   }
 
@@ -95,36 +94,4 @@ async function handleRequest(request, env, ctx) {
   return handleUpstreamRedirect(protocol, resolveUpstream(suitePath, archUpstreams, upstream), suitePath);
 }
 
-export default {
-  /**
-   * Primary invocation entrypoint for the Cloudflare fetch event lifecycle.
-   * Traps internal request handling errors and injects analytical caching metric headers
-   * like X-Timer and X-Served-By before resolving back to the edge node.
-   * 
-   * @param {Request} request - The inbound HTTP request.
-   * @param {Object} env - Cloudflare environment bindings.
-   * @param {Object} ctx - Worker execution context.
-   * @returns {Promise<Response>} The final formulated HTTP Response.
-   */
-  async fetch(request, env, ctx) {
-    const _now = Date.now();
-
-    let response;
-    try {
-      response = await handleRequest(request, env, ctx);
-    } catch (err) {
-      console.error(err.stack || err);
-      response = new Response("Internal Server Error", { status: 500 });
-    }
-
-    const h = new Headers(response.headers);
-    h.set("X-Timer", `S${_now},VS0,VE${Date.now() - _now}`);
-    h.set("X-Served-By", `cache-${request.cf?.colo ?? "UNKNOWN"}-debthin`);
-
-    return new Response(response.body, {
-      status: response.status,
-      statusText: response.statusText,
-      headers: h
-    });
-  }
-};
+export default wrapHandler(handleRequest, "debthin");

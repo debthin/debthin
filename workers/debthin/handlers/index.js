@@ -4,10 +4,10 @@
 
 import { r2Get } from '../../core/r2.js';
 import { serveR2, isNotModified } from '../../core/http.js';
-import { getDistroIndex, setDistroIndex, getDistroIndexCount, warmRamCacheFromRelease } from '../indexes.js';
+import { getDistroIndex, setDistroIndex, warmRamCacheFromRelease } from '../indexes.js';
 import { isHex64 } from '../../core/utils.js';
 import { H_CACHED, H_IMMUTABLE, EMPTY_GZ, EMPTY_GZ_HASH, EMPTY_HASH } from '../../core/constants.js';
-import { getCacheStats, metaCache, dataCache } from '../cache.js';
+import { metaCache, dataCache } from '../cache.js';
 
 /**
  * Handles explicit requests for static repository assets assigned to the path execution root.
@@ -20,14 +20,6 @@ import { getCacheStats, metaCache, dataCache } from '../cache.js';
  * @returns {Promise<Response>} The HTTP Response object.
  */
 export async function handleStaticAssets(rawPath, env, request, CONFIG_JSON_STRING) {
-  if (rawPath === "robots.txt") {
-    const hr = new Headers(H_CACHED);
-    hr.set("Content-Type", "text/plain; charset=utf-8");
-    hr.set("X-Debthin", "hit-synthetic");
-    hr.set("X-Cache", "HIT");
-    hr.set("X-Cache-Hits", "0");
-    return new Response("User-agent: *\nAllow: /$\nDisallow: /\n", { headers: hr });
-  }
   if (rawPath === "config.json") {
     const etag = `W/"${CONFIG_JSON_STRING.length}"`;
     if (isNotModified(request.headers, { etag })) {
@@ -41,18 +33,6 @@ export async function handleStaticAssets(rawPath, env, request, CONFIG_JSON_STRI
     hc.set("X-Cache", "HIT");
     hc.set("X-Cache-Hits", "0");
     return new Response(CONFIG_JSON_STRING, { headers: hc });
-  }
-  if (rawPath === "health") {
-    let r2 = "OK";
-    try { await env.DEBTHIN_BUCKET.head("healthcheck-ping"); } catch (e) { r2 = "ERROR"; }
-    const stats = {
-      status: r2 === "OK" ? "OK" : "DEGRADED",
-      r2,
-      cache: { ...getCacheStats(), distributions: getDistroIndexCount() },
-      time: Date.now()
-    };
-    const hh = new Headers({ "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store", "X-Debthin": "hit-synthetic" });
-    return new Response(JSON.stringify(stats, null, 2) + "\n", { headers: hh, status: r2 === "OK" ? 200 : 503 });
   }
   const file = rawPath === "" ? "index.html" : rawPath;
   return serveR2(env, request, file, metaCache);

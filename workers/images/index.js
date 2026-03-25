@@ -4,7 +4,8 @@
  */
 
 import { parseURL } from '../core/utils.js';
-import { getCacheStats } from './cache.js';
+import { validateRequest, routeAdminPath, wrapHandler } from '../core/admin.js';
+import { getCacheStats, indexCache } from './cache.js';
 import { H_HTML, H_ICON } from './http.js';
 import {
     handleLxcIndex,
@@ -19,7 +20,7 @@ import {
 
 /**
  * Evaluates the inbound request and dispatches to the appropriate handler.
- * Checks HTTP method, path traversal, and routes to specific endpoints.
+ * Validates the request, then routes to specific endpoints.
  *
  * @param {Request} request - The inbound HTTP request.
  * @param {Object} env - Cloudflare environment bindings.
@@ -27,23 +28,14 @@ import {
  * @returns {Promise<Response>} The constructed response.
  */
 async function handleRequest(request, env, ctx) {
-    if (request.method !== "GET" && request.method !== "HEAD") {
-        return new Response("Method Not Allowed\n", { status: 405, headers: { "Allow": "GET, HEAD" } });
-    }
-    if (request.url.indexOf("?") !== -1) return new Response("Bad Request\n", { status: 400 });
-
     let { rawPath } = parseURL(request);
     // LXC clients double-slash the base URL; strip the residual leading /
     if (rawPath.charCodeAt(0) === 47) rawPath = rawPath.slice(1);
-    if (rawPath.includes("..")) return new Response("Bad Request\n", { status: 400 });
 
-    if (rawPath === "health") {
-        const stats = getCacheStats();
-        return new Response(JSON.stringify({ status: "ok", service: "debthin-images", cache: stats }), {
-            status: 200,
-            headers: { "Content-Type": "application/json", "Cache-Control": "no-store" }
-        });
-    }
+    const invalid = validateRequest(request, rawPath);
+    if (invalid) return invalid;
+
+
 
     // 1. Image file paths — cache metadata, redirect binaries
     if (rawPath.startsWith("images/")) {
@@ -72,38 +64,16 @@ async function handleRequest(request, env, ctx) {
         return serveR2Static(request, env.IMAGES_BUCKET, ctx, "favicon.ico", H_ICON);
     }
 
+    // Admin endpoints (robots.txt, health, cache status/flush)
+    const adminResponse = routeAdminPath(rawPath, env, {
+        bucket: env.IMAGES_BUCKET,
+        serviceName: "debthin-images",
+        getStats: getCacheStats,
+        flush: () => indexCache.purge(),
+    });
+    if (adminResponse) return adminResponse;
+
     return new Response("Not Found. debthin image server.", { status: 404 });
 }
 
-export default {
-    /**
-     * Primary fetch handler for the images worker.
-     * Wraps handleRequest in error handling and appends performance tracking headers.
-     *
-     * @param {Request} request - The inbound HTTP request.
-     * @param {Object} env - Cloudflare environment bindings.
-     * @param {Object} ctx - Worker execution context.
-     * @returns {Promise<Response>} The final HTTP response.
-     */
-    async fetch(request, env, ctx) {
-        const _now = Date.now();
-
-        let response;
-        try {
-            response = await handleRequest(request, env, ctx);
-        } catch (err) {
-            console.error(err.stack || err);
-            response = new Response("Internal Server Error", { status: 500 });
-        }
-
-        const h = new Headers(response.headers);
-        h.set("X-Timer", `S${_now},VS0,VE${Date.now() - _now}`);
-        h.set("X-Served-By", `cache-${request.cf?.colo ?? "UNKNOWN"}-debthin`);
-
-        return new Response(response.body, {
-            status: response.status,
-            statusText: response.statusText,
-            headers: h
-        });
-    }
-};
+export default wrapHandler(handleRequest, "debthin");
