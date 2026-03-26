@@ -135,10 +135,32 @@ else
     exit 1
 fi
 
-# Extract rootfs to temp dir for static inspection
-STATIC_ROOT=$(mktemp -d "/tmp/debthin-test-${SAFE_RELEASE}-XXXXXX")
-log_info "Extracting rootfs to $STATIC_ROOT..."
-tar xf "$ROOTFS_PATH" -C "$STATIC_ROOT"
+# 2. Container Creation & Boot
+if lxc-create -q -t local -n "$NAME" -- -m "$META_PATH" -f "$ROOTFS_PATH" >/dev/null 2>&1 && lxc-start "$NAME"; then
+    log_pass "Container successfully created and started"
+else
+    log_fail "Container failed to initialize or boot"
+    exit 1
+fi
+
+# 3. DHCP & Network Routing
+TIMEOUT=60
+ELAPSED=0
+NETWORK_UP=0
+while [ $ELAPSED -lt $TIMEOUT ]; do
+    if lxc-attach "$NAME" -- ip route show default 2>/dev/null | grep -q "default via"; then
+        NETWORK_UP=1
+        break
+    fi
+    sleep 1
+    ELAPSED=$((ELAPSED + 1))
+done
+
+if [ $NETWORK_UP -eq 1 ]; then
+    log_pass "Network acquired DHCP lease & default route in ${ELAPSED}s"
+else
+    log_fail "Network failed to acquire route within ${TIMEOUT}s"
+fi
 
 # S2. Extracted Disk Footprint
 SIZE_MB=$(du -sm "$STATIC_ROOT" | cut -f1)
