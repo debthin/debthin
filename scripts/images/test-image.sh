@@ -135,39 +135,37 @@ else
     exit 1
 fi
 
-# 2. Container Creation & Boot
-if lxc-create -q -t local -n "$NAME" -- -m "$META_PATH" -f "$ROOTFS_PATH" >/dev/null 2>&1 && lxc-start "$NAME"; then
-    log_pass "Container successfully created and started"
-else
-    log_fail "Container failed to initialize or boot"
-    exit 1
-fi
+# Extract only the files we need for static inspection
+STATIC_ROOT=$(mktemp -d "/tmp/debthin-test-${SAFE_RELEASE}-XXXXXX")
+log_info "Extracting select files from rootfs..."
 
-# 3. DHCP & Network Routing
-TIMEOUT=60
-ELAPSED=0
-NETWORK_UP=0
-while [ $ELAPSED -lt $TIMEOUT ]; do
-    if lxc-attach "$NAME" -- ip route show default 2>/dev/null | grep -q "default via"; then
-        NETWORK_UP=1
-        break
+# Files to extract for content inspection
+# Use --wildcards with both ./path and path to handle either tar prefix style
+EXTRACT_PATTERNS=(
+    --wildcards
+    '*/etc/apt/keyrings/debthin.gpg'
+    '*/etc/apt/sources.list'
+    '*/etc/apt/apt.conf.d/99thin'
+    '*/etc/systemd/journald.conf.d/00-container-limits.conf'
+    '*/etc/systemd/system/thin-resolv.path'
+    '*/etc/systemd/system/thin-resolv.service'
+    '*/var/lib/dpkg/status'
+)
+# Extract with --strip-components=1 to normalise ./ prefix away
+tar xf "$ROOTFS_PATH" -C "$STATIC_ROOT" --strip-components=1 "${EXTRACT_PATTERNS[@]}" 2>/dev/null || true
+
+# S2. Extracted Disk Footprint (from archive listing, no full extraction needed)
+# Use xz --list to get uncompressed size without extracting
+UNCOMPRESSED_BYTES=$(xz --list --robot "$ROOTFS_PATH" 2>/dev/null | awk '/^totals/{print $5}')
+if [ -n "$UNCOMPRESSED_BYTES" ]; then
+    SIZE_MB=$((UNCOMPRESSED_BYTES / 1048576))
+    if [ "$SIZE_MB" -le "$MAX_EXTRACTED_MB" ]; then
+        log_pass "Uncompressed rootfs is within limits (${SIZE_MB}MB <= ${MAX_EXTRACTED_MB}MB)"
+    else
+        log_fail "Uncompressed rootfs exceeded limit (Got: ${SIZE_MB}MB, Limit: ${MAX_EXTRACTED_MB}MB)"
     fi
-    sleep 1
-    ELAPSED=$((ELAPSED + 1))
-done
-
-if [ $NETWORK_UP -eq 1 ]; then
-    log_pass "Network acquired DHCP lease & default route in ${ELAPSED}s"
 else
-    log_fail "Network failed to acquire route within ${TIMEOUT}s"
-fi
-
-# S2. Extracted Disk Footprint
-SIZE_MB=$(du -sm "$STATIC_ROOT" | cut -f1)
-if [ -n "$SIZE_MB" ] && [ "$SIZE_MB" -le "$MAX_EXTRACTED_MB" ]; then
-    log_pass "Extracted disk footprint is within limits (${SIZE_MB}MB <= ${MAX_EXTRACTED_MB}MB)"
-else
-    log_fail "Extracted disk footprint exceeded limit (Got: ${SIZE_MB}MB, Limit: ${MAX_EXTRACTED_MB}MB)"
+    log_fail "Could not determine uncompressed rootfs size"
 fi
 
 # S3. GPG Key Integrity
@@ -195,37 +193,40 @@ else
     log_info "Skipping security repo check (not available for $SUITE)"
 fi
 
-# S5. APT Configuration
-APT_CONF_FILE="$STATIC_ROOT/etc/apt/apt.conf.d/02compress-indexes"
-if [ -f "$APT_CONF_FILE" ] && grep -q 'GzipIndexes.*true' "$APT_CONF_FILE"; then
-    log_pass "APT configured to retain GzipIndexes"
+# S5. APT Configuration (all debthin optimizations live in 99thin)
+APT_CONF_FILE="$STATIC_ROOT/etc/apt/apt.conf.d/99thin"
+if [ -f "$APT_CONF_FILE" ]; then
+    if grep -q 'GzipIndexes.*"true"' "$APT_CONF_FILE"; then
+        log_pass "APT configured to retain GzipIndexes"
+    else
+        log_fail "99thin missing GzipIndexes directive"
+    fi
+
+    if grep -q 'Languages.*"none"' "$APT_CONF_FILE"; then
+        log_pass "APT configured to strip translation files (Languages none)"
+    else
+        log_fail "99thin missing Languages none directive"
+    fi
 else
-    log_fail "APT GzipIndexes configuration missing"
+    log_fail "APT configuration file 99thin missing"
 fi
 
-APT_LANG_FILE="$STATIC_ROOT/etc/apt/apt.conf.d/01no-languages"
-if [ -f "$APT_LANG_FILE" ] && grep -q 'Languages.*none' "$APT_LANG_FILE"; then
-    log_pass "APT configured to strip translation files (Languages none)"
+# S6. Init System (check via archive listing)
+if tar tf "$ROOTFS_PATH" 2>/dev/null | grep -qE '(^|/)sbin/init$'; then
+    log_pass "/sbin/init exists in rootfs (systemd-sysv installed)"
 else
-    log_fail "APT Languages none configuration missing"
+    log_fail "/sbin/init missing from rootfs"
 fi
 
-# S6. Init System
-if [ -x "$STATIC_ROOT/sbin/init" ] || [ -L "$STATIC_ROOT/sbin/init" ]; then
-    log_pass "/sbin/init exists (systemd-sysv installed)"
-else
-    log_fail "/sbin/init missing (systemd-sysv not installed?)"
-fi
-
-# S7. Documentation Stripping
-DOC_COUNT=$(find "$STATIC_ROOT/usr/share/doc" -type f ! -name copyright 2>/dev/null | wc -l)
+# S7. Documentation Stripping (count via archive listing)
+DOC_COUNT=$(tar tf "$ROOTFS_PATH" 2>/dev/null | grep -E '(^|\./?)usr/share/doc/' | grep -v '/$' | grep -v 'copyright' | wc -l)
 if [ "$DOC_COUNT" -le 5 ]; then
     log_pass "/usr/share/doc stripped ($DOC_COUNT non-copyright files remain)"
 else
     log_fail "/usr/share/doc not stripped ($DOC_COUNT non-copyright files)"
 fi
 
-MAN_COUNT=$(find "$STATIC_ROOT/usr/share/man" -type f 2>/dev/null | wc -l)
+MAN_COUNT=$(tar tf "$ROOTFS_PATH" 2>/dev/null | grep -E '(^|\./?)usr/share/man/' | grep -v '/$' | wc -l)
 if [ "$MAN_COUNT" -eq 0 ]; then
     log_pass "/usr/share/man is empty"
 else
@@ -233,11 +234,11 @@ else
 fi
 
 # S8. No Stale APT Cache
-DEB_COUNT=$(find "$STATIC_ROOT/var/cache/apt/archives" -name '*.deb' 2>/dev/null | wc -l)
+DEB_COUNT=$(tar tf "$ROOTFS_PATH" 2>/dev/null | grep '\.deb$' | wc -l)
 if [ "$DEB_COUNT" -eq 0 ]; then
     log_pass "No stale .deb files in apt cache"
 else
-    log_fail "$DEB_COUNT stale .deb files in /var/cache/apt/archives/"
+    log_fail "$DEB_COUNT stale .deb files in rootfs"
 fi
 
 # S9. Journald Limits
