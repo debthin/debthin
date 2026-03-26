@@ -104,16 +104,18 @@ actions:
 
       export DEBIAN_FRONTEND=noninteractive
 
+      echo ">>> Installing base packages"
       apt-get update
       apt-get install -y systemd systemd-sysv wget ifupdown isc-dhcp-client
       apt-get remove -y udev 2>/dev/null || true
       apt-get autoremove -y
 
+      echo ">>> Cleaning docs, man pages, locale data"
       rm -rf /usr/share/doc/* /usr/share/man/* /usr/share/locale/*
       rm -f /var/cache/apt/*.bin
       rm -rf /var/lib/apt/lists/*
 
-
+      echo ">>> Configuring journald limits"
       mkdir -p /etc/systemd/journald.conf.d
       printf '[Journal]\nSystemMaxUse=50M\nSystemKeepFree=0\n' \
              > /etc/systemd/journald.conf.d/00-container-limits.conf

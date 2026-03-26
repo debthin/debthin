@@ -129,25 +129,29 @@ actions:
 
       export DEBIAN_FRONTEND=noninteractive
 
+      echo ">>> Installing base packages"
       apt-get update
       # Remove ubuntu-minimal metapackage first to break dependency chains
       apt-get remove -y ubuntu-minimal 2>/dev/null || true
       apt-get install -y systemd systemd-sysv wget
+      echo ">>> Removing bloat packages"
       apt-get remove -y udev netplan.io \
         locales debconf-i18n python3.10 \
         networkd-dispatcher ubuntu-advantage-tools \
         libicu70 iso-codes 2>/dev/null || true
       apt-get autoremove -y
 
+      echo ">>> Cleaning docs, man pages, locale data"
       rm -rf /usr/share/doc/* /usr/share/man/* /usr/share/locale/*
       rm -f /var/cache/apt/*.bin
       rm -rf /var/lib/apt/lists/*
 
-
+      echo ">>> Enabling systemd services"
       systemctl enable systemd-networkd.service
       systemctl enable systemd-networkd.socket
       systemctl enable thin-resolv.path
 
+      echo ">>> Configuring journald limits"
       mkdir -p /etc/systemd/journald.conf.d
       printf '[Journal]\nSystemMaxUse=50M\nSystemKeepFree=0\n' \
              > /etc/systemd/journald.conf.d/00-container-limits.conf

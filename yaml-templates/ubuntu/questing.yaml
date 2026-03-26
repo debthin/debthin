@@ -128,11 +128,13 @@ actions:
 
       export DEBIAN_FRONTEND=noninteractive
 
+      echo ">>> Installing base packages"
       apt-get update
       # Remove ubuntu-minimal metapackage first to break dependency chains
       apt-get remove -y ubuntu-minimal 2>/dev/null || true
       # Swap Rust coreutils for GNU in one transaction (they Conflict)
       apt-get install -y --allow-remove-essential systemd systemd-sysv coreutils-from-gnu coreutils-from-uutils- wget
+      echo ">>> Removing bloat packages"
       apt-get remove -y udev netplan.io netplan-generator \
         locales debconf-i18n python3 python3.13 python3-netplan \
         networkd-dispatcher ubuntu-pro-client ubuntu-pro-client-l10n \
@@ -141,14 +143,17 @@ actions:
         linux-sysctl-defaults iso-codes 2>/dev/null || true
       apt-get autoremove -y
 
+      echo ">>> Cleaning docs, man pages, locale data"
       rm -rf /usr/share/doc/* /usr/share/man/* /usr/share/locale/*
       rm -f /var/cache/apt/*.bin
       rm -rf /var/lib/apt/lists/*
 
+      echo ">>> Enabling systemd services"
       systemctl enable systemd-networkd.service
       systemctl enable systemd-networkd.socket
       systemctl enable thin-resolv.path
 
+      echo ">>> Configuring journald limits"
       mkdir -p /etc/systemd/journald.conf.d
       printf '[Journal]\nSystemMaxUse=50M\nSystemKeepFree=0\n' \
              > /etc/systemd/journald.conf.d/00-container-limits.conf
