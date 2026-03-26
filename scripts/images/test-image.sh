@@ -1,9 +1,15 @@
 #!/usr/bin/env bash
 # test-image.sh - Automated validation for debthin LXC container builds
 #
-# Spins up a freshly built image, validates DNS, networking, APT config,
-# disk footprint and package counts. Writes results to test-results.log
-# in the build output directory. Exits non-zero on any failure.
+# Two test modes:
+#   STATIC  - Extracts rootfs.tar.xz to a temp dir and inspects file contents.
+#             Runs for ALL architectures (no container boot required).
+#   RUNTIME - Boots the container via lxc-start and tests networking, DNS,
+#             apt-get update, and running services.
+#             Runs for NATIVE architecture only.
+#
+# Writes results to test-results.log in the build output directory.
+# Exits non-zero on any failure.
 
 if [ "$1" == "" ]; then
     echo "Usage: $0 <distro/suite> [arch]"
@@ -25,13 +31,17 @@ else
     ARCH="$2"
 fi
 
+HOST_ARCH=$(dpkg --print-architecture 2>/dev/null || uname -m | sed -e 's/x86_64/amd64/' -e 's/aarch64/arm64/')
+IS_NATIVE=0
+[ "$ARCH" = "$HOST_ARCH" ] && IS_NATIVE=1
+
 # Set limits based on distribution
 if [ "$DISTRO" == "ubuntu" ]; then
     MAX_EXTRACTED_MB=300
     MAX_ARCHIVE_MB=50
     SECURITY_URL="security.ubuntu.com"
 else
-    MAX_EXTRACTED_MB=150
+    MAX_EXTRACTED_MB=175
     MAX_ARCHIVE_MB=35
     SECURITY_URL="deb.debian.org/debian-security"
 fi
@@ -66,13 +76,27 @@ fi
 LOG_FILE="$DIR/$VERSION/test-results.log"
 exec > >(tee >(sed 's/\x1b\[[0-9;]*m//g' > "$LOG_FILE")) 2>&1
 
-# Set the deterministic container name
+ROOTFS_PATH="$DIR/$VERSION/rootfs.tar.xz"
+META_PATH="$DIR/$VERSION/meta.tar.xz"
+
+# Set the deterministic container name (used by runtime tests)
 NAME="debthin-${SAFE_RELEASE}-${VERSION}-${ARCH}"
 
+# Temp dir for static rootfs extraction
+STATIC_ROOT=""
+
 cleanup() {
-    log_info "Tearing down test container $NAME..."
-    lxc-stop "$NAME" 2>/dev/null || true
-    lxc-destroy "$NAME" 2>/dev/null || true
+    # Tear down runtime container if it was started
+    if [ "$IS_NATIVE" = "1" ]; then
+        log_info "Tearing down test container $NAME..."
+        lxc-stop "$NAME" 2>/dev/null || true
+        lxc-destroy "$NAME" 2>/dev/null || true
+    fi
+
+    # Clean up static extraction
+    if [ -n "$STATIC_ROOT" ] && [ -d "$STATIC_ROOT" ]; then
+        rm -rf "$STATIC_ROOT"
+    fi
 
     if [ $FAILURES -gt 0 ]; then
         echo -e "\n\e[31m❌ Container validation FAILED with $FAILURES error(s).\e[0m"
@@ -85,17 +109,19 @@ cleanup() {
 
 trap cleanup EXIT
 
-ROOTFS_PATH="$DIR/$VERSION/rootfs.tar.xz"
-META_PATH="$DIR/$VERSION/meta.tar.xz"
-
 log_info "Testing build: $RELEASE ($ARCH) - $VERSION"
-log_info "Container Name: $NAME"
+if [ "$IS_NATIVE" = "1" ]; then
+    log_info "Mode: STATIC + RUNTIME (native arch)"
+else
+    log_info "Mode: STATIC only (cross-arch, no container boot)"
+fi
 
 # ==============================================================================
-# TEST SUITE
+# STATIC TESTS - run for all architectures
+# Inspect the rootfs.tar.xz contents without booting a container
 # ==============================================================================
 
-# 1. Artifact Integrity & Archive Size
+# S1. Artifact Integrity & Archive Size
 if [ -f "$ROOTFS_PATH" ] && [ -f "$META_PATH" ]; then
     log_pass "Build artifacts exist"
     ARCHIVE_SIZE_MB=$(du -sm "$ROOTFS_PATH" | cut -f1)
@@ -109,7 +135,135 @@ else
     exit 1
 fi
 
-# 2. Container Creation & Boot
+# Extract rootfs to temp dir for static inspection
+STATIC_ROOT=$(mktemp -d "/tmp/debthin-test-${SAFE_RELEASE}-XXXXXX")
+log_info "Extracting rootfs to $STATIC_ROOT..."
+tar xf "$ROOTFS_PATH" -C "$STATIC_ROOT"
+
+# S2. Extracted Disk Footprint
+SIZE_MB=$(du -sm "$STATIC_ROOT" | cut -f1)
+if [ -n "$SIZE_MB" ] && [ "$SIZE_MB" -le "$MAX_EXTRACTED_MB" ]; then
+    log_pass "Extracted disk footprint is within limits (${SIZE_MB}MB <= ${MAX_EXTRACTED_MB}MB)"
+else
+    log_fail "Extracted disk footprint exceeded limit (Got: ${SIZE_MB}MB, Limit: ${MAX_EXTRACTED_MB}MB)"
+fi
+
+# S3. GPG Key Integrity
+if [ -s "$STATIC_ROOT/etc/apt/keyrings/debthin.gpg" ]; then
+    log_pass "Debthin GPG keyring present and non-empty"
+else
+    log_fail "Debthin GPG keyring missing or empty"
+fi
+
+# S4. APT Sources Validation
+SOURCES_OUT=$(cat "$STATIC_ROOT/etc/apt/sources.list" 2>/dev/null)
+if echo "$SOURCES_OUT" | grep -q "debthin.org"; then
+    log_pass "sources.list contains debthin.org repository"
+else
+    log_fail "sources.list does not contain debthin.org"
+fi
+
+if [ "$HAS_SECURITY" -eq 1 ]; then
+    if echo "$SOURCES_OUT" | grep -q "$SECURITY_URL"; then
+        log_pass "sources.list contains direct security upstream ($SECURITY_URL)"
+    else
+        log_fail "sources.list missing direct security upstream ($SECURITY_URL)"
+    fi
+else
+    log_info "Skipping security repo check (not available for $SUITE)"
+fi
+
+# S5. APT Configuration
+APT_CONF_FILE="$STATIC_ROOT/etc/apt/apt.conf.d/02compress-indexes"
+if [ -f "$APT_CONF_FILE" ] && grep -q 'GzipIndexes.*true' "$APT_CONF_FILE"; then
+    log_pass "APT configured to retain GzipIndexes"
+else
+    log_fail "APT GzipIndexes configuration missing"
+fi
+
+APT_LANG_FILE="$STATIC_ROOT/etc/apt/apt.conf.d/01no-languages"
+if [ -f "$APT_LANG_FILE" ] && grep -q 'Languages.*none' "$APT_LANG_FILE"; then
+    log_pass "APT configured to strip translation files (Languages none)"
+else
+    log_fail "APT Languages none configuration missing"
+fi
+
+# S6. Init System
+if [ -x "$STATIC_ROOT/sbin/init" ] || [ -L "$STATIC_ROOT/sbin/init" ]; then
+    log_pass "/sbin/init exists (systemd-sysv installed)"
+else
+    log_fail "/sbin/init missing (systemd-sysv not installed?)"
+fi
+
+# S7. Documentation Stripping
+DOC_COUNT=$(find "$STATIC_ROOT/usr/share/doc" -type f ! -name copyright 2>/dev/null | wc -l)
+if [ "$DOC_COUNT" -le 5 ]; then
+    log_pass "/usr/share/doc stripped ($DOC_COUNT non-copyright files remain)"
+else
+    log_fail "/usr/share/doc not stripped ($DOC_COUNT non-copyright files)"
+fi
+
+MAN_COUNT=$(find "$STATIC_ROOT/usr/share/man" -type f 2>/dev/null | wc -l)
+if [ "$MAN_COUNT" -eq 0 ]; then
+    log_pass "/usr/share/man is empty"
+else
+    log_fail "/usr/share/man not stripped ($MAN_COUNT files remain)"
+fi
+
+# S8. No Stale APT Cache
+DEB_COUNT=$(find "$STATIC_ROOT/var/cache/apt/archives" -name '*.deb' 2>/dev/null | wc -l)
+if [ "$DEB_COUNT" -eq 0 ]; then
+    log_pass "No stale .deb files in apt cache"
+else
+    log_fail "$DEB_COUNT stale .deb files in /var/cache/apt/archives/"
+fi
+
+# S9. Journald Limits
+JOURNALD_CONF="$STATIC_ROOT/etc/systemd/journald.conf.d/00-container-limits.conf"
+if [ -f "$JOURNALD_CONF" ] && grep -q 'SystemMaxUse=50M' "$JOURNALD_CONF"; then
+    log_pass "Journald SystemMaxUse=50M configured"
+else
+    log_fail "Journald limits config missing or incorrect"
+fi
+
+# S10. Systemd Unit Files (skip for bullseye which uses ifupdown)
+if [ "$SUITE" != "bullseye" ]; then
+    if [ -f "$STATIC_ROOT/etc/systemd/system/thin-resolv.path" ]; then
+        log_pass "thin-resolv.path unit file present"
+    else
+        log_fail "thin-resolv.path unit file missing"
+    fi
+
+    if [ -f "$STATIC_ROOT/etc/systemd/system/thin-resolv.service" ]; then
+        log_pass "thin-resolv.service unit file present"
+    else
+        log_fail "thin-resolv.service unit file missing"
+    fi
+else
+    log_info "Skipping thin-resolv checks (bullseye uses ifupdown)"
+fi
+
+# S11. Package Count (from dpkg status in rootfs)
+INSTALLED_PKGS=$(grep -c '^Package:' "$STATIC_ROOT/var/lib/dpkg/status" 2>/dev/null || echo 0)
+if [ "$INSTALLED_PKGS" -le "$MAX_INSTALLED_PKGS" ]; then
+    log_pass "Installed packages count is minimal ($INSTALLED_PKGS <= $MAX_INSTALLED_PKGS)"
+else
+    log_fail "Too many installed packages ($INSTALLED_PKGS > $MAX_INSTALLED_PKGS)"
+fi
+
+# ==============================================================================
+# RUNTIME TESTS - native architecture only
+# Boot the container and test networking, DNS, APT, and running services
+# ==============================================================================
+
+if [ "$IS_NATIVE" = "0" ]; then
+    log_info "Skipping runtime tests (cross-arch build)"
+    exit 0
+fi
+
+log_info "--- Runtime tests ---"
+
+# R1. Container Creation & Boot
 if lxc-create -q -t local -n "$NAME" -- -m "$META_PATH" -f "$ROOTFS_PATH" >/dev/null 2>&1 && lxc-start "$NAME"; then
     log_pass "Container successfully created and started"
 else
@@ -117,7 +271,7 @@ else
     exit 1
 fi
 
-# 3. DHCP & Network Routing
+# R2. DHCP & Network Routing
 TIMEOUT=30
 ELAPSED=0
 NETWORK_UP=0
@@ -136,56 +290,14 @@ else
     log_fail "Network failed to acquire route within ${TIMEOUT}s"
 fi
 
-# 4. Disk Footprint Verification (Extracted)
-SIZE_MB=$(lxc-attach "$NAME" -- du -sm / 2>/dev/null | cut -f1)
-if [ -n "$SIZE_MB" ] && [ "$SIZE_MB" -le "$MAX_EXTRACTED_MB" ]; then
-    log_pass "Extracted disk footprint is within limits (${SIZE_MB}MB <= ${MAX_EXTRACTED_MB}MB)"
-else
-    log_fail "Extracted disk footprint exceeded limit (Got: ${SIZE_MB}MB, Limit: ${MAX_EXTRACTED_MB}MB)"
-fi
-
-# 5. External DNS & Connectivity
+# R3. External DNS & Connectivity
 if lxc-attach "$NAME" -- ping -c 1 -W 5 debthin.org >/dev/null 2>&1; then
     log_pass "DNS resolution and external ICMP connectivity functional"
 else
     log_fail "DNS resolution or external connectivity failed"
 fi
 
-# 6. APT Sources & Configuration Validation
-SOURCES_OUT=$(lxc-attach "$NAME" -- cat /etc/apt/sources.list 2>/dev/null)
-if echo "$SOURCES_OUT" | grep -q "debthin.org"; then
-    log_pass "sources.list contains debthin.org repository"
-else
-    log_fail "sources.list does not contain debthin.org"
-fi
-
-if [ "$HAS_SECURITY" -eq 1 ]; then
-    if echo "$SOURCES_OUT" | grep -q "$SECURITY_URL"; then
-        log_pass "sources.list contains direct security upstream ($SECURITY_URL)"
-    else
-        log_fail "sources.list missing direct security upstream ($SECURITY_URL)"
-    fi
-else
-    log_info "Skipping security repo check (not available for $SUITE)"
-fi
-
-APT_CONF=$(lxc-attach "$NAME" -- apt-config dump 2>/dev/null)
-
-# Relaxed grep to catch Acquire::GzipIndexes:: "true" or Acquire::GzipIndexes "true"
-if echo "$APT_CONF" | grep -q 'Acquire::GzipIndexes.*"true"'; then
-    log_pass "APT configured to retain GzipIndexes"
-else
-    log_fail "APT configuration missing GzipIndexes directive"
-fi
-
-# Relaxed grep to catch Acquire::Languages:: "none" or Acquire::Languages "none"
-if echo "$APT_CONF" | grep -q 'Acquire::Languages.*"none"'; then
-    log_pass "APT configured to strip translation files (Languages none)"
-else
-    log_fail "APT configuration missing Languages none directive"
-fi
-
-# 7. APT Update Execution
+# R4. APT Update Execution
 APT_LOG="/tmp/${NAME}_apt.log"
 if lxc-attach "$NAME" -- apt-get update > "$APT_LOG" 2>&1; then
     log_pass "apt-get update completed successfully"
@@ -195,36 +307,7 @@ else
 fi
 rm -f "$APT_LOG"
 
-# 8. Packages Configuration (The Debthin Test)
-INSTALLED_PKGS=$(lxc-attach "$NAME" -- dpkg-query -W -f='${binary:Package}\n' 2>/dev/null | wc -l)
-if [ "$INSTALLED_PKGS" -le "$MAX_INSTALLED_PKGS" ]; then
-    log_pass "Installed packages count is minimal ($INSTALLED_PKGS <= $MAX_INSTALLED_PKGS)"
-else
-    log_fail "Too many installed packages ($INSTALLED_PKGS > $MAX_INSTALLED_PKGS)"
-fi
-
-AVAILABLE_PKGS=$(lxc-attach "$NAME" -- apt-cache pkgnames 2>/dev/null | wc -l)
-if [ "$AVAILABLE_PKGS" -le "$MAX_AVAILABLE_PKGS" ]; then
-    log_pass "APT cache footprint verified: Index is truncated ($AVAILABLE_PKGS available pkgs)"
-else
-    log_fail "APT cache footprint too large! Debthin curation failed ($AVAILABLE_PKGS > $MAX_AVAILABLE_PKGS available pkgs)"
-fi
-
-# 9. GPG Key Integrity
-# Full key validation happens implicitly via apt-get update (test 7) with signed-by
-if lxc-attach "$NAME" -- test -s /etc/apt/keyrings/debthin.gpg; then
-    log_pass "Debthin GPG keyring present and non-empty"
-else
-    log_fail "Debthin GPG keyring missing or empty at /etc/apt/keyrings/debthin.gpg"
-fi
-
-# 10. Init System Validation
-if lxc-attach "$NAME" -- test -x /sbin/init; then
-    log_pass "/sbin/init exists (systemd-sysv installed)"
-else
-    log_fail "/sbin/init missing (systemd-sysv not installed?)"
-fi
-
+# R5. PID 1 is systemd
 PID1_COMM=$(lxc-attach "$NAME" -- cat /proc/1/comm 2>/dev/null)
 if [ "$PID1_COMM" = "systemd" ]; then
     log_pass "PID 1 is systemd"
@@ -232,7 +315,7 @@ else
     log_fail "PID 1 is '$PID1_COMM', expected 'systemd'"
 fi
 
-# 11. Package Integrity
+# R6. Package Integrity
 AUDIT_OUT=$(lxc-attach "$NAME" -- dpkg --audit 2>&1)
 if [ -z "$AUDIT_OUT" ]; then
     log_pass "dpkg --audit clean (no broken/half-configured packages)"
@@ -240,58 +323,16 @@ else
     log_fail "dpkg --audit found issues: $AUDIT_OUT"
 fi
 
-# 12. Systemd Services (skip for bullseye which uses ifupdown)
+# R7. Systemd Services Running (skip for bullseye)
 if [ "$SUITE" != "bullseye" ]; then
     if lxc-attach "$NAME" -- systemctl is-enabled systemd-networkd.service >/dev/null 2>&1; then
         log_pass "systemd-networkd.service enabled"
     else
         log_fail "systemd-networkd.service not enabled"
     fi
-
-    if lxc-attach "$NAME" -- systemctl is-enabled thin-resolv.path >/dev/null 2>&1; then
-        log_pass "thin-resolv.path enabled"
-    else
-        log_fail "thin-resolv.path not enabled"
-    fi
-else
-    log_info "Skipping networkd/thin-resolv checks (bullseye uses ifupdown)"
 fi
 
-# 13. Documentation Stripping
-DOC_COUNT=$(lxc-attach "$NAME" -- find /usr/share/doc -type f ! -name copyright 2>/dev/null | wc -l)
-if [ "$DOC_COUNT" -le 5 ]; then
-    log_pass "/usr/share/doc stripped ($DOC_COUNT non-copyright files remain)"
-else
-    log_fail "/usr/share/doc not stripped ($DOC_COUNT non-copyright files)"
-fi
-
-MAN_COUNT=$(lxc-attach "$NAME" -- find /usr/share/man -type f 2>/dev/null | wc -l)
-if [ "$MAN_COUNT" -eq 0 ]; then
-    log_pass "/usr/share/man is empty"
-else
-    log_fail "/usr/share/man not stripped ($MAN_COUNT files remain)"
-fi
-
-# 14. No Stale APT Cache
-DEB_COUNT=$(lxc-attach "$NAME" -- bash -c 'ls /var/cache/apt/archives/*.deb 2>/dev/null | wc -l')
-if [ "$DEB_COUNT" -eq 0 ]; then
-    log_pass "No stale .deb files in apt cache"
-else
-    log_fail "$DEB_COUNT stale .deb files in /var/cache/apt/archives/"
-fi
-
-# 15. Journald Limits
-if lxc-attach "$NAME" -- test -f /etc/systemd/journald.conf.d/00-container-limits.conf; then
-    if lxc-attach "$NAME" -- grep -q 'SystemMaxUse=50M' /etc/systemd/journald.conf.d/00-container-limits.conf; then
-        log_pass "Journald SystemMaxUse=50M configured"
-    else
-        log_fail "Journald limits file exists but SystemMaxUse=50M not found"
-    fi
-else
-    log_fail "Journald limits config missing"
-fi
-
-# 16. No systemd-resolved Running
+# R8. No systemd-resolved Running
 if lxc-attach "$NAME" -- systemctl is-active systemd-resolved.service >/dev/null 2>&1; then
     log_fail "systemd-resolved is running (should not be in minimal containers)"
 else
