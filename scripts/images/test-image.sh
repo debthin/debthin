@@ -211,15 +211,11 @@ else
 fi
 
 # 9. GPG Key Integrity
-if lxc-attach "$NAME" -- test -f /etc/apt/keyrings/debthin.gpg; then
-    # Verify it's a valid GPG keyring by attempting to list it
-    if lxc-attach "$NAME" -- gpg --no-default-keyring --keyring /etc/apt/keyrings/debthin.gpg --list-keys >/dev/null 2>&1; then
-        log_pass "Debthin GPG keyring present and valid"
-    else
-        log_fail "Debthin GPG keyring present but not a valid keyring"
-    fi
+# Full key validation happens implicitly via apt-get update (test 7) with signed-by
+if lxc-attach "$NAME" -- test -s /etc/apt/keyrings/debthin.gpg; then
+    log_pass "Debthin GPG keyring present and non-empty"
 else
-    log_fail "Debthin GPG keyring missing at /etc/apt/keyrings/debthin.gpg"
+    log_fail "Debthin GPG keyring missing or empty at /etc/apt/keyrings/debthin.gpg"
 fi
 
 # 10. Init System Validation
