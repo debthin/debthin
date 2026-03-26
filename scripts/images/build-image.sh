@@ -205,8 +205,8 @@ fi
 
 find . -type f ! -name "hashes.txt" | sort | xargs $SHA_CMD > hashes.txt
 
-# Run container validation tests - failure here aborts the build
+# Run container validation tests - requires root for lxc-create/lxc-start
 echo "[TEST] Running container validation for ${DISTRO}/${SUITE} (${ARCH})..."
-"${SCRIPT_DIR}/test-image.sh" "${DISTRO}/${SUITE}" "${ARCH}"
+sudo "${SCRIPT_DIR}/test-image.sh" "${DISTRO}/${SUITE}" "${ARCH}"
 
 echo "[DONE] Artefacts saved to: $OUT_DIR"
