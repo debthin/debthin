@@ -1,10 +1,17 @@
 #!/usr/bin/env bash
-# test-container.sh - Automated unit tests for debthin LXC builds
+# test-image.sh - Automated validation for debthin LXC container builds
+#
+# Spins up a freshly built image, validates DNS, networking, APT config,
+# disk footprint and package counts. Writes results to test-results.log
+# in the build output directory. Exits non-zero on any failure.
 
 if [ "$1" == "" ]; then
     echo "Usage: $0 <distro/suite> [arch]"
     exit 1
 fi
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
 RELEASE="$1"
 DISTRO=$(echo "$RELEASE" | cut -d'/' -f1)
@@ -38,8 +45,8 @@ esac
 MAX_INSTALLED_PKGS=250
 MAX_AVAILABLE_PKGS=15000
 
-BASEDIR="/home/remco/build/debthin/images_output/images"
-DIR="$BASEDIR/$RELEASE/$ARCH/default"
+OUTPUT_BASE="${REPO_ROOT}/images_output/images"
+DIR="$OUTPUT_BASE/$RELEASE/$ARCH/default"
 
 # --- Test Framework Utilities ---
 FAILURES=0
@@ -55,14 +62,18 @@ if [ -z "$VERSION" ]; then
     exit 1
 fi
 
-# Set the deterministic container name requested
+# Tee all subsequent output to a log file (strip ANSI codes for the file copy)
+LOG_FILE="$DIR/$VERSION/test-results.log"
+exec > >(tee >(sed 's/\x1b\[[0-9;]*m//g' > "$LOG_FILE")) 2>&1
+
+# Set the deterministic container name
 NAME="debthin-${SAFE_RELEASE}-${VERSION}-${ARCH}"
 
 cleanup() {
     log_info "Tearing down test container $NAME..."
     lxc-stop "$NAME" 2>/dev/null || true
     lxc-destroy "$NAME" 2>/dev/null || true
-    
+
     if [ $FAILURES -gt 0 ]; then
         echo -e "\n\e[31m❌ Container validation FAILED with $FAILURES error(s).\e[0m"
         exit 1
