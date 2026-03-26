@@ -20,6 +20,7 @@ files:
     generator: dump
     content: |-
       deb [signed-by=/etc/apt/keyrings/debthin.gpg] http://debthin.org/debian bullseye main
+      deb http://deb.debian.org/debian-security bullseye-security main
 
   # 3. Inject dpkg exclusions - apply to packages installed after debootstrap
   - path: /etc/dpkg/dpkg.cfg.d/01_nodoc
@@ -103,18 +104,18 @@ actions:
 
       export DEBIAN_FRONTEND=noninteractive
 
+      echo ">>> Installing base packages"
       apt-get update
       apt-get install -y systemd systemd-sysv wget ifupdown isc-dhcp-client
       apt-get remove -y udev 2>/dev/null || true
       apt-get autoremove -y
 
+      echo ">>> Cleaning docs, man pages, locale data"
       rm -rf /usr/share/doc/* /usr/share/man/* /usr/share/locale/*
       rm -f /var/cache/apt/*.bin
       rm -rf /var/lib/apt/lists/*
 
-      # Re-add security repo now that cleanup is done
-      echo 'deb http://deb.debian.org/debian-security bullseye-security main' >> /etc/apt/sources.list
-
+      echo ">>> Configuring journald limits"
       mkdir -p /etc/systemd/journald.conf.d
       printf '[Journal]\nSystemMaxUse=50M\nSystemKeepFree=0\n' \
              > /etc/systemd/journald.conf.d/00-container-limits.conf
