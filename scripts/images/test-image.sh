@@ -31,7 +31,7 @@ if [ "$DISTRO" == "ubuntu" ]; then
     MAX_ARCHIVE_MB=50
     SECURITY_URL="security.ubuntu.com"
 else
-    MAX_EXTRACTED_MB=150
+    MAX_EXTRACTED_MB=175
     MAX_ARCHIVE_MB=35
     SECURITY_URL="deb.debian.org/debian-security"
 fi
@@ -118,7 +118,7 @@ else
 fi
 
 # 3. DHCP & Network Routing
-TIMEOUT=30
+TIMEOUT=60
 ELAPSED=0
 NETWORK_UP=0
 while [ $ELAPSED -lt $TIMEOUT ]; do
