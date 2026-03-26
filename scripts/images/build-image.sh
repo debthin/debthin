@@ -41,13 +41,38 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# Ensure dependencies exist
-for cmd in distrobuilder curl buildah debootstrap; do
+# Ensure build dependencies exist
+MISSING=0
+for cmd in git jq debootstrap distrobuilder make buildah lxc-create podman; do
     if ! command -v "$cmd" >/dev/null 2>&1; then
         echo "ERROR: Required command '$cmd' is not installed."
-        exit 1
+        MISSING=1
     fi
 done
+
+# Check for qemu-user-static (needed for cross-arch builds)
+if ! ls /usr/bin/qemu-*-static >/dev/null 2>&1; then
+    echo "WARNING: qemu-user-static not found (cross-arch builds will fail)"
+fi
+
+# Check for lxc-templates (provides debian.common.conf etc.)
+if [ ! -d /usr/share/lxc/config ]; then
+    echo "ERROR: lxc-templates not installed (/usr/share/lxc/config missing)"
+    MISSING=1
+fi
+
+# Check for apparmor (required by lxc-start)
+if ! command -v apparmor_parser >/dev/null 2>&1; then
+    echo "ERROR: apparmor not installed (lxc-start will fail)"
+    MISSING=1
+fi
+
+if [ "$MISSING" -eq 1 ]; then
+    echo ""
+    echo "Install all dependencies with:"
+    echo "  apt-get install git jq debootstrap distrobuilder make buildah qemu-user-static lxc podman lxc-templates apparmor"
+    exit 1
+fi
 
 if [ ! -f "$CONFIG_FILE" ]; then
     echo "ERROR: config.json not found at $CONFIG_FILE"
