@@ -209,3 +209,95 @@ if [ "$AVAILABLE_PKGS" -le "$MAX_AVAILABLE_PKGS" ]; then
 else
     log_fail "APT cache footprint too large! Debthin curation failed ($AVAILABLE_PKGS > $MAX_AVAILABLE_PKGS available pkgs)"
 fi
+
+# 9. GPG Key Integrity
+if lxc-attach "$NAME" -- test -f /etc/apt/keyrings/debthin.gpg; then
+    # Verify it's a valid GPG keyring by attempting to list it
+    if lxc-attach "$NAME" -- gpg --no-default-keyring --keyring /etc/apt/keyrings/debthin.gpg --list-keys >/dev/null 2>&1; then
+        log_pass "Debthin GPG keyring present and valid"
+    else
+        log_fail "Debthin GPG keyring present but not a valid keyring"
+    fi
+else
+    log_fail "Debthin GPG keyring missing at /etc/apt/keyrings/debthin.gpg"
+fi
+
+# 10. Init System Validation
+if lxc-attach "$NAME" -- test -x /sbin/init; then
+    log_pass "/sbin/init exists (systemd-sysv installed)"
+else
+    log_fail "/sbin/init missing (systemd-sysv not installed?)"
+fi
+
+PID1_COMM=$(lxc-attach "$NAME" -- cat /proc/1/comm 2>/dev/null)
+if [ "$PID1_COMM" = "systemd" ]; then
+    log_pass "PID 1 is systemd"
+else
+    log_fail "PID 1 is '$PID1_COMM', expected 'systemd'"
+fi
+
+# 11. Package Integrity
+AUDIT_OUT=$(lxc-attach "$NAME" -- dpkg --audit 2>&1)
+if [ -z "$AUDIT_OUT" ]; then
+    log_pass "dpkg --audit clean (no broken/half-configured packages)"
+else
+    log_fail "dpkg --audit found issues: $AUDIT_OUT"
+fi
+
+# 12. Systemd Services (skip for bullseye which uses ifupdown)
+if [ "$SUITE" != "bullseye" ]; then
+    if lxc-attach "$NAME" -- systemctl is-enabled systemd-networkd.service >/dev/null 2>&1; then
+        log_pass "systemd-networkd.service enabled"
+    else
+        log_fail "systemd-networkd.service not enabled"
+    fi
+
+    if lxc-attach "$NAME" -- systemctl is-enabled thin-resolv.path >/dev/null 2>&1; then
+        log_pass "thin-resolv.path enabled"
+    else
+        log_fail "thin-resolv.path not enabled"
+    fi
+else
+    log_info "Skipping networkd/thin-resolv checks (bullseye uses ifupdown)"
+fi
+
+# 13. Documentation Stripping
+DOC_COUNT=$(lxc-attach "$NAME" -- find /usr/share/doc -type f ! -name copyright 2>/dev/null | wc -l)
+if [ "$DOC_COUNT" -le 5 ]; then
+    log_pass "/usr/share/doc stripped ($DOC_COUNT non-copyright files remain)"
+else
+    log_fail "/usr/share/doc not stripped ($DOC_COUNT non-copyright files)"
+fi
+
+MAN_COUNT=$(lxc-attach "$NAME" -- find /usr/share/man -type f 2>/dev/null | wc -l)
+if [ "$MAN_COUNT" -eq 0 ]; then
+    log_pass "/usr/share/man is empty"
+else
+    log_fail "/usr/share/man not stripped ($MAN_COUNT files remain)"
+fi
+
+# 14. No Stale APT Cache
+DEB_COUNT=$(lxc-attach "$NAME" -- bash -c 'ls /var/cache/apt/archives/*.deb 2>/dev/null | wc -l')
+if [ "$DEB_COUNT" -eq 0 ]; then
+    log_pass "No stale .deb files in apt cache"
+else
+    log_fail "$DEB_COUNT stale .deb files in /var/cache/apt/archives/"
+fi
+
+# 15. Journald Limits
+if lxc-attach "$NAME" -- test -f /etc/systemd/journald.conf.d/00-container-limits.conf; then
+    if lxc-attach "$NAME" -- grep -q 'SystemMaxUse=50M' /etc/systemd/journald.conf.d/00-container-limits.conf; then
+        log_pass "Journald SystemMaxUse=50M configured"
+    else
+        log_fail "Journald limits file exists but SystemMaxUse=50M not found"
+    fi
+else
+    log_fail "Journald limits config missing"
+fi
+
+# 16. No systemd-resolved Running
+if lxc-attach "$NAME" -- systemctl is-active systemd-resolved.service >/dev/null 2>&1; then
+    log_fail "systemd-resolved is running (should not be in minimal containers)"
+else
+    log_pass "systemd-resolved is not running"
+fi
