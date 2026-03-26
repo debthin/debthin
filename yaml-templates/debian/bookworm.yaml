@@ -20,6 +20,7 @@ files:
     generator: dump
     content: |-
       deb [signed-by=/etc/apt/keyrings/debthin.gpg] http://debthin.org/debian bookworm main
+      deb http://deb.debian.org/debian-security bookworm-security main
 
   # 3. Inject dpkg exclusions - apply to packages installed after debootstrap
   - path: /etc/dpkg/dpkg.cfg.d/01_nodoc
@@ -137,8 +138,6 @@ actions:
       rm -f /var/cache/apt/*.bin
       rm -rf /var/lib/apt/lists/*
 
-      # Re-add security repo now that cleanup is done
-      echo 'deb http://deb.debian.org/debian-security bookworm-security main' >> /etc/apt/sources.list
 
       systemctl enable systemd-networkd.service
       systemctl enable systemd-networkd.socket
