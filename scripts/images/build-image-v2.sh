@@ -260,11 +260,16 @@ SRCEOF
 
 # If installing coreutils-from-gnu, remove conflicting coreutils-from-uutils
 # that minbase may have installed (e.g. questing defaults to Rust coreutils).
+# Pin it to -1 so mmdebstrap's priority:required filter doesn't re-pull it.
 if echo "${INCLUDE_PKGS}" | grep -q "coreutils-from-gnu"; then
-    if chroot "\$ROOTFS" dpkg -l coreutils-from-uutils 2>/dev/null | grep -q '^ii'; then
-        echo ">>> [setup] Removing coreutils-from-uutils (conflicts with coreutils-from-gnu)"
-        chroot "\$ROOTFS" dpkg --remove --force-depends coreutils-from-uutils rust-coreutils 2>/dev/null || true
-    fi
+    echo ">>> [setup] Pinning coreutils-from-uutils to never-install"
+    mkdir -p "\$ROOTFS/etc/apt/preferences.d"
+    cat > "\$ROOTFS/etc/apt/preferences.d/no-uutils" <<'PINEOF'
+Package: coreutils-from-uutils rust-coreutils
+Pin: release *
+Pin-Priority: -1
+PINEOF
+    chroot "\$ROOTFS" dpkg --remove --force-depends coreutils-from-uutils rust-coreutils 2>/dev/null || true
 fi
 SETUP_EOF
 
