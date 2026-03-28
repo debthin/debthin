@@ -36,17 +36,15 @@ IS_NATIVE=0
 [ "$ARCH" = "$HOST_ARCH" ] && IS_NATIVE=1
 
 # Set limits based on distribution
+MAX_EXTRACTED_MB=300
+MAX_ARCHIVE_MB=40
 if [ "$DISTRO" == "ubuntu" ]; then
-    MAX_EXTRACTED_MB=300
-    MAX_ARCHIVE_MB=50
     if [ "$ARCH" = "arm64" ]; then
         SECURITY_URL="ports.ubuntu.com"
     else
         SECURITY_URL="security.ubuntu.com"
     fi
 else
-    MAX_EXTRACTED_MB=175
-    MAX_ARCHIVE_MB=35
     SECURITY_URL="deb.debian.org/debian-security"
 fi
 
