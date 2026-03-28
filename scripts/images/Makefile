@@ -37,11 +37,12 @@ RAW_TARGETS := $(shell jq -r ' \
   ) \
 ' $(CONFIG_FILE))
 
-# Filter to targets with a build profile for the suite
+# Filter to targets with a matching build profile (distro/suite or distro/suite.arch)
 PROFILES_DIR := $(SCRIPTS)/build-profiles
-TARGETS := $(foreach t,$(RAW_TARGETS),$(if $(wildcard $(PROFILES_DIR)/$(word 2,$(subst /, ,$(t)))*),$(t)))
-# Exclude raspbian (no dedicated profiles, suite names conflict with debian)
-TARGETS := $(filter-out raspbian/%,$(TARGETS))
+TARGETS := $(foreach t,$(RAW_TARGETS),$(if $(or \
+  $(wildcard $(PROFILES_DIR)/$(word 1,$(subst /, ,$(t)))/$(word 2,$(subst /, ,$(t)))),\
+  $(wildcard $(PROFILES_DIR)/$(word 1,$(subst /, ,$(t)))/$(word 2,$(subst /, ,$(t))).$(word 3,$(subst /, ,$(t))))\
+),$(t)))
 
 # Split targets into native-arch (run first) and cross-arch (run after).
 # Native builds populate caches (ca-certificates etc.) that cross-arch reuses.

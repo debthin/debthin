@@ -92,13 +92,13 @@ else
     exit 1
 fi
 
-# --- Resolve profile: arch-specific first, then default ---
-if [ -e "${PROFILES_DIR}/${SUITE}.${ARCH}" ]; then
-    PROFILE_LINK="${PROFILES_DIR}/${SUITE}.${ARCH}"
-elif [ -e "${PROFILES_DIR}/${SUITE}" ]; then
-    PROFILE_LINK="${PROFILES_DIR}/${SUITE}"
+# --- Resolve profile: distro/suite.arch first, then distro/suite ---
+if [ -e "${PROFILES_DIR}/${DISTRO}/${SUITE}.${ARCH}" ]; then
+    PROFILE_LINK="${PROFILES_DIR}/${DISTRO}/${SUITE}.${ARCH}"
+elif [ -e "${PROFILES_DIR}/${DISTRO}/${SUITE}" ]; then
+    PROFILE_LINK="${PROFILES_DIR}/${DISTRO}/${SUITE}"
 else
-    echo "ERROR: No profile for '${SUITE}' (or ${SUITE}.${ARCH}) in ${PROFILES_DIR}"
+    echo "ERROR: No profile for '${DISTRO}/${SUITE}' (or ${SUITE}.${ARCH}) in ${PROFILES_DIR}/${DISTRO}/"
     exit 1
 fi
 
