@@ -4,15 +4,12 @@
 #
 # Handles the coreutils-from-uutils → coreutils-from-gnu swap on releases
 # where Rust coreutils is the default (questing+).
+# Purges (not just removes) uutils so dpkg forgets about it entirely —
+# otherwise mmdebstrap's required-package filter tries to reinstall it.
 
 ROOTFS="$1"
 
-echo ">>> [pre-install] Pinning coreutils-from-uutils to never-install"
-mkdir -p "$ROOTFS/etc/apt/preferences.d"
-cat > "$ROOTFS/etc/apt/preferences.d/no-uutils" <<'PINEOF'
-Package: coreutils-from-uutils rust-coreutils
-Pin: release *
-Pin-Priority: -1
-PINEOF
-
-dpkg --root="$ROOTFS" --remove --force-depends coreutils-from-uutils rust-coreutils 2>/dev/null || true
+if chroot "$ROOTFS" dpkg -l coreutils-from-uutils 2>/dev/null | grep -q '^ii'; then
+    echo ">>> [pre-install] Purging coreutils-from-uutils (replacing with gnu)"
+    chroot "$ROOTFS" dpkg --purge --force-depends coreutils-from-uutils rust-coreutils 2>/dev/null || true
+fi
