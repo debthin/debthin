@@ -365,3 +365,8 @@ if lxc-attach "$NAME" -- systemctl is-active systemd-resolved.service >/dev/null
 else
     log_pass "systemd-resolved is not running"
 fi
+
+# Extract installed package list for reference
+PKG_LIST="$DIR/$VERSION/installed-packages.txt"
+lxc-attach "$NAME" -- dpkg-query -W -f '${Package}\t${Version}\n' 2>/dev/null | sort > "$PKG_LIST"
+log_info "Package list written to $PKG_LIST ($(wc -l < "$PKG_LIST") packages)"
