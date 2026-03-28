@@ -317,6 +317,7 @@ sudo mmdebstrap \
     --variant=minbase \
     --arch="$ARCH" \
     --include="$INCLUDE_PKGS" \
+    --aptopt='APT::Sandbox::User "root"' \
     $KEYRING_OPT \
     --setup-hook="${WORK_DIR}/hook-setup.sh \"\$1\"" \
     --customize-hook="${WORK_DIR}/hook-customize.sh \"\$1\"" \
