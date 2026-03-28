@@ -248,7 +248,7 @@ chmod +x "${WORK_DIR}/hook-setup.sh" "${WORK_DIR}/hook-customize.sh"
 echo "[BUILD] Running mmdebstrap..."
 
 sudo mmdebstrap \
-    --variant=minbase \
+    --variant=debootstrap \
     --arch="$ARCH" \
     --include="$INCLUDE_PKGS" \
     $KEYRING_OPT \
