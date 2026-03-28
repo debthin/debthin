@@ -126,8 +126,19 @@ WORK_DIR="${TMP_DIR}/${DISTRO}_${SUITE}_${ARCH}"
 mkdir -p "$WORK_DIR"
 cd "$WORK_DIR" || exit 1
 
-[ -f "${REPO_ROOT}/static/debthin-keyring-binary.gpg" ] && \
-    cp "${REPO_ROOT}/static/debthin-keyring-binary.gpg" "${WORK_DIR}/debthin-keyring-binary.gpg"
+GPG_KEY="${REPO_ROOT}/static/debthin-keyring-binary.gpg"
+KEYRING_OPT=""
+if echo "$MIRROR" | grep -q "debthin.org"; then
+    if [ ! -f "$GPG_KEY" ]; then
+        echo "ERROR: debthin GPG keyring not found at $GPG_KEY"
+        echo "Cannot bootstrap from debthin.org without the signing key."
+        exit 1
+    fi
+    cp "$GPG_KEY" "${WORK_DIR}/debthin-keyring-binary.gpg"
+    KEYRING_OPT="--keyring=${WORK_DIR}/debthin-keyring-binary.gpg"
+elif [ -f "$GPG_KEY" ]; then
+    cp "$GPG_KEY" "${WORK_DIR}/debthin-keyring-binary.gpg"
+fi
 
 # --- Mount rootfs as tmpfs ---
 TMPFS_SIZE="${TMPFS_SIZE:-768M}"
@@ -141,10 +152,6 @@ fi
 SOURCES_CONTENT="deb [signed-by=/etc/apt/keyrings/debthin.gpg] ${MIRROR} ${SUITE} main"
 [ -n "$SECURITY_LINE" ] && SOURCES_CONTENT="${SOURCES_CONTENT}
 ${SECURITY_LINE}"
-
-KEYRING_OPT=""
-[ -f "${WORK_DIR}/debthin-keyring-binary.gpg" ] && \
-    KEYRING_OPT="--keyring=${WORK_DIR}/debthin-keyring-binary.gpg"
 
 HOST_APT="${REPO_ROOT}/.cache/apt/${DISTRO}_${SUITE}_${ARCH}"
 mkdir -p "$HOST_APT"
