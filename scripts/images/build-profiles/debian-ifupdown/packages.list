@@ -27,3 +27,10 @@ isc-dhcp-client
 xxd
 openssl
 lsb-release
+ucf
+apt-utils
+init
+media-types
+libpam-cap
+whiptail
+eject
