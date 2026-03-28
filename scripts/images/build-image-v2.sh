@@ -249,12 +249,8 @@ echo ">>> [setup] Injecting GPG keyrings"
 mkdir -p "\$ROOTFS/etc/apt/keyrings"
 cp "${WORK_DIR}/debthin-keyring-binary.gpg" "\$ROOTFS/etc/apt/keyrings/debthin.gpg"
 
-echo ">>> [setup] Fixing apt directory permissions for _apt user"
-mkdir -p "\$ROOTFS/var/cache/apt/archives" "\$ROOTFS/var/lib/apt/lists/partial"
-chmod 0777 "\$ROOTFS/var/lib/apt/lists/partial"
-
 echo ">>> [setup] Bind-mounting host apt cache"
-chmod 0777 "${HOST_APT}"
+mkdir -p "\$ROOTFS/var/cache/apt/archives" "\$ROOTFS/var/lib/apt/lists/partial"
 mount --bind "${HOST_APT}" "\$ROOTFS/var/cache/apt/archives"
 
 echo ">>> [setup] Writing bootstrap sources.list (--keyring handles authentication)"
@@ -321,10 +317,15 @@ chmod +x "${WORK_DIR}/hook-setup.sh" "${WORK_DIR}/hook-customize.sh"
 
 echo "[BUILD] Running mmdebstrap..."
 
+# Use the invoking user for apt sandbox instead of _apt (which can't access
+# the bind-mounted host cache). Falls back to root if SUDO_USER is unset.
+APT_SANDBOX_USER="${SUDO_USER:-root}"
+
 sudo mmdebstrap \
     --variant=minbase \
     --arch="$ARCH" \
     --include="$INCLUDE_PKGS" \
+    --aptopt="APT::Sandbox::User \"${APT_SANDBOX_USER}\"" \
 
     $KEYRING_OPT \
     --setup-hook="${WORK_DIR}/hook-setup.sh \"\$1\"" \
