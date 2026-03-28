@@ -2,10 +2,16 @@
 # Post-install hook for debian-ifupdown profile.
 # Runs in the customize hook after standard cleanup.
 #
-# Removes full perl (keeping perl-base) to save ~30MB on releases
-# where debconf pulls in the full perl stack (bullseye and earlier).
+# Strips usrmerge (job done once usr is merged) and full perl
+# (keeping perl-base) to save ~30MB on bullseye and earlier.
 
 ROOTFS="$1"
+
+# usrmerge depends on perl but has already done its job by this point.
+if chroot "$ROOTFS" dpkg -l usrmerge 2>/dev/null | grep -q '^ii'; then
+    echo ">>> [post-install] Removing usrmerge (usr already merged)"
+    chroot "$ROOTFS" dpkg --remove --force-depends usrmerge 2>/dev/null || true
+fi
 
 # Remove full perl — version varies by release, use wildcard matching
 for pkg in perl perl-modules-* libperl5.* \
