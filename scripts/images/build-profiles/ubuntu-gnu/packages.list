@@ -2,7 +2,9 @@ apt
 systemd
 systemd-sysv
 dbus
+dbus-user-session
 libpam-systemd
+libnss-systemd
 iproute2
 ca-certificates
 wget
@@ -10,7 +12,14 @@ procps
 less
 login
 passwd
+sudo
 cron
 logrotate
 iputils-ping
+netbase
+netcat-openbsd
+vim-tiny
+tzdata
+systemd-timesyncd
+python3-minimal
 coreutils-from-gnu
