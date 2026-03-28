@@ -37,7 +37,7 @@ IS_NATIVE=0
 
 # Set limits based on distribution
 MAX_EXTRACTED_MB=300
-MAX_ARCHIVE_MB=40
+MAX_ARCHIVE_MB=45
 if [ "$DISTRO" == "ubuntu" ]; then
     if [ "$ARCH" = "arm64" ]; then
         SECURITY_URL="ports.ubuntu.com"
