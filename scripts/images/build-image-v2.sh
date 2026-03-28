@@ -277,6 +277,8 @@ chroot "\$ROOTFS" dpkg --remove --force-depends udev 2>/dev/null || true
 
 echo ">>> [customize] Removing systemd-resolved"
 chroot "\$ROOTFS" dpkg --remove --force-depends systemd-resolved 2>/dev/null || true
+chroot "\$ROOTFS" systemctl disable --now systemd-resolved.service 2>/dev/null || true
+chroot "\$ROOTFS" systemctl mask systemd-resolved.service 2>/dev/null || true
 CUSTOM_EOF
 
 # Enable services listed in the profile
