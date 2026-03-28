@@ -180,9 +180,18 @@ if [ -d "$(readlink -f "${PROFILE_DIR}/rootfs")" ]; then
     cp -a "$(readlink -f "${PROFILE_DIR}/rootfs")/." "\$ROOTFS/"
 fi
 
-echo ">>> [setup] Injecting GPG keyring"
-mkdir -p "\$ROOTFS/etc/apt/keyrings"
+echo ">>> [setup] Injecting GPG keyrings"
+mkdir -p "\$ROOTFS/etc/apt/keyrings" "\$ROOTFS/usr/share/keyrings"
 cp "${WORK_DIR}/debthin-keyring-binary.gpg" "\$ROOTFS/etc/apt/keyrings/debthin.gpg"
+
+# Copy distro archive keyrings so apt can verify security repos.
+# These go in trusted.gpg.d/ since the security lines have no signed-by.
+# This is the standard distro keyring, not a third-party key.
+mkdir -p "\$ROOTFS/etc/apt/trusted.gpg.d"
+for kr in /usr/share/keyrings/debian-archive-keyring.gpg \
+          /usr/share/keyrings/ubuntu-archive-keyring.gpg; do
+    [ -f "\$kr" ] && cp "\$kr" "\$ROOTFS/etc/apt/trusted.gpg.d/"
+done
 
 echo ">>> [setup] Bind-mounting host apt cache"
 mkdir -p "\$ROOTFS/var/cache/apt/archives"
