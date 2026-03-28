@@ -121,6 +121,13 @@ if [ -s "${PROFILE_DIR}/security" ]; then
 fi
 
 echo "[BUILD] ${DISTRO}/${SUITE}/${ARCH} -> profile: ${PROFILE_NAME}"
+
+# Redirect verbose output to build log only; restore stdout for summary at the end
+BUILD_LOG="${OUT_DIR}/build.log"
+mkdir -p "$OUT_DIR"
+exec 3>&1 4>&2
+exec >"$BUILD_LOG" 2>&1
+
 echo "[BUILD] Mirror: ${MIRROR}"
 echo "[BUILD] Packages: ${INCLUDE_PKGS}"
 
@@ -333,6 +340,9 @@ fi
 sudo rm -rf "$ROOTFS_MNT" 2>/dev/null || true
 sudo chown -R "$(id -u):$(id -g)" "$OUT_DIR"
 
+# Restore stdout/stderr for final summary
+exec 1>&3 2>&4 3>&- 4>&-
+
 echo "Calculating SHA256 hashes..."
 cd "$OUT_DIR" || exit 1
 SHA_CMD="sha256sum"
@@ -340,6 +350,12 @@ command -v sha256sum >/dev/null 2>&1 || SHA_CMD="shasum -a 256"
 find . -type f ! -name "hashes.txt" | sort | xargs $SHA_CMD > hashes.txt
 
 echo "[TEST] Running container validation for ${DISTRO}/${SUITE} (${ARCH})..."
-sudo "${SCRIPT_DIR}/test-image.sh" "${DISTRO}/${SUITE}" "${ARCH}"
+sudo "${SCRIPT_DIR}/test-image.sh" "${DISTRO}/${SUITE}" "${ARCH}" 2>&1 | tee -a "$BUILD_LOG"
+TEST_RC=${PIPESTATUS[0]}
 
-echo "[DONE] Artefacts saved to: $OUT_DIR"
+if [ $TEST_RC -eq 0 ]; then
+    echo "[DONE] ${DISTRO}/${SUITE}/${ARCH} -> $OUT_DIR"
+else
+    echo "[FAIL] ${DISTRO}/${SUITE}/${ARCH} — see $BUILD_LOG"
+    exit $TEST_RC
+fi
