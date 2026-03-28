@@ -195,16 +195,7 @@ ${BOOTSTRAP_SOURCES}
 SRCEOF
 SETUP_EOF
 
-# Customize hook: clean up, remove udev, handle ca-certs cache, enable services.
-#
-# ca-certificates caching: the update-ca-certificates postinst is slow under
-# QEMU for cross-arch builds. Since ca-certificates is arch:all, the processed
-# cert tree is identical across architectures. Native builds populate the cache;
-# cross-arch builds inject the cached result and skip postinst.
-CA_CACHE="${REPO_ROOT}/.build_tmp/ca-certs/${DISTRO}_${SUITE}"
-IS_CROSS=0
-[ "$ARCH" != "$HOST_ARCH" ] && IS_CROSS=1
-
+# Customize hook: clean up, remove udev, enable services.
 cat > "${WORK_DIR}/hook-customize.sh" <<CUSTOM_EOF
 #!/bin/sh
 set -e
@@ -218,30 +209,6 @@ rm -f "\$ROOTFS/var/cache/apt/"*.bin
 
 echo ">>> [customize] Removing udev"
 chroot "\$ROOTFS" dpkg --remove --force-depends udev 2>/dev/null || true
-
-echo ">>> [customize] Handling ca-certificates"
-CA_VER=\$(chroot "\$ROOTFS" dpkg-query -W -f '\${Version}' ca-certificates 2>/dev/null || echo "unknown")
-CA_CACHE_DIR="${CA_CACHE}/\${CA_VER}"
-
-if [ ${IS_CROSS} -eq 1 ] && [ -d "\${CA_CACHE_DIR}" ]; then
-    echo ">>> [ca-certs] Cross-arch: injecting cached certs (version \${CA_VER})"
-    cp -a "\${CA_CACHE_DIR}/etc/ssl/." "\$ROOTFS/etc/ssl/"
-    cp -a "\${CA_CACHE_DIR}/usr/share/ca-certificates/." "\$ROOTFS/usr/share/ca-certificates/" 2>/dev/null || true
-else
-    echo ">>> [ca-certs] Running update-ca-certificates (version \${CA_VER})"
-    chroot "\$ROOTFS" update-ca-certificates 2>/dev/null || true
-
-    if [ ${IS_CROSS} -eq 0 ]; then
-        echo ">>> [ca-certs] Caching processed cert tree for cross-arch reuse"
-        CA_TMP="${CA_CACHE}/.\${CA_VER}.tmp.\$\$"
-        rm -rf "\${CA_TMP}"
-        mkdir -p "\${CA_TMP}/etc" "\${CA_TMP}/usr/share"
-        cp -a "\$ROOTFS/etc/ssl" "\${CA_TMP}/etc/"
-        cp -a "\$ROOTFS/usr/share/ca-certificates" "\${CA_TMP}/usr/share/" 2>/dev/null || true
-        rm -rf "\${CA_CACHE_DIR}"
-        mv "\${CA_TMP}" "\${CA_CACHE_DIR}"
-    fi
-fi
 CUSTOM_EOF
 
 # Enable services listed in the profile
