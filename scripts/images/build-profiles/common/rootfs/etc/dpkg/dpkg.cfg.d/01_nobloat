@@ -1,0 +1,4 @@
+path-exclude /usr/lib/x86_64-linux-gnu/gconv/*
+path-exclude /usr/lib/udev/hwdb.d/*
+path-exclude /usr/lib/systemd/hwdb/*
+path-exclude /etc/udev/hwdb.d/*

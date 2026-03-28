@@ -1,0 +1,5 @@
+Acquire::Languages "none";
+Acquire::GzipIndexes "true";
+Acquire::CompressionTypes::Order:: "gz";
+Dir::Cache::pkgcache "";
+Dir::Cache::srcpkgcache "";

@@ -1,0 +1,9 @@
+systemd
+systemd-sysv
+wget
+dbus
+libpam-systemd
+iproute2
+ca-certificates
+ifupdown
+isc-dhcp-client
