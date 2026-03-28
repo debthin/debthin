@@ -39,7 +39,11 @@ IS_NATIVE=0
 if [ "$DISTRO" == "ubuntu" ]; then
     MAX_EXTRACTED_MB=300
     MAX_ARCHIVE_MB=50
-    SECURITY_URL="security.ubuntu.com"
+    if [ "$ARCH" = "arm64" ]; then
+        SECURITY_URL="ports.ubuntu.com"
+    else
+        SECURITY_URL="security.ubuntu.com"
+    fi
 else
     MAX_EXTRACTED_MB=175
     MAX_ARCHIVE_MB=35
