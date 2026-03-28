@@ -278,6 +278,13 @@ echo ">>> [customize] Removing systemd-resolved"
 chroot "\$ROOTFS" dpkg --remove --force-depends systemd-resolved 2>/dev/null || true
 chroot "\$ROOTFS" systemctl disable --now systemd-resolved.service 2>/dev/null || true
 chroot "\$ROOTFS" systemctl mask systemd-resolved.service 2>/dev/null || true
+
+# Ubuntu's /etc/resolv.conf is a symlink to resolved's stub. With resolved
+# gone, replace the dead symlink with a regular file that thin-resolv can write.
+if [ -L "\$ROOTFS/etc/resolv.conf" ]; then
+    rm -f "\$ROOTFS/etc/resolv.conf"
+    touch "\$ROOTFS/etc/resolv.conf"
+fi
 CUSTOM_EOF
 
 # Enable services listed in the profile
