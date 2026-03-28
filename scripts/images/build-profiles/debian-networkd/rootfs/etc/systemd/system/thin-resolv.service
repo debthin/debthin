@@ -1,6 +1,8 @@
 # Writes /etc/resolv.conf from networkd lease state.
-# Skips when systemd-resolved is actively running, since resolved
-# manages /etc/resolv.conf itself.
+# Defers to systemd-resolved when it is actively running; otherwise
+# generates resolv.conf from the networkd lease.
+# Note: resolvectl binary lives in the systemd package (not systemd-resolved),
+# so checking for the binary is not a reliable proxy for resolved being active.
 [Unit]
 Description=Generate resolv.conf from networkd lease state
 After=systemd-networkd.service
