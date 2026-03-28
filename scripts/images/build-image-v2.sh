@@ -30,6 +30,57 @@ TMP_DIR="${REPO_ROOT}/.build_tmp"
 export XZ_OPT="-T1 -6"
 BUILD_DATE="${BUILD_DATE:-$(date +%Y%m%d)}"
 
+KEYRING_CACHE="${TMP_DIR}/keyrings"
+mkdir -p "$KEYRING_CACHE"
+
+# fetch_archive_keyring DISTRO
+#   Downloads the latest archive keyring .deb from upstream and extracts the
+#   GPG keyring files into $KEYRING_CACHE/. Cached for 7 days.
+fetch_archive_keyring() {
+    local distro="$1"
+    local stamp="${KEYRING_CACHE}/${distro}-archive-keyring.stamp"
+    local target="${KEYRING_CACHE}/${distro}-archive-keyring.gpg"
+
+    # Re-fetch if cache is older than 7 days or missing
+    if [ -f "$target" ] && [ -f "$stamp" ]; then
+        local age=$(( $(date +%s) - $(stat -c %Y "$stamp" 2>/dev/null || echo 0) ))
+        [ "$age" -lt 604800 ] && return 0
+    fi
+
+    echo "[KEYRING] Fetching ${distro}-archive-keyring from upstream..."
+    local tmp_deb="${KEYRING_CACHE}/${distro}-archive-keyring.deb"
+    local tmp_extract="${KEYRING_CACHE}/.extract-$$"
+
+    case "$distro" in
+        debian)
+            wget -q -O "$tmp_deb" \
+                "https://deb.debian.org/debian/pool/main/d/debian-archive-keyring/$(wget -q -O- https://deb.debian.org/debian/pool/main/d/debian-archive-keyring/ | grep -oP 'debian-archive-keyring_[0-9.]+_all\.deb' | sort -V | tail -1)" \
+                || { echo "WARN: Failed to fetch debian-archive-keyring"; return 1; }
+            ;;
+        ubuntu)
+            wget -q -O "$tmp_deb" \
+                "http://archive.ubuntu.com/ubuntu/pool/main/u/ubuntu-keyring/$(wget -q -O- http://archive.ubuntu.com/ubuntu/pool/main/u/ubuntu-keyring/ | grep -oP 'ubuntu-keyring_[0-9.]+_all\.deb' | sort -V | tail -1)" \
+                || { echo "WARN: Failed to fetch ubuntu-keyring"; return 1; }
+            ;;
+        *) return 1 ;;
+    esac
+
+    rm -rf "$tmp_extract"
+    mkdir -p "$tmp_extract"
+    dpkg-deb -x "$tmp_deb" "$tmp_extract"
+    cp "$tmp_extract"/usr/share/keyrings/${distro}-archive-keyring.gpg "$target" 2>/dev/null || \
+    cp "$tmp_extract"/usr/share/keyrings/ubuntu-archive-keyring.gpg "$target" 2>/dev/null || true
+    rm -rf "$tmp_extract" "$tmp_deb"
+
+    if [ -f "$target" ]; then
+        touch "$stamp"
+        echo "[KEYRING] Cached ${distro} archive keyring at $target"
+    else
+        echo "WARN: Could not extract ${distro} archive keyring"
+        return 1
+    fi
+}
+
 if [ "$#" -eq 1 ] && [[ "$1" == */*/* ]]; then
     IFS='/' read -r DISTRO SUITE ARCH <<< "$1"
 elif [ "$#" -eq 3 ]; then
@@ -72,6 +123,10 @@ fi
 echo "[BUILD] ${DISTRO}/${SUITE}/${ARCH} -> profile: ${PROFILE_NAME}"
 echo "[BUILD] Mirror: ${MIRROR}"
 echo "[BUILD] Packages: ${INCLUDE_PKGS}"
+
+# Fetch the distro's archive keyring for security repo verification
+fetch_archive_keyring "$DISTRO" || true
+ARCHIVE_KEYRING="${KEYRING_CACHE}/${DISTRO}-archive-keyring.gpg"
 
 # --- Cleanup trap ---
 cleanup() {
@@ -181,17 +236,14 @@ if [ -d "$(readlink -f "${PROFILE_DIR}/rootfs")" ]; then
 fi
 
 echo ">>> [setup] Injecting GPG keyrings"
-mkdir -p "\$ROOTFS/etc/apt/keyrings" "\$ROOTFS/usr/share/keyrings"
+mkdir -p "\$ROOTFS/etc/apt/keyrings" "\$ROOTFS/etc/apt/trusted.gpg.d"
 cp "${WORK_DIR}/debthin-keyring-binary.gpg" "\$ROOTFS/etc/apt/keyrings/debthin.gpg"
 
-# Copy distro archive keyrings so apt can verify security repos.
-# These go in trusted.gpg.d/ since the security lines have no signed-by.
-# This is the standard distro keyring, not a third-party key.
-mkdir -p "\$ROOTFS/etc/apt/trusted.gpg.d"
-for kr in /usr/share/keyrings/debian-archive-keyring.gpg \
-          /usr/share/keyrings/ubuntu-archive-keyring.gpg; do
-    [ -f "\$kr" ] && cp "\$kr" "\$ROOTFS/etc/apt/trusted.gpg.d/"
-done
+# Inject cached distro archive keyring for security repo verification
+if [ -f "${ARCHIVE_KEYRING}" ]; then
+    echo ">>> [setup] Injecting ${DISTRO} archive keyring"
+    cp "${ARCHIVE_KEYRING}" "\$ROOTFS/etc/apt/trusted.gpg.d/"
+fi
 
 echo ">>> [setup] Bind-mounting host apt cache"
 mkdir -p "\$ROOTFS/var/cache/apt/archives"
