@@ -1,0 +1,12 @@
+# Writes /etc/resolv.conf from networkd lease state.
+# Defers to systemd-resolved when it is actively running; otherwise
+# generates resolv.conf from the networkd lease.
+# Note: resolvectl binary lives in the systemd package (not systemd-resolved),
+# so checking for the binary is not a reliable proxy for resolved being active.
+[Unit]
+Description=Generate resolv.conf from networkd lease state
+After=systemd-networkd.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c "systemctl is-active -q systemd-resolved.service 2>/dev/null && exit 0; sed -n 's/^DNS=\\(.*\\)/\\1/p' /run/systemd/netif/state | tr ' ' '\\n' | sed '/^$/d; s/^/nameserver /' > /etc/resolv.conf"

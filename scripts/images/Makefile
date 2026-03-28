@@ -19,7 +19,7 @@ R2_ACCOUNT_ID ?=
 R2_ACCESS_KEY ?=
 R2_SECRET_KEY ?=
 FORCE         ?= 0
-TMPFS_SIZE    ?= 768M
+TMPFS_SIZE    ?= 288M
 
 # Parse target combinations dynamically from the repository config
 RAW_TARGETS := $(shell jq -r ' \
@@ -37,31 +37,45 @@ RAW_TARGETS := $(shell jq -r ' \
   ) \
 ' $(CONFIG_FILE))
 
-# Only build targets where a YAML template exists
-TARGETS := $(foreach t,$(RAW_TARGETS),$(if $(wildcard $(ROOT_DIR)/yaml-templates/$(word 1,$(subst /, ,$(t)))/$(word 2,$(subst /, ,$(t))).yaml),$(t)))
+# Filter to targets with a matching build profile (distro/suite or distro/suite.arch)
+PROFILES_DIR := $(SCRIPTS)/build-profiles
+TARGETS := $(foreach t,$(RAW_TARGETS),$(if $(or \
+  $(wildcard $(PROFILES_DIR)/$(word 1,$(subst /, ,$(t)))/$(word 2,$(subst /, ,$(t)))),\
+  $(wildcard $(PROFILES_DIR)/$(word 1,$(subst /, ,$(t)))/$(word 2,$(subst /, ,$(t))).$(word 3,$(subst /, ,$(t))))\
+),$(t)))
+
+# Split targets into native-arch (run first) and cross-arch (run after).
+# Native builds populate caches (ca-certificates etc.) that cross-arch reuses.
+HOST_ARCH := $(shell dpkg --print-architecture 2>/dev/null || uname -m | sed -e 's/x86_64/amd64/' -e 's/aarch64/arm64/')
+NATIVE_TARGETS := $(foreach t,$(TARGETS),$(if $(filter $(HOST_ARCH),$(word 3,$(subst /, ,$(t)))),$(t)))
+CROSS_TARGETS  := $(filter-out $(NATIVE_TARGETS),$(TARGETS))
 
 # Daily build stamp (YYYYMMDD)
 export BUILD_DATE := $(shell date +%Y%m%d)
 export FORCE
 export TMPFS_SIZE
 
-.PHONY: all build prune manifest upload clean $(TARGETS)
+.PHONY: all build build-native build-cross prune manifest upload clean $(TARGETS)
 
 # Default: full pipeline
 all: upload
 
 # ── Phase 1: Build ───────────────────────────────────────────────────────────
-# Each target runs build-image.sh for one distro/suite/arch combination.
+# Native-arch targets run first (populates ca-certs cache etc.), then cross-arch.
 
-build: $(TARGETS)
+build: build-native build-cross
 	@echo ""
 	@echo "==========================================="
 	@echo " Build complete"
 	@echo " Images in: $(OUTPUT)/images"
 	@echo "==========================================="
 
+build-native: $(NATIVE_TARGETS)
+
+build-cross: build-native $(CROSS_TARGETS)
+
 $(TARGETS):
-	@./build-image.sh $@
+	@./build-image-v2.sh $@
 
 # ── Phase 2: Prune ───────────────────────────────────────────────────────────
 # Keep only the 5 most recent version directories per distro/suite/arch.

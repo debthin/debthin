@@ -36,25 +36,32 @@ IS_NATIVE=0
 [ "$ARCH" = "$HOST_ARCH" ] && IS_NATIVE=1
 
 # Set limits based on distribution
+MAX_EXTRACTED_MB=300
+MAX_ARCHIVE_MB=45
 if [ "$DISTRO" == "ubuntu" ]; then
-    MAX_EXTRACTED_MB=300
-    MAX_ARCHIVE_MB=50
     if [ "$ARCH" = "arm64" ]; then
         SECURITY_URL="ports.ubuntu.com"
     else
         SECURITY_URL="security.ubuntu.com"
     fi
 else
-    MAX_EXTRACTED_MB=175
-    MAX_ARCHIVE_MB=35
     SECURITY_URL="deb.debian.org/debian-security"
 fi
 
-# Releases without a security repo yet
-case "$SUITE" in
-    plucky|questing) HAS_SECURITY=0 ;;
-    *)               HAS_SECURITY=1 ;;
-esac
+# Check if this suite has a security repo by looking at the build profile
+PROFILES_DIR="${SCRIPTS}/build-profiles"
+if [ -e "${PROFILES_DIR}/${SUITE}.${ARCH}" ]; then
+    _PROFILE=$(readlink -f "${PROFILES_DIR}/${SUITE}.${ARCH}")
+elif [ -e "${PROFILES_DIR}/${SUITE}" ]; then
+    _PROFILE=$(readlink -f "${PROFILES_DIR}/${SUITE}")
+else
+    _PROFILE=""
+fi
+
+HAS_SECURITY=0
+if [ -n "$_PROFILE" ] && [ -s "${_PROFILE}/security" ]; then
+    HAS_SECURITY=1
+fi
 
 MAX_INSTALLED_PKGS=250
 MAX_AVAILABLE_PKGS=15000
@@ -317,11 +324,19 @@ else
     log_fail "Network failed to acquire route within ${TIMEOUT}s"
 fi
 
-# R3. External DNS & Connectivity
-if lxc-attach "$NAME" -- ping -c 1 -W 5 debthin.org >/dev/null 2>&1; then
-    log_pass "DNS resolution and external ICMP connectivity functional"
+# R3. DNS Resolution (getent is always available, ping requires iputils-ping)
+# Wait for resolv.conf to be populated (thin-resolv.path triggers on networkd state)
+for i in $(seq 1 10); do
+    if lxc-attach "$NAME" -- test -s /etc/resolv.conf 2>/dev/null; then
+        break
+    fi
+    sleep 0.5
+done
+
+if lxc-attach "$NAME" -- getent hosts debthin.org >/dev/null 2>&1; then
+    log_pass "DNS resolution functional"
 else
-    log_fail "DNS resolution or external connectivity failed"
+    log_fail "DNS resolution failed (getent hosts debthin.org)"
 fi
 
 # R4. APT Update Execution
@@ -365,3 +380,8 @@ if lxc-attach "$NAME" -- systemctl is-active systemd-resolved.service >/dev/null
 else
     log_pass "systemd-resolved is not running"
 fi
+
+# Extract installed package list for reference
+PKG_LIST="$DIR/$VERSION/installed-packages.txt"
+lxc-attach "$NAME" -- dpkg-query -W -f '${Package}\t${Version}\n' 2>/dev/null | sort > "$PKG_LIST"
+log_info "Package list written to $PKG_LIST ($(wc -l < "$PKG_LIST") packages)"

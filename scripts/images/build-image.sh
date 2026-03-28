@@ -43,7 +43,7 @@ trap cleanup EXIT
 
 # Ensure build dependencies exist
 MISSING=0
-for cmd in git jq debootstrap distrobuilder make buildah lxc-create podman; do
+for cmd in git jq debootstrap distrobuilder mmdebstrap make buildah lxc-create podman; do
     if ! command -v "$cmd" >/dev/null 2>&1; then
         echo "ERROR: Required command '$cmd' is not installed."
         MISSING=1
@@ -70,7 +70,7 @@ fi
 if [ "$MISSING" -eq 1 ]; then
     echo ""
     echo "Install all dependencies with:"
-    echo "  apt-get install git jq debootstrap distrobuilder make buildah qemu-user-static lxc podman lxc-templates apparmor"
+    echo "  apt-get install git jq debootstrap distrobuilder mmdebstrap make buildah qemu-user-static lxc podman lxc-templates apparmor"
     exit 1
 fi
 
