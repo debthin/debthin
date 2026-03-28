@@ -25,7 +25,7 @@ python3-minimal
 xxd
 openssl
 ucf
-usrmerge
+usr-is-merged
 apt-utils
 media-types
 libpam-cap
