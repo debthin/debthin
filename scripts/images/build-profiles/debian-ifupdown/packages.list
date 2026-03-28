@@ -27,6 +27,7 @@ isc-dhcp-client
 xxd
 openssl
 ucf
+usrmerge
 apt-utils
 media-types
 libpam-cap
