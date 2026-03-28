@@ -148,9 +148,15 @@ if [ "$(uname -s)" = "Linux" ]; then
     sudo mount -t tmpfs -o size=${TMPFS_SIZE} tmpfs "$ROOTFS_MNT"
 fi
 
-# --- Build sources.list ---
-SOURCES_CONTENT="deb [signed-by=/etc/apt/keyrings/debthin.gpg] ${MIRROR} ${SUITE} main"
-[ -n "$SECURITY_LINE" ] && SOURCES_CONTENT="${SOURCES_CONTENT}
+# --- Build sources.list content ---
+# Bootstrap version: no signed-by (mmdebstrap uses --keyring for authentication)
+BOOTSTRAP_SOURCES="deb ${MIRROR} ${SUITE} main"
+[ -n "$SECURITY_LINE" ] && BOOTSTRAP_SOURCES="${BOOTSTRAP_SOURCES}
+${SECURITY_LINE}"
+
+# Final version: signed-by scopes the debthin key to only the debthin repo
+FINAL_SOURCES="deb [signed-by=/etc/apt/keyrings/debthin.gpg] ${MIRROR} ${SUITE} main"
+[ -n "$SECURITY_LINE" ] && FINAL_SOURCES="${FINAL_SOURCES}
 ${SECURITY_LINE}"
 
 HOST_APT="${REPO_ROOT}/.cache/apt/${DISTRO}_${SUITE}_${ARCH}"
@@ -176,13 +182,12 @@ if [ -d "$(readlink -f "${PROFILE_DIR}/rootfs")" ]; then
 fi
 
 echo ">>> [setup] Injecting GPG keyring"
-mkdir -p "\$ROOTFS/etc/apt/keyrings" "\$ROOTFS/etc/apt/trusted.gpg.d"
+mkdir -p "\$ROOTFS/etc/apt/keyrings"
 cp "${WORK_DIR}/debthin-keyring-binary.gpg" "\$ROOTFS/etc/apt/keyrings/debthin.gpg"
-cp "${WORK_DIR}/debthin-keyring-binary.gpg" "\$ROOTFS/etc/apt/trusted.gpg.d/debthin.gpg"
 
-echo ">>> [setup] Writing sources.list"
+echo ">>> [setup] Writing bootstrap sources.list (--keyring handles authentication)"
 cat > "\$ROOTFS/etc/apt/sources.list" <<'SRCEOF'
-${SOURCES_CONTENT}
+${BOOTSTRAP_SOURCES}
 SRCEOF
 SETUP_EOF
 
@@ -216,11 +221,16 @@ CUSTOM_EOF
     done
 fi
 
-cat >> "${WORK_DIR}/hook-customize.sh" <<'CUSTOM_EOF'
+cat >> "${WORK_DIR}/hook-customize.sh" <<CUSTOM_EOF
+
+echo ">>> [customize] Writing final sources.list with signed-by"
+cat > "\$ROOTFS/etc/apt/sources.list" <<'SRCEOF'
+${FINAL_SOURCES}
+SRCEOF
 
 echo ">>> [customize] Final apt cleanup"
-rm -rf "$ROOTFS/var/lib/apt/lists/"*
-rm -f "$ROOTFS/var/cache/apt/archives/"*.deb
+rm -rf "\$ROOTFS/var/lib/apt/lists/"*
+rm -f "\$ROOTFS/var/cache/apt/archives/"*.deb
 CUSTOM_EOF
 
 chmod +x "${WORK_DIR}/hook-setup.sh" "${WORK_DIR}/hook-customize.sh"
