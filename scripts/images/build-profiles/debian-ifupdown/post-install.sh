@@ -2,14 +2,16 @@
 # Post-install hook for debian-ifupdown profile.
 # Runs in the customize hook after standard cleanup.
 #
-# Strips usrmerge (job done once usr is merged) and full perl
-# (keeping perl-base) to save ~30MB on bullseye and earlier.
+# Replaces usrmerge with the usr-is-merged marker (tiny, no deps),
+# then strips full perl (keeping perl-base) to save ~30MB on
+# bullseye and earlier.
 
 ROOTFS="$1"
 
-# usrmerge depends on perl but has already done its job by this point.
+# Replace usrmerge with usr-is-merged marker
 if chroot "$ROOTFS" dpkg -l usrmerge 2>/dev/null | grep -q '^ii'; then
-    echo ">>> [post-install] Removing usrmerge (usr already merged)"
+    echo ">>> [post-install] Replacing usrmerge with usr-is-merged marker"
+    chroot "$ROOTFS" apt-get install -y --no-install-recommends usr-is-merged 2>/dev/null || true
     chroot "$ROOTFS" dpkg --remove --force-depends usrmerge 2>/dev/null || true
 fi
 
