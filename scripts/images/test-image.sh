@@ -50,11 +50,20 @@ else
     SECURITY_URL="deb.debian.org/debian-security"
 fi
 
-# Releases without a security repo yet
-case "$SUITE" in
-    plucky|questing) HAS_SECURITY=0 ;;
-    *)               HAS_SECURITY=1 ;;
-esac
+# Check if this suite has a security repo by looking at the build profile
+PROFILES_DIR="${SCRIPTS}/build-profiles"
+if [ -e "${PROFILES_DIR}/${SUITE}.${ARCH}" ]; then
+    _PROFILE=$(readlink -f "${PROFILES_DIR}/${SUITE}.${ARCH}")
+elif [ -e "${PROFILES_DIR}/${SUITE}" ]; then
+    _PROFILE=$(readlink -f "${PROFILES_DIR}/${SUITE}")
+else
+    _PROFILE=""
+fi
+
+HAS_SECURITY=0
+if [ -n "$_PROFILE" ] && [ -s "${_PROFILE}/security" ]; then
+    HAS_SECURITY=1
+fi
 
 MAX_INSTALLED_PKGS=250
 MAX_AVAILABLE_PKGS=15000
