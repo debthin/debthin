@@ -185,6 +185,10 @@ echo ">>> [setup] Injecting GPG keyring"
 mkdir -p "\$ROOTFS/etc/apt/keyrings"
 cp "${WORK_DIR}/debthin-keyring-binary.gpg" "\$ROOTFS/etc/apt/keyrings/debthin.gpg"
 
+echo ">>> [setup] Bind-mounting host apt cache"
+mkdir -p "\$ROOTFS/var/cache/apt/archives"
+mount --bind "${HOST_APT}" "\$ROOTFS/var/cache/apt/archives"
+
 echo ">>> [setup] Writing bootstrap sources.list (--keyring handles authentication)"
 cat > "\$ROOTFS/etc/apt/sources.list" <<'SRCEOF'
 ${BOOTSTRAP_SOURCES}
@@ -228,6 +232,9 @@ cat > "\$ROOTFS/etc/apt/sources.list" <<'SRCEOF'
 ${FINAL_SOURCES}
 SRCEOF
 
+echo ">>> [customize] Unmounting host apt cache"
+umount "\$ROOTFS/var/cache/apt/archives" 2>/dev/null || true
+
 echo ">>> [customize] Final apt cleanup"
 rm -rf "\$ROOTFS/var/lib/apt/lists/"*
 rm -f "\$ROOTFS/var/cache/apt/archives/"*.deb
@@ -246,7 +253,6 @@ sudo mmdebstrap \
     --arch="$ARCH" \
     --include="$INCLUDE_PKGS" \
     $KEYRING_OPT \
-    --aptopt="Dir::Cache::archives \"${HOST_APT}\"" \
     --setup-hook="${WORK_DIR}/hook-setup.sh \"\$1\"" \
     --customize-hook="${WORK_DIR}/hook-customize.sh \"\$1\"" \
     "$SUITE" "$ROOTFS_MNT" "$MIRROR"
