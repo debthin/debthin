@@ -226,104 +226,22 @@ ${SECURITY_LINE}"
 HOST_APT="${REPO_ROOT}/.cache/apt/${DISTRO}_${SUITE}_${ARCH}"
 mkdir -p "$HOST_APT"
 
+# Hook scripts — standalone scripts in build-profiles/common/ read context
+# from exported environment variables.
 # ==============================================================================
-# Hook scripts
-# ==============================================================================
 
-# Setup hook: inject common + profile rootfs trees BEFORE package installation.
-# The rootfs/ subtree mirrors the target filesystem, so cp -a does the right thing.
-cat > "${WORK_DIR}/hook-setup.sh" <<SETUP_EOF
-#!/bin/sh
-set -e
-ROOTFS="\$1"
+PROFILE_DIR="$(readlink -f "${PROFILE_DIR}")"
+export COMMON_DIR PROFILE_DIR PROFILE_NAME WORK_DIR HOST_APT
+export BOOTSTRAP_SOURCES FINAL_SOURCES
 
-echo ">>> [setup] Applying common rootfs overlay"
-cp -a "${COMMON_DIR}/rootfs/." "\$ROOTFS/"
-
-echo ">>> [setup] Applying ${PROFILE_NAME} rootfs overlay"
-if [ -d "$(readlink -f "${PROFILE_DIR}/rootfs")" ]; then
-    cp -a "$(readlink -f "${PROFILE_DIR}/rootfs")/." "\$ROOTFS/"
-fi
-
-echo ">>> [setup] Injecting GPG keyrings"
-mkdir -p "\$ROOTFS/etc/apt/keyrings"
-cp "${WORK_DIR}/debthin-keyring-binary.gpg" "\$ROOTFS/etc/apt/keyrings/debthin.gpg"
-
-echo ">>> [setup] Bind-mounting host apt cache"
-mkdir -p "\$ROOTFS/var/cache/apt/archives" "\$ROOTFS/var/lib/apt/lists/partial"
-mount --bind "${HOST_APT}" "\$ROOTFS/var/cache/apt/archives"
-
-echo ">>> [setup] Writing bootstrap sources.list (--keyring handles authentication)"
-cat > "\$ROOTFS/etc/apt/sources.list" <<'SRCEOF'
-${BOOTSTRAP_SOURCES}
-SRCEOF
-
-# Run profile-specific pre-install hook if it exists.
-# This runs after rootfs overlay and sources.list, before --include packages.
-if [ -f "$(readlink -f "${PROFILE_DIR}/pre-install.sh")" ]; then
-    echo ">>> [setup] Running ${PROFILE_NAME} pre-install hook"
-    "$(readlink -f "${PROFILE_DIR}/pre-install.sh")" "\$ROOTFS"
-fi
-SETUP_EOF
-
-# Customize hook: clean up, remove udev, enable services.
-cat > "${WORK_DIR}/hook-customize.sh" <<CUSTOM_EOF
-#!/bin/sh
-set -e
-ROOTFS="\$1"
-
-echo ">>> [customize] Cleaning docs, man pages, locale data"
-rm -rf "\$ROOTFS/usr/share/doc/"* "\$ROOTFS/usr/share/man/"* "\$ROOTFS/usr/share/locale/"*
-rm -rf "\$ROOTFS/usr/lib/udev/hwdb.d/"* "\$ROOTFS/usr/lib/systemd/hwdb/"*
-rm -f "\$ROOTFS/usr/lib/udev/hwdb.bin" "\$ROOTFS/etc/udev/hwdb.bin"
-rm -f "\$ROOTFS/var/cache/apt/"*.bin
-
-echo ">>> [customize] Removing udev"
-chroot "\$ROOTFS" dpkg --remove --force-depends udev 2>/dev/null || true
-
-echo ">>> [customize] Removing systemd-resolved"
-chroot "\$ROOTFS" dpkg --remove --force-depends systemd-resolved 2>/dev/null || true
-chroot "\$ROOTFS" systemctl disable --now systemd-resolved.service 2>/dev/null || true
-chroot "\$ROOTFS" systemctl mask systemd-resolved.service 2>/dev/null || true
-
-# Ubuntu's /etc/resolv.conf is a symlink to resolved's stub. With resolved
-# gone, replace the dead symlink with a regular file that thin-resolv can write.
-if [ -L "\$ROOTFS/etc/resolv.conf" ]; then
-    rm -f "\$ROOTFS/etc/resolv.conf"
-    touch "\$ROOTFS/etc/resolv.conf"
-fi
-CUSTOM_EOF
-
-# Enable services listed in the profile
+# Write services list to a file the customize hook can read.
+SERVICES_FILE="${WORK_DIR}/services.list"
 if [ -n "$SERVICES" ]; then
-    cat >> "${WORK_DIR}/hook-customize.sh" <<'DIVIDER'
-
-echo ">>> [customize] Enabling services"
-DIVIDER
-    echo "$SERVICES" | while read -r svc; do
-        [ -z "$svc" ] && continue
-        cat >> "${WORK_DIR}/hook-customize.sh" <<CUSTOM_EOF
-chroot "\$ROOTFS" systemctl enable ${svc}
-CUSTOM_EOF
-    done
+    echo "$SERVICES" > "$SERVICES_FILE"
+else
+    : > "$SERVICES_FILE"
 fi
-
-cat >> "${WORK_DIR}/hook-customize.sh" <<CUSTOM_EOF
-
-echo ">>> [customize] Writing final sources.list with signed-by"
-cat > "\$ROOTFS/etc/apt/sources.list" <<'SRCEOF'
-${FINAL_SOURCES}
-SRCEOF
-
-echo ">>> [customize] Unmounting host apt cache"
-umount "\$ROOTFS/var/cache/apt/archives" 2>/dev/null || true
-
-echo ">>> [customize] Final apt cleanup"
-rm -rf "\$ROOTFS/var/lib/apt/lists/"*
-rm -f "\$ROOTFS/var/cache/apt/archives/"*.deb
-CUSTOM_EOF
-
-chmod +x "${WORK_DIR}/hook-setup.sh" "${WORK_DIR}/hook-customize.sh"
+export SERVICES_FILE
 
 # ==============================================================================
 # Run mmdebstrap
@@ -335,14 +253,18 @@ echo "[BUILD] Running mmdebstrap..."
 # the bind-mounted host cache). Falls back to root if SUDO_USER is unset.
 APT_SANDBOX_USER="${SUDO_USER:-root}"
 
-sudo mmdebstrap \
+HOOK_SETUP="${COMMON_DIR}/hook-setup.sh"
+HOOK_CUSTOMIZE="${COMMON_DIR}/hook-customize.sh"
+
+sudo --preserve-env=COMMON_DIR,PROFILE_DIR,PROFILE_NAME,WORK_DIR,HOST_APT,BOOTSTRAP_SOURCES,FINAL_SOURCES,SERVICES_FILE \
+    mmdebstrap \
     --variant=minbase \
     --arch="$ARCH" \
     --include="$INCLUDE_PKGS" \
     --aptopt="APT::Sandbox::User \"${APT_SANDBOX_USER}\"" \
     $KEYRING_OPT \
-    --setup-hook="${WORK_DIR}/hook-setup.sh \"\$1\"" \
-    --customize-hook="${WORK_DIR}/hook-customize.sh \"\$1\"" \
+    --setup-hook="${HOOK_SETUP} \"\$1\"" \
+    --customize-hook="${HOOK_CUSTOMIZE} \"\$1\"" \
     "$SUITE" "$ROOTFS_MNT" "$MIRROR"
 
 echo "[INFO] Rootfs bootstrapped at $ROOTFS_MNT"
