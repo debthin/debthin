@@ -257,6 +257,15 @@ echo ">>> [setup] Writing bootstrap sources.list (--keyring handles authenticati
 cat > "\$ROOTFS/etc/apt/sources.list" <<'SRCEOF'
 ${BOOTSTRAP_SOURCES}
 SRCEOF
+
+# If installing coreutils-from-gnu, remove conflicting coreutils-from-uutils
+# that minbase may have installed (e.g. questing defaults to Rust coreutils).
+if echo "${INCLUDE_PKGS}" | grep -q "coreutils-from-gnu"; then
+    if chroot "\$ROOTFS" dpkg -l coreutils-from-uutils 2>/dev/null | grep -q '^ii'; then
+        echo ">>> [setup] Removing coreutils-from-uutils (conflicts with coreutils-from-gnu)"
+        chroot "\$ROOTFS" dpkg --remove --force-depends coreutils-from-uutils rust-coreutils 2>/dev/null || true
+    fi
+fi
 SETUP_EOF
 
 # Customize hook: clean up, remove udev, enable services.
