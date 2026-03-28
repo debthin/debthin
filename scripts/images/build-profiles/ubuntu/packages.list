@@ -5,3 +5,4 @@ dbus
 libpam-systemd
 iproute2
 ca-certificates
+apt

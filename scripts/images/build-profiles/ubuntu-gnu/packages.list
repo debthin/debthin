@@ -6,3 +6,4 @@ libpam-systemd
 iproute2
 ca-certificates
 coreutils-from-gnu
+apt

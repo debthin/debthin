@@ -7,3 +7,4 @@ iproute2
 ca-certificates
 ifupdown
 isc-dhcp-client
+apt
