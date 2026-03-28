@@ -194,6 +194,12 @@ elif [ -f "$GPG_KEY" ]; then
     cp "$GPG_KEY" "${WORK_DIR}/debthin-keyring-binary.gpg"
 fi
 
+# Also pass the cached distro archive keyring to mmdebstrap so it can
+# verify security repos during apt-get update (runs outside the chroot)
+if [ -f "$ARCHIVE_KEYRING" ]; then
+    KEYRING_OPT="${KEYRING_OPT} --keyring=${ARCHIVE_KEYRING}"
+fi
+
 # --- Mount rootfs as tmpfs ---
 TMPFS_SIZE="${TMPFS_SIZE:-256M}"
 ROOTFS_MNT="${TMP_DIR}/rootfs_${DISTRO}_${SUITE}_${ARCH}"
@@ -236,14 +242,8 @@ if [ -d "$(readlink -f "${PROFILE_DIR}/rootfs")" ]; then
 fi
 
 echo ">>> [setup] Injecting GPG keyrings"
-mkdir -p "\$ROOTFS/etc/apt/keyrings" "\$ROOTFS/etc/apt/trusted.gpg.d"
+mkdir -p "\$ROOTFS/etc/apt/keyrings"
 cp "${WORK_DIR}/debthin-keyring-binary.gpg" "\$ROOTFS/etc/apt/keyrings/debthin.gpg"
-
-# Inject cached distro archive keyring for security repo verification
-if [ -f "${ARCHIVE_KEYRING}" ]; then
-    echo ">>> [setup] Injecting ${DISTRO} archive keyring"
-    cp "${ARCHIVE_KEYRING}" "\$ROOTFS/etc/apt/trusted.gpg.d/"
-fi
 
 echo ">>> [setup] Bind-mounting host apt cache"
 mkdir -p "\$ROOTFS/var/cache/apt/archives"
