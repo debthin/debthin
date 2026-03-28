@@ -176,8 +176,9 @@ if [ -d "$(readlink -f "${PROFILE_DIR}/rootfs")" ]; then
 fi
 
 echo ">>> [setup] Injecting GPG keyring"
-mkdir -p "\$ROOTFS/etc/apt/keyrings"
+mkdir -p "\$ROOTFS/etc/apt/keyrings" "\$ROOTFS/etc/apt/trusted.gpg.d"
 cp "${WORK_DIR}/debthin-keyring-binary.gpg" "\$ROOTFS/etc/apt/keyrings/debthin.gpg"
+cp "${WORK_DIR}/debthin-keyring-binary.gpg" "\$ROOTFS/etc/apt/trusted.gpg.d/debthin.gpg"
 
 echo ">>> [setup] Writing sources.list"
 cat > "\$ROOTFS/etc/apt/sources.list" <<'SRCEOF'
