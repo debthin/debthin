@@ -174,8 +174,9 @@ if [ -f "${OUT_DIR}/hashes.txt" ] && [ "${FORCE:-0}" != "1" ]; then
 fi
 
 mkdir -p "$OUT_DIR"
+BUILD_LOG="${OUT_DIR}/build.log"
 exec 3>&1 4>&2
-exec >"${OUT_DIR}/build.log" 2>&1
+exec >"$BUILD_LOG" 2>&1
 
 WORK_DIR="${TMP_DIR}/${DISTRO}_${SUITE}_${ARCH}"
 mkdir -p "$WORK_DIR"
@@ -344,12 +345,12 @@ command -v sha256sum >/dev/null 2>&1 || SHA_CMD="shasum -a 256"
 find . -type f ! -name "hashes.txt" | sort | xargs $SHA_CMD > hashes.txt
 
 echo "[TEST] Running container validation for ${DISTRO}/${SUITE} (${ARCH})..."
-sudo "${SCRIPT_DIR}/test-image.sh" "${DISTRO}/${SUITE}" "${ARCH}" 2>&1 | tee -a "$BUILD_LOG"
+sudo "${SCRIPT_DIR}/test-image.sh" "${DISTRO}/${SUITE}" "${ARCH}" 2>&1 | tee -a build.log
 TEST_RC=${PIPESTATUS[0]}
 
 if [ $TEST_RC -eq 0 ]; then
     echo "[DONE] ${DISTRO}/${SUITE}/${ARCH} -> $OUT_DIR"
 else
-    echo "[FAIL] ${DISTRO}/${SUITE}/${ARCH} — see $BUILD_LOG"
+    echo "[FAIL] ${DISTRO}/${SUITE}/${ARCH} — see ${BUILD_LOG}"
     exit $TEST_RC
 fi
