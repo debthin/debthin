@@ -24,3 +24,6 @@ systemd-timesyncd
 python3-minimal
 ifupdown
 isc-dhcp-client
+xxd
+openssl
+lsb-release

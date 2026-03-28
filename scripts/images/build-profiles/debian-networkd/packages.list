@@ -22,3 +22,6 @@ vim-tiny
 tzdata
 systemd-timesyncd
 python3-minimal
+xxd
+openssl
+lsb-release

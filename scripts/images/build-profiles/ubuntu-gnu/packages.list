@@ -23,3 +23,6 @@ tzdata
 systemd-timesyncd
 python3-minimal
 coreutils-from-gnu
+xxd
+openssl
+lsb-release
