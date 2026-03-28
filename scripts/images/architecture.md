@@ -14,27 +14,25 @@ templates physically exist.
 ### Makefile
 
 Parses `config.json` via `jq` to generate `distro/suite/arch` target
-combinations. Filters against `yaml-templates/` to only build targets with
-a matching YAML template. Each target calls `build.sh` with the target path.
+combinations. Filters against `build-profiles/` to only build targets with
+a matching profile. Each target calls `build-image.sh` with the target path.
 
 ```
 make -C scripts/images -j4        # parallel builds
 make -C scripts/images debian/bookworm/amd64   # single target
 ```
 
-### build.sh
+### build-image.sh
 
 Single-target builder. Accepts `distro/suite/arch` as argument. Handles:
 
-1. **YAML resolution** — reads template from `yaml-templates/<distro>/<suite>.yaml`,
-   patches architecture field
+1. **Profile resolution** — reads profile from `build-profiles/<distro>/<suite>`,
+   resolving shared configs and packages
 2. **Cross-compilation** — detects host vs target arch mismatch, requires
    `qemu-user-static` + `binfmt-support`
-3. **APT caching** — pre-seeds debootstrap with cached `.deb` files from
-   `.cache/apt/` and syncs new packages back after build
-4. **Rootfs build** — `distrobuilder build-dir` with tmpfs mount on Linux
-5. **Packing** — `distrobuilder pack-lxc`, `distrobuilder pack-incus`,
-   and `buildah` OCI commit (optional)
+3. **APT caching** — host directory mounted into `mmdebstrap`
+4. **Rootfs build** — relies on `mmdebstrap` directly to a target `tmpfs`
+5. **Packing** — minimal YAML dynamically generated for `distrobuilder pack-lxc`, `distrobuilder pack-incus`, and `buildah`
 6. **Hashing** — SHA256 checksums for all output files
 
 ### generate_image_manifest.py
@@ -45,12 +43,12 @@ Cloudflare Worker to serve the image registry API.
 ## Directory Layout
 
 ```
-yaml-templates/                    YAML definitions (repo root)
-  <distro>/<suite>.yaml
+build-profiles/                    Data-driven build profiles
+  <distro>/<suite>/
 
 scripts/images/
   Makefile                         Build orchestration
-  build.sh                        Single-target builder
+  build-image.sh                   Single-target builder
   generate_image_manifest.py       Registry manifest generator
 
 .build_tmp/                        Temporary build workspace (not committed)

@@ -33,7 +33,6 @@ workers/
   wrangler-images.toml       Worker config: images
   wrangler-proxy.toml        Worker config: proxy
 
-yaml-templates/              distrobuilder YAML definitions per distro/suite
 static/                      Static assets (index.html, GPG keyrings)
 ```
 
