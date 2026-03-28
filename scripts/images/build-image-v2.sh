@@ -181,24 +181,28 @@ mkdir -p "$WORK_DIR"
 cd "$WORK_DIR" || exit 1
 
 GPG_KEY="${REPO_ROOT}/static/debthin-keyring-binary.gpg"
-KEYRING_OPT=""
+COMBINED_KEYRING="${WORK_DIR}/build-keyring.gpg"
+: > "$COMBINED_KEYRING"
+
 if echo "$MIRROR" | grep -q "debthin.org"; then
     if [ ! -f "$GPG_KEY" ]; then
         echo "ERROR: debthin GPG keyring not found at $GPG_KEY"
         echo "Cannot bootstrap from debthin.org without the signing key."
         exit 1
     fi
+    cat "$GPG_KEY" >> "$COMBINED_KEYRING"
     cp "$GPG_KEY" "${WORK_DIR}/debthin-keyring-binary.gpg"
-    KEYRING_OPT="--keyring=${WORK_DIR}/debthin-keyring-binary.gpg"
 elif [ -f "$GPG_KEY" ]; then
     cp "$GPG_KEY" "${WORK_DIR}/debthin-keyring-binary.gpg"
 fi
 
-# Also pass the cached distro archive keyring to mmdebstrap so it can
-# verify security repos during apt-get update (runs outside the chroot)
+# Append cached distro archive keyring so mmdebstrap can verify security repos
 if [ -f "$ARCHIVE_KEYRING" ]; then
-    KEYRING_OPT="${KEYRING_OPT} --keyring=${ARCHIVE_KEYRING}"
+    cat "$ARCHIVE_KEYRING" >> "$COMBINED_KEYRING"
 fi
+
+KEYRING_OPT=""
+[ -s "$COMBINED_KEYRING" ] && KEYRING_OPT="--keyring=${COMBINED_KEYRING}"
 
 # --- Mount rootfs as tmpfs ---
 TMPFS_SIZE="${TMPFS_SIZE:-256M}"
