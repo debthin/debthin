@@ -284,6 +284,9 @@ source:
   downloader: debootstrap
   url: "${MIRROR}"
 
+packages:
+  manager: apt
+
 targets:
   lxc:
     config:
