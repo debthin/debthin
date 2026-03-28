@@ -23,7 +23,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
 CONFIG_FILE="${REPO_ROOT}/config.json"
-TEMPLATE_DIR="${REPO_ROOT}/yaml-templates"
 PROFILES_DIR="${SCRIPT_DIR}/build-profiles"
 OUTPUT_BASE="${REPO_ROOT}/images_output/images"
 TMP_DIR="${REPO_ROOT}/.build_tmp"
@@ -263,14 +262,35 @@ sudo chroot "$ROOTFS_MNT" dpkg-query -W -f '${Package}\n' 2>/dev/null | sort > "
 echo "[INFO] Package manifest: ${OUT_DIR}/bootstrap-packages.txt ($(wc -l < "${OUT_DIR}/bootstrap-packages.txt") packages)"
 
 # ==============================================================================
-# Packing
+# Packing - generate minimal YAML for distrobuilder pack-lxc/pack-incus
 # ==============================================================================
 
-YAML_SRC="${TEMPLATE_DIR}/${DISTRO}/${SUITE}.yaml"
-YAML_RUN="${WORK_DIR}/current_build.yaml"
+# Determine LXC config template name (debian or ubuntu)
+case "$DISTRO" in
+    debian|raspbian) LXC_DISTRO="debian" ;;
+    ubuntu)          LXC_DISTRO="ubuntu" ;;
+    *)               LXC_DISTRO="common" ;;
+esac
 
-sed "s/architecture: .*/architecture: \"${ARCH}\"/" "$YAML_SRC" | \
-sed "s/lxc.arch = .*/lxc.arch = ${ARCH}/" > "$YAML_RUN"
+YAML_RUN="${WORK_DIR}/pack.yaml"
+cat > "$YAML_RUN" <<YAMLEOF
+image:
+  distribution: "${DISTRO}"
+  release: "${SUITE}"
+  architecture: "${ARCH}"
+  description: "${DISTRO} ${SUITE} (debthin.org minimal)"
+
+targets:
+  lxc:
+    config:
+      - type: all
+        content: |-
+          lxc.include = LXC_TEMPLATE_CONFIG/${LXC_DISTRO}.common.conf
+          lxc.arch = ${ARCH}
+      - type: user
+        content: |-
+          lxc.include = LXC_TEMPLATE_CONFIG/${LXC_DISTRO}.userns.conf
+YAMLEOF
 
 sudo distrobuilder pack-lxc   "$YAML_RUN" "$ROOTFS_MNT" "$OUT_DIR"
 sudo distrobuilder pack-incus "$YAML_RUN" "$ROOTFS_MNT" "$OUT_DIR"
