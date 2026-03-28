@@ -9,7 +9,7 @@
 #   R2_ACCOUNT_ID, R2_ACCESS_KEY, R2_SECRET_KEY  - required unless NO_UPLOAD=1
 #   NO_UPLOAD=1   - skip R2 upload (local build only)
 #   PARALLEL=N    - max parallel build jobs (default: 4)
-#   TMPFS_SIZE=256M - tmpfs mount size per build (default: 256M)
+#   TMPFS_SIZE=288M - tmpfs mount size per build (default: 288M)
 
 set -euo pipefail
 
@@ -40,7 +40,7 @@ JOBS="${PARALLEL:-4}"
 exec make -C "$SCRIPT_DIR" -j "$JOBS" \
     NO_UPLOAD="$NO_UPLOAD" \
     FORCE="${FORCE:-0}" \
-    TMPFS_SIZE="${TMPFS_SIZE:-256M}" \
+    TMPFS_SIZE="${TMPFS_SIZE:-288M}" \
     R2_ACCOUNT_ID="${R2_ACCOUNT_ID:-}" \
     R2_ACCESS_KEY="${R2_ACCESS_KEY:-}" \
     R2_SECRET_KEY="${R2_SECRET_KEY:-}"

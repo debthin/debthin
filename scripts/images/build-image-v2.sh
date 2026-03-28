@@ -205,7 +205,7 @@ KEYRING_OPT=""
 [ -s "$COMBINED_KEYRING" ] && KEYRING_OPT="--keyring=${COMBINED_KEYRING}"
 
 # --- Mount rootfs as tmpfs ---
-TMPFS_SIZE="${TMPFS_SIZE:-256M}"
+TMPFS_SIZE="${TMPFS_SIZE:-288M}"
 ROOTFS_MNT="${TMP_DIR}/rootfs_${DISTRO}_${SUITE}_${ARCH}"
 mkdir -p "$ROOTFS_MNT"
 if [ "$(uname -s)" = "Linux" ]; then
