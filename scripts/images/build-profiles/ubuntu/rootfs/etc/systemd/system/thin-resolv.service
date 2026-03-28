@@ -1,10 +1,10 @@
 # Writes /etc/resolv.conf from networkd lease state.
-# Skips when systemd-resolved is actively running, since resolved
-# manages /etc/resolv.conf itself.
+# Skips when systemd-resolved is installed (resolvectl present),
+# since resolved manages /etc/resolv.conf itself.
 [Unit]
 Description=Generate resolv.conf from networkd lease state
 After=systemd-networkd.service
 
 [Service]
 Type=oneshot
-ExecStart=/bin/sh -c "systemctl is-active -q systemd-resolved.service 2>/dev/null && exit 0; sed -n 's/^DNS=\\(.*\\)/\\1/p' /run/systemd/netif/state | tr ' ' '\\n' | sed '/^$/d; s/^/nameserver /' > /etc/resolv.conf"
+ExecStart=/bin/sh -c "[ -x /usr/bin/resolvectl ] && exit 0; sed -n 's/^DNS=\\(.*\\)/\\1/p' /run/systemd/netif/state | tr ' ' '\\n' | sed '/^$/d; s/^/nameserver /' > /etc/resolv.conf"
