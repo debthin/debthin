@@ -186,6 +186,7 @@ cp "${WORK_DIR}/debthin-keyring-binary.gpg" "\$ROOTFS/etc/apt/keyrings/debthin.g
 
 echo ">>> [setup] Bind-mounting host apt cache"
 mkdir -p "\$ROOTFS/var/cache/apt/archives"
+chmod 0777 "${HOST_APT}"
 mount --bind "${HOST_APT}" "\$ROOTFS/var/cache/apt/archives"
 
 echo ">>> [setup] Writing bootstrap sources.list (--keyring handles authentication)"
