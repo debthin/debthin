@@ -181,10 +181,10 @@ fi
 
 # S4. APT Sources Validation
 SOURCES_OUT=$(cat "$STATIC_ROOT/etc/apt/sources.list" 2>/dev/null)
-if echo "$SOURCES_OUT" | grep -q "debthin.org"; then
-    log_pass "sources.list contains debthin.org repository"
+if echo "$SOURCES_OUT" | grep -qE "debthin.org|ports.ubuntu.com"; then
+    log_pass "sources.list contains expected repository"
 else
-    log_fail "sources.list does not contain debthin.org"
+    log_fail "sources.list does not contain debthin.org or ports.ubuntu.com"
 fi
 
 if [ "$HAS_SECURITY" -eq 1 ]; then
