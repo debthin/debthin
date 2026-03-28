@@ -325,6 +325,14 @@ else
 fi
 
 # R3. DNS Resolution (getent is always available, ping requires iputils-ping)
+# Wait for resolv.conf to be populated (thin-resolv.path triggers on networkd state)
+for i in $(seq 1 10); do
+    if lxc-attach "$NAME" -- test -s /etc/resolv.conf 2>/dev/null; then
+        break
+    fi
+    sleep 0.5
+done
+
 if lxc-attach "$NAME" -- getent hosts debthin.org >/dev/null 2>&1; then
     log_pass "DNS resolution functional"
 else
