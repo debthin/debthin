@@ -258,18 +258,11 @@ cat > "\$ROOTFS/etc/apt/sources.list" <<'SRCEOF'
 ${BOOTSTRAP_SOURCES}
 SRCEOF
 
-# If installing coreutils-from-gnu, remove conflicting coreutils-from-uutils
-# that minbase may have installed (e.g. questing defaults to Rust coreutils).
-# Pin it to -1 so mmdebstrap's priority:required filter doesn't re-pull it.
-if echo "${INCLUDE_PKGS}" | grep -q "coreutils-from-gnu"; then
-    echo ">>> [setup] Pinning coreutils-from-uutils to never-install"
-    mkdir -p "\$ROOTFS/etc/apt/preferences.d"
-    cat > "\$ROOTFS/etc/apt/preferences.d/no-uutils" <<'PINEOF'
-Package: coreutils-from-uutils rust-coreutils
-Pin: release *
-Pin-Priority: -1
-PINEOF
-    chroot "\$ROOTFS" dpkg --remove --force-depends coreutils-from-uutils rust-coreutils 2>/dev/null || true
+# Run profile-specific pre-install hook if it exists.
+# This runs after rootfs overlay and sources.list, before --include packages.
+if [ -f "$(readlink -f "${PROFILE_DIR}/pre-install.sh")" ]; then
+    echo ">>> [setup] Running ${PROFILE_NAME} pre-install hook"
+    "$(readlink -f "${PROFILE_DIR}/pre-install.sh")" "\$ROOTFS"
 fi
 SETUP_EOF
 
