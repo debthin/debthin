@@ -121,13 +121,6 @@ if [ -s "${PROFILE_DIR}/security" ]; then
 fi
 
 echo "[BUILD] ${DISTRO}/${SUITE}/${ARCH} -> profile: ${PROFILE_NAME}"
-
-# Redirect verbose output to build log only; restore stdout for summary at the end
-BUILD_LOG="${OUT_DIR}/build.log"
-mkdir -p "$OUT_DIR"
-exec 3>&1 4>&2
-exec >"$BUILD_LOG" 2>&1
-
 echo "[BUILD] Mirror: ${MIRROR}"
 echo "[BUILD] Packages: ${INCLUDE_PKGS}"
 
@@ -181,7 +174,8 @@ if [ -f "${OUT_DIR}/hashes.txt" ] && [ "${FORCE:-0}" != "1" ]; then
 fi
 
 mkdir -p "$OUT_DIR"
-exec > >(tee "${OUT_DIR}/build.log") 2>&1
+exec 3>&1 4>&2
+exec >"${OUT_DIR}/build.log" 2>&1
 
 WORK_DIR="${TMP_DIR}/${DISTRO}_${SUITE}_${ARCH}"
 mkdir -p "$WORK_DIR"
