@@ -280,6 +280,10 @@ image:
   architecture: "${ARCH}"
   description: "${DISTRO} ${SUITE} (debthin.org minimal)"
 
+source:
+  downloader: debootstrap
+  url: "${MIRROR}"
+
 targets:
   lxc:
     config:
