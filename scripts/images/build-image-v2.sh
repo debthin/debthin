@@ -140,7 +140,7 @@ elif [ -f "$GPG_KEY" ]; then
 fi
 
 # --- Mount rootfs as tmpfs ---
-TMPFS_SIZE="${TMPFS_SIZE:-768M}"
+TMPFS_SIZE="${TMPFS_SIZE:-256M}"
 ROOTFS_MNT="${TMP_DIR}/rootfs_${DISTRO}_${SUITE}_${ARCH}"
 mkdir -p "$ROOTFS_MNT"
 if [ "$(uname -s)" = "Linux" ]; then
