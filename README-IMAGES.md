@@ -4,7 +4,7 @@ debthin builds minimal root filesystem images for Debian, Ubuntu, and Raspbian u
 
 ## Targets
 
-Images are built for every distro/suite/arch combination defined in `config.json` that has a matching YAML template in `yaml-templates/`.
+Images are built for every distro/suite/arch combination defined in `config.json` that has a matching build profile in `scripts/images/build-profiles/`.
 
 ### Debian
 
@@ -66,25 +66,19 @@ sudo apt install qemu-user-static binfmt-support
 make -C scripts/images debian/bookworm/arm64
 ```
 
-## YAML Templates
+## Build Profiles
 
-Templates live at `yaml-templates/<distro>/<suite>.yaml` (repo root, not inside `scripts/images/`). Each defines:
+Profiles live at `scripts/images/build-profiles/<distro>/<suite>`. Each profile directory contains:
 
-- Package sources and mirrors (debthin or upstream)
-- Architecture placeholder (patched at build time)
-- Post-install actions (package removal for size reduction, cleanup)
-- LXC/Incus configuration
+- `packages.list` - minimal package list to install (replaces post-install bloat removal)
+- `services.list` - systemd services to enable
+- `mirror` - upstream mirror URL
+- `security` - security repo configuration
+- `rootfs/` - files copied directly into the image
 
 ### Ubuntu-specific optimisations
 
-Ubuntu templates include `apt-get remove` for version-specific bloat packages:
-
-| Suite    | Removed packages |
-|----------|-----------------|
-| jammy    | `libicu70 python3.10 netplan.io locales debconf-i18n` |
-| noble    | `libicu74 python3.12 netplan.io locales debconf-i18n` |
-| plucky   | `libicu76 python3.13 netplan.io locales debconf-i18n` |
-| questing | `libicu76 python3.13 netplan.io locales debconf-i18n` |
+Ubuntu images are generated without bloat by installing exactly what is required using `packages.list`, removing the need for `apt-get remove` hacks.
 
 ## Dependencies
 

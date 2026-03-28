@@ -75,7 +75,7 @@ build-native: $(NATIVE_TARGETS)
 build-cross: build-native $(CROSS_TARGETS)
 
 $(TARGETS):
-	@./build-image-v2.sh $@
+	@./build-image.sh $@
 
 # ── Phase 2: Prune ───────────────────────────────────────────────────────────
 # Keep only the 5 most recent version directories per distro/suite/arch.

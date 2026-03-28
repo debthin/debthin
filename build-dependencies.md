@@ -62,7 +62,7 @@ pip install boto3
 | `qemu-user-static` + `binfmt-support` | cross-arch only | Required when `$ARCH != $HOST_ARCH` |
 | `buildah` | optional | OCI image packing, skipped if not installed |
 
-Image YAML templates are at `yaml-templates/` (repo root), not inside `scripts/images/`.
+Image build profiles are at `scripts/images/build-profiles/`.
 
 | Script | Purpose |
 |---|---|

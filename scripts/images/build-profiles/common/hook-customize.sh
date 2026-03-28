@@ -5,7 +5,7 @@
 # and systemd-resolved, enables profile services, writes final sources.list,
 # unmounts the host cache, and runs profile-specific post-install hooks.
 #
-# Required environment variables (exported by build-image-v2.sh):
+# Required environment variables (exported by build-image.sh):
 #   PROFILE_DIR       — resolved path to active build profile
 #   PROFILE_NAME      — profile basename (e.g. debian-networkd)
 #   SERVICES_FILE     — path to file containing service names to enable

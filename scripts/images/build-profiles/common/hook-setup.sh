@@ -5,7 +5,7 @@
 # keyrings, configures apt sources, and runs profile-specific pre-install
 # hooks if present.
 #
-# Required environment variables (exported by build-image-v2.sh):
+# Required environment variables (exported by build-image.sh):
 #   COMMON_DIR    — path to build-profiles/common
 #   PROFILE_DIR   — resolved path to active build profile
 #   PROFILE_NAME  — profile basename (e.g. debian-networkd)
