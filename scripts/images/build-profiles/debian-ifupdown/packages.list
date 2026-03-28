@@ -26,7 +26,6 @@ ifupdown
 isc-dhcp-client
 xxd
 openssl
-lsb-release
 ucf
 apt-utils
 media-types
