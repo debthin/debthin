@@ -249,8 +249,11 @@ echo ">>> [setup] Injecting GPG keyrings"
 mkdir -p "\$ROOTFS/etc/apt/keyrings"
 cp "${WORK_DIR}/debthin-keyring-binary.gpg" "\$ROOTFS/etc/apt/keyrings/debthin.gpg"
 
+echo ">>> [setup] Fixing apt directory permissions for _apt user"
+mkdir -p "\$ROOTFS/var/cache/apt/archives" "\$ROOTFS/var/lib/apt/lists/partial"
+chmod 0777 "\$ROOTFS/var/lib/apt/lists/partial"
+
 echo ">>> [setup] Bind-mounting host apt cache"
-mkdir -p "\$ROOTFS/var/cache/apt/archives"
 chmod 0777 "${HOST_APT}"
 mount --bind "${HOST_APT}" "\$ROOTFS/var/cache/apt/archives"
 
@@ -322,7 +325,7 @@ sudo mmdebstrap \
     --variant=minbase \
     --arch="$ARCH" \
     --include="$INCLUDE_PKGS" \
-    --aptopt='APT::Sandbox::User "root"' \
+
     $KEYRING_OPT \
     --setup-hook="${WORK_DIR}/hook-setup.sh \"\$1\"" \
     --customize-hook="${WORK_DIR}/hook-customize.sh \"\$1\"" \
