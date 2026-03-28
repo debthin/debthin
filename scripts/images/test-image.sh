@@ -317,11 +317,11 @@ else
     log_fail "Network failed to acquire route within ${TIMEOUT}s"
 fi
 
-# R3. External DNS & Connectivity
-if lxc-attach "$NAME" -- ping -c 1 -W 5 debthin.org >/dev/null 2>&1; then
-    log_pass "DNS resolution and external ICMP connectivity functional"
+# R3. DNS Resolution (getent is always available, ping requires iputils-ping)
+if lxc-attach "$NAME" -- getent hosts debthin.org >/dev/null 2>&1; then
+    log_pass "DNS resolution functional"
 else
-    log_fail "DNS resolution or external connectivity failed"
+    log_fail "DNS resolution failed (getent hosts debthin.org)"
 fi
 
 # R4. APT Update Execution
