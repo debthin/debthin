@@ -5,7 +5,7 @@ validate.py - Sanity-check dist_output/ before upload
 This script iterates through debian repository structures to validate file presence,
 JSON configurations, GPG signatures within InRelease, SHA256 hashes, and count packages
 within gzip files across distributions. It is designed to be a robust, parallelized
-alternative to validate.sh.
+alternative.
 """
 
 import argparse

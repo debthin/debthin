@@ -117,11 +117,11 @@ $(HEADLESS_TARGETS): headless-%: filter-%
 
 sign: headless
 	@echo "Phase 3: signing..." >&2
-	@GPG_KEY_ID=$(GPG_KEY_ID) bash $(SCRIPTS)/sign_all.sh $(OUTPUT) $(CONFIG)
+	@GPG_KEY_ID=$(GPG_KEY_ID) python3 $(SCRIPTS)/sign_all.py $(OUTPUT) $(CONFIG)
 
 # Per-release signing targets (parallel-safe, no file overlap)
 $(addprefix sign-,$(DISTRO_SUITES)): sign-%: headless
-	@GPG_KEY_ID=$(GPG_KEY_ID) bash $(SCRIPTS)/sign_all.sh $(OUTPUT) $(CONFIG)
+	@GPG_KEY_ID=$(GPG_KEY_ID) python3 $(SCRIPTS)/sign_all.py $(OUTPUT) $(CONFIG)
 
 # ── Phase 4: Stage ───────────────────────────────────────────────────────────
 # Copy static assets into dist_output and clean up.

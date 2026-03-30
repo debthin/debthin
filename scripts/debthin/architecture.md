@@ -69,7 +69,7 @@ its own `filter-debian/bookworm`, so suites pipeline independently.
 Inputs: filtered Packages.gz from `dist_output/`
 Outputs: `dist_output/dists/<distro>/<suite>/headless/binary-<arch>/Packages.gz`
 
-### 3. Sign (`sign_all.sh`)
+### 3. Sign (`sign_all.py`)
 
 Generates `Release` files with SHA256 hashes for every Packages.gz in each
 suite, then GPG-signs them to produce `InRelease`. Runs after all headless
