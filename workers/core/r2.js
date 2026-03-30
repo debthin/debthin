@@ -16,7 +16,7 @@ const _textDecoder = new TextDecoder();
  * This permits local memory cache retrievals to behave exactly like remote R2 fetch objects when passed to serveR2.
  *
  * @param {ArrayBuffer} arrayBuffer - Target physical memory buffer.
- * @param {Object} meta - Etag and content limit parameters.
+ * @param {Record<string, any>} meta - Etag and content limit parameters.
  * @param {boolean} [isCached=false] - Injects X-Cache tracking flag.
  * @param {number} [hits=0] - Cache hit iteration number.
  * @returns {Object} Interface supporting text and arrayBuffer endpoints.

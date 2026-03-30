@@ -14,7 +14,7 @@ import { metaCache, dataCache } from '../cache.js';
  * Generates synthetic caching headers directly for config payloads avoiding heavy R2 fetches.
  *
  * @param {string} rawPath - The requested relative path string.
- * @param {Object} env - The Cloudflare environment bindings.
+ * @param {DebthinEnv} env - The Cloudflare environment bindings.
  * @param {Request} request - The inbound HTTP request.
  * @param {string} CONFIG_JSON_STRING - The JSON configuration string.
  * @returns {Promise<Response>} The HTTP Response object.
@@ -60,8 +60,8 @@ export function handleUpstreamRedirect(protocol, upstream, rest) {
  * Intercepts calls for empty files and serves them exclusively from memory to bypass R2 charges.
  *
  * @param {Request} request - The inbound HTTP request.
- * @param {Object} env - The Cloudflare environment bindings.
- * @param {Object} ctx - The worker execution context.
+ * @param {DebthinEnv} env - The Cloudflare environment bindings.
+ * @param {ExecutionContext} ctx - The worker execution context.
  * @param {string} distro - The Linux distribution name.
  * @param {string} sha256 - The requested SHA256 file hash.
  * @returns {Promise<Response|null>} The resolved file content or null.
@@ -112,11 +112,11 @@ export async function handleByHash(request, env, ctx, distro, sha256) {
 /**
  * Handles manifest retrieval for InRelease and Release metadata requests.
  *
- * @param {Object} env - The Cloudflare environment bindings.
+ * @param {DebthinEnv} env - The Cloudflare environment bindings.
  * @param {Request} request - The inbound HTTP request.
  * @param {string} r2Key - The target bucket evaluation path.
  * @param {string} p2 - The matched token component string.
- * @param {Object} ctx - The worker execution context.
+ * @param {ExecutionContext} ctx - The worker execution context.
  * @returns {Promise<Response|null>} Processed route or null.
  */
 async function serveManifests(env, request, r2Key, p2, ctx) {
@@ -146,7 +146,7 @@ async function serveManifests(env, request, r2Key, p2, ctx) {
 /**
  * Delivers generated component binaries or handles generic decompression mapping.
  *
- * @param {Object} env - The Cloudflare environment bindings.
+ * @param {DebthinEnv} env - The Cloudflare environment bindings.
  * @param {Request} request - The inbound HTTP request.
  * @param {string} r2Key - The target bucket evaluation path.
  * @param {string} p1 - First chunk representation.
@@ -179,12 +179,12 @@ async function serveComponents(env, request, r2Key, p1, p2, p3, p4) {
  * and automatically decompresses Packages.gz payload streams internally when uncompressed Packages are requested.
  *
  * @param {Request} request - The inbound HTTP request.
- * @param {Object} env - The Cloudflare environment bindings.
- * @param {Object} ctx - The worker execution context.
+ * @param {DebthinEnv} env - The Cloudflare environment bindings.
+ * @param {ExecutionContext} ctx - The worker execution context.
  * @param {string} distro - The Linux distribution name.
  * @param {string} suitePath - The remaining path fragments.
- * @param {Object} tokens - Zero-allocation parsed path parts.
- * @param {Object} distroConfig - Distribution parameters from config.json.
+ * @param {Record<string, string>} tokens - Zero-allocation parsed path parts.
+ * @param {Record<string, any>} distroConfig - Distribution parameters from config.json.
  * @returns {Promise<Response|null>} Processed HTTP Response or null fallback.
  */
 export async function handleDistributionHashIndex(request, env, ctx, distro, suitePath, { p1, p2, p3, p4 }, distroConfig) {

@@ -19,7 +19,7 @@ const _textDecoder = new TextDecoder();
  * Permits the worker API to yield 304 results for existing client caches immediately.
  *
  * @param {Headers} requestHeaders - Inbound HTTP request headers containing If-None-Match or If-Modified-Since.
- * @param {Object} obj - The hydrated metadata representation pulled from the bucket or local memory.
+ * @param {{etag?: string, lastModified?: number|null}} obj - The hydrated metadata representation pulled from the bucket or local memory.
  * @returns {boolean} Returns true if the client cache dictates skipping a full payload transfer.
  */
 export function isNotModified(requestHeaders, obj) {

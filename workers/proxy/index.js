@@ -23,8 +23,8 @@ import { getProxyCacheStats, purgeProxyCaches } from './cache.js';
  * Routes to admin endpoints, package proxying, or distribution handling.
  * 
  * @param {Request} request - The inbound HTTP request.
- * @param {Object} env - Cloudflare environment bindings.
- * @param {Object} ctx - Worker execution context for waitUntil jobs.
+ * @param {ProxyEnv} env - Cloudflare environment bindings.
+ * @param {ExecutionContext} ctx - Worker execution context for waitUntil jobs.
  * @returns {Promise<Response>} The evaluated HTTP Response.
  */
 async function handleRequest(request, env, ctx) {

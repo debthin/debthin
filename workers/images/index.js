@@ -23,8 +23,8 @@ import {
  * Validates the request, then routes to specific endpoints.
  *
  * @param {Request} request - The inbound HTTP request.
- * @param {Object} env - Cloudflare environment bindings.
- * @param {Object} ctx - Worker execution context.
+ * @param {ImagesEnv} env - Cloudflare environment bindings.
+ * @param {ExecutionContext} ctx - Worker execution context.
  * @returns {Promise<Response>} The constructed response.
  */
 async function handleRequest(request, env, ctx) {

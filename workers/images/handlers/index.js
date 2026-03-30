@@ -21,10 +21,10 @@ import { serveL1Target, fetchAndCache, headersForMetadata, METADATA_SIZE_LIMIT }
  * on miss, and uses buildDerivedResponse for conditional 304 handling.
  *
  * @param {Request} request - The inbound HTTP request.
- * @param {Object} bucket - The Cloudflare R2 bucket binding.
- * @param {Object} ctx - Worker execution context.
+ * @param {R2Bucket} bucket - The Cloudflare R2 bucket binding.
+ * @param {ExecutionContext} ctx - Worker execution context.
  * @param {string} key - The R2 object key to fetch.
- * @param {Object} baseHeaders - Frozen header set (e.g. H_HTML, H_ICON).
+ * @param {Record<string, string>} baseHeaders - Frozen header set (e.g. H_HTML, H_ICON).
  * @returns {Promise<Response>} Cached or freshly-fetched response.
  */
 export async function serveR2Static(request, bucket, ctx, key, baseHeaders) {
@@ -131,7 +131,7 @@ export async function handleOciRegistry(request, bucket, ctx, rawPath, env) {
  * Returns a 301 with 1-year immutable cache headers.
  *
  * @param {string} rawPath - The path to redirect (e.g. '/images/debian/...').
- * @param {Object} env - Cloudflare environment bindings containing PUBLIC_R2_URL.
+ * @param {ImagesEnv} env - Cloudflare environment bindings containing PUBLIC_R2_URL.
  * @returns {Response} A 301 redirect response.
  */
 export function handleImageRedirect(rawPath, env) {
@@ -152,7 +152,7 @@ export function handleImageRedirect(rawPath, env) {
  * to leverage Cloudflare's CDN edge caching.
  *
  * @param {Request} request - The inbound HTTP request.
- * @param {Object} bucket - The Cloudflare R2 bucket binding.
+ * @param {R2Bucket} bucket - The Cloudflare R2 bucket binding.
  * @param {string} r2Key - The R2 object key (no leading slash).
  * @returns {Promise<Response>} Streamed R2 response with cache headers.
  */
@@ -229,8 +229,8 @@ export async function handleImageMetadata(request, bucket, ctx, r2Key, filename)
  * Files under 100KB are served from cache; everything else is redirected.
  *
  * @param {Request} request - The inbound HTTP request.
- * @param {Object} env - Cloudflare environment bindings.
- * @param {Object} ctx - Worker execution context.
+ * @param {ImagesEnv} env - Cloudflare environment bindings.
+ * @param {ExecutionContext} ctx - Worker execution context.
  * @param {string} rawPath - URL path without leading slash.
  * @returns {Promise<Response>} The response.
  */

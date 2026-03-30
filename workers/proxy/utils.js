@@ -64,7 +64,7 @@ export function extractInReleaseHash(text, filePath) {
  * Triggers native Cloudflare WebCrypto evaluation checking physical ArrayBuffer streams natively globally across edge domains.
  * 
  * @param {ArrayBuffer} buf - Local stream payload memory chunk.
- * @param {Object} hashParams - Extracted cryptography hash definition and value bounds (Subtle bindings).
+ * @param {{subtle: string|null, expected: string}} hashParams - Extracted cryptography hash definition and value bounds (Subtle bindings).
  * @returns {Promise<boolean|null>} Returns boolean validity or null implicitly bypass.
  */
 export async function verifyHash(buf, { subtle, expected }) {
