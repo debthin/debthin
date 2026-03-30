@@ -2,12 +2,12 @@
 """
 fetch.py - Concurrently fetch Packages.gz and InRelease files from upstream mirrors.
 
-Reads config.json dynamically, computes target architectures and components,
-and natively orchestrates high-throughput parallel downloads.
+Reads config.json, computes target architectures and components,
+and orchestrates high-throughput parallel downloads.
 
 Optimized: Implements native TLS/TCP `Keep-Alive` Connection Pooling and overlapping
-HTTP/2 multiplexing pipelines through `httpx.AsyncClient`, radically shrinking
-underlying system latencies.
+HTTP/2 multiplexing pipelines through `httpx.AsyncClient`, shrinking
+overhead required historically by xargs.
 """
 
 import argparse
@@ -48,13 +48,13 @@ async def fetch_url(client: httpx.AsyncClient, sem: asyncio.Semaphore, url: str,
                         return False
                         
                     if status == 200:
-                        # Write asynchronously arriving stream bytes natively
+                        # Write asynchronously arriving stream bytes
                         with open(output_path, "wb") as f:
                             async for chunk in response.aiter_bytes(chunk_size=65536):
                                 f.write(chunk)
                         return True
                         
-            # Soft retry penalty unhandled server dropouts gracefully
+            # Soft retry penalty
             if attempt < retries - 1:
                 await asyncio.sleep(1)
             else:
@@ -159,7 +159,7 @@ def parse_config(config_path: str) -> Tuple[List[dict], List[dict]]:
     return pkg_jobs, inr_jobs
 
 async def a_main():
-    parser = argparse.ArgumentParser("Concurrently fetch packages natively via HTTP/2 asyncio.")
+    parser = argparse.ArgumentParser("Concurrently fetch packages via HTTP/2 asyncio.")
     parser.add_argument("config_file", nargs="?", default="config.json")
     parser.add_argument("--parallel", type=int, default=8, help="Max overlapping active connection pipes allowed")
     
@@ -175,7 +175,7 @@ async def a_main():
         
     pkg_jobs, inr_jobs = parse_config(args.config_file)
     
-    print(f"Phase 1: fetching dynamically over HTTP/2 (multiplex_limit={args.parallel})...", file=sys.stderr)
+    print(f"Phase 1: fetching over HTTP/2 (multiplex_limit={args.parallel})...", file=sys.stderr)
     
     sem = asyncio.Semaphore(args.parallel)
     

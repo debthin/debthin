@@ -2,7 +2,7 @@
 """
 filter.py - Filter Debian Packages indexes to a curated set.
 
-Orchestrates allowlist resolution natively over config.json, scans filesystem
+Orchestrates allowlist resolution against config.json, scans filesystem
 mtimes against dist_output, and merges required payloads inside sets avoiding
 slow shell pipes.
 
@@ -141,7 +141,7 @@ def resolve_allowlist(config_path: str, distro: str, suite: str) -> Tuple[str, L
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Filter Debian Packages natively by distro/suite")
+    parser = argparse.ArgumentParser(description="Filter Debian Packages by distro/suite")
     parser.add_argument("distro", help="Target distribution")
     parser.add_argument("suite", help="Target suite")
     parser.add_argument("--config", default="config.json", help="Config file")
@@ -156,7 +156,7 @@ def main():
     
     print(f"  Allowed list for {args.distro}/{args.suite}: {allowed_path}", file=sys.stderr)
     
-    # Merge lists natively
+    # Merge lists
     allowed_set = set()
     for p in Path(allowed_path).read_text().splitlines():
         p = p.strip()
@@ -172,7 +172,7 @@ def main():
                 
     gen_allowed = {generalize_name(p) for p in allowed_set}
     
-    # Dynamically find jobs via fs traversal
+    # Find jobs via fs traversal
     cache_dir = f".tmp_cache/{args.distro}/{args.suite}"
     jobs = []
     

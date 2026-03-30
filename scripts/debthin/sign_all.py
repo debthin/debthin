@@ -2,8 +2,8 @@
 """
 sign_all.py - Generate Release files and sign all suites in one GPG session.
 
-Replaces sign_all.sh. It natively parses config.json without invoking jq, fetches
-metadata natively, builds Release files in parallel via ProcessPoolExecutor,
+Replaces sign_all.sh. It parses config.json without invoking jq, fetches
+metadata, builds Release files in parallel via ProcessPoolExecutor,
 and utilizes native python subprocess calls to batch sign artifacts via gpg.
 """
 

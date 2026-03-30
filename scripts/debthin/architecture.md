@@ -34,10 +34,10 @@ Outputs: `.tmp_cache/<distro>/<suite>/<component>/binary-<arch>/Packages.gz`
 
 ### 2. Filter (`filter.py`)
 
-Applies allowlist filtering per distro/suite. The python script natively resolves the
+Applies allowlist filtering per distro/suite. The python script resolves the
 correct curated list (with `required_packages/` merge), identifies stale
-`Packages.gz` objects natively inside `.tmp_cache` mapped dynamically against
-outputs executing the internal filter logic natively. Each distro/suite is an
+`Packages.gz` objects inside `.tmp_cache` mapped against
+outputs executing the internal filter logic. Each distro/suite is an
 independent Make target (`filter-debian/bookworm`), parallelised by `make -j`.
 
 `filter.py` also writes a `.count` sidecar file next to each cached

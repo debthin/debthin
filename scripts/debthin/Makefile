@@ -64,7 +64,7 @@ $(VENV_MARKER): $(ROOT_DIR)/requirements.txt
 	@touch $(VENV_MARKER)
 
 # ── Phase 1: Fetch ───────────────────────────────────────────────────────────
-# Fetch all upstream Packages.gz and InRelease files natively across multithreads.
+# Fetch all upstream Packages.gz and InRelease files across threads/streams.
 
 PARALLEL ?= 8
 

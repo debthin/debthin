@@ -148,7 +148,7 @@ def sync(directory: Path, account_id: str, access_key: str,
         jobs.append((client, bucket, key, data, dry_run))
 
     if skipped > 0:
-        print(f"Skipped {skipped} unchanged objects natively.", file=sys.stderr)
+        print(f"Skipped {skipped} unchanged objects.", file=sys.stderr)
 
     total_jobs = len(jobs)
     if total_jobs > 0:

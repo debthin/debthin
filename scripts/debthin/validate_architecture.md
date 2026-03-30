@@ -28,5 +28,5 @@ The `validate.py` script ensures that a given `dist_output/` repository tree is 
 ## Design Choices
 
 - **Minimal Dependencies**: Relies exclusively on core Python standard libraries. (`os`, `hashlib`, `gzip`, `json`, `concurrent.futures`, `argparse`).
-- **Parallel Processing Safety**: Global stdout locks guard thread output so log output sequences cleanly. The process pool execution segregates hash and compression calculation limits to background sub-processes rather than the GIL context.
-- **Fail Fast Configuration**: Error counters increment incrementally but gracefully finalize execution at completion instead of immediately exiting, allowing comprehensive artifact dumps describing all missing elements in one execution pass.
+- **Parallel Processing Safety**: Global stdout locks guard thread output so log output sequences without mixing. The process pool execution segregates hash and compression calculation to background sub-processes avoiding the GIL constraint.
+- **Fail Fast Configuration**: Error counters increment but execution finalizes at completion instead of immediately exiting, allowing comprehensive artifact dumps describing all missing elements in one execution pass.
