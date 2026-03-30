@@ -76,4 +76,4 @@ async function handleRequest(request, env, ctx) {
     return new Response("Not Found. debthin image server.", { status: 404 });
 }
 
-export default wrapHandler(handleRequest, "debthin");
+export default wrapHandler(handleRequest, "debthin-images");
