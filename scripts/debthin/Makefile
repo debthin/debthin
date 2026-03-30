@@ -25,7 +25,7 @@ R2_BUCKET     ?= debthin
 
 export CONFIG_FILE := $(CONFIG)
 
-PYTHON_CMD := $(if $(wildcard $(ROOT_DIR)/.venv/bin/python3),$(ROOT_DIR)/.venv/bin/python3,python3)
+PYTHON_CMD := $(ROOT_DIR)/.venv/bin/python3
 
 BUILT_AT := $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 
@@ -53,12 +53,22 @@ DISTRO_SUITES := $(shell jq -r ' \
 # Default target: full pipeline
 all: upload
 
+# ── Virtual Environment ──────────────────────────────────────────────────────
+
+VENV_MARKER := $(ROOT_DIR)/.venv/.installed
+
+$(VENV_MARKER): $(ROOT_DIR)/requirements.txt
+	@echo "Establishing isolated virtual environment..." >&2
+	@python3 -m venv $(ROOT_DIR)/.venv
+	@$(ROOT_DIR)/.venv/bin/pip install -r $(ROOT_DIR)/requirements.txt >/dev/null 2>&1
+	@touch $(VENV_MARKER)
+
 # ── Phase 1: Fetch ───────────────────────────────────────────────────────────
 # Fetch all upstream Packages.gz and InRelease files natively across multithreads.
 
 PARALLEL ?= 8
 
-fetch:
+fetch: $(VENV_MARKER)
 	@echo "Phase 1: fetching upstream indexes (parallel=$(PARALLEL))..." >&2
 	@$(PYTHON_CMD) $(SCRIPTS)/fetch.py $(CONFIG) --parallel $(PARALLEL)
 
