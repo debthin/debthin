@@ -14,7 +14,7 @@ const HASH_ALGOS = [
  * Isolates and identifies the requested virtual repository proxy coordinate boundaries.
  * 
  * @param {string} afterDists - The path fragment evaluated directly after the `/dists/` root locator.
- * @returns {Object|null} Parameter map matching hosts, components, and target binary architectures.
+ * @returns {ParsedProxyRoute|null} Parameter map matching hosts, components, and target binary architectures.
  */
 export function parseProxySuitePath(afterDists) {
   const [host, suite, component, fourth, fifth, file] = afterDists.split("/");
@@ -39,7 +39,7 @@ export function parseProxySuitePath(afterDists) {
  * 
  * @param {string} text - Standard textual InRelease layout.
  * @param {string} filePath - Exact virtual path boundary to query against inside the mapped target list.
- * @returns {Object|null} Extracted hashing targets including format, method bindings, and evaluated hex sizes.
+ * @returns {{field: string, subtle: string|null, expected: string}|null} Extracted hashing targets.
  */
 export function extractInReleaseHash(text, filePath) {
   for (const { field, subtle, hex_len } of HASH_ALGOS) {

@@ -24,7 +24,14 @@ const PERMANENT_BLOCKLIST = new Set([
 ]);
 
 /**
- * Handles generating and mapping proxy Release manifests natively locally.
+ * Handles generating and mapping proxy Release manifests.
+ *
+ * @param {Request} request
+ * @param {ProxyEnv} env
+ * @param {ExecutionContext} ctx
+ * @param {ParsedProxyRoute} parsed
+ * @param {string} blockKey
+ * @returns {Promise<Response>}
  */
 async function handleProxyMetadata(request, env, ctx, parsed, blockKey) {
   const { host, suite, component, type, pin, arch } = parsed;
@@ -79,7 +86,12 @@ async function handleProxyMetadata(request, env, ctx, parsed, blockKey) {
 // ── Packages Pipeline Sub-routines ──────────────────────────────────────────
 
 /**
- * Verifies upstream liveness natively executing an InRelease HEAD check natively.
+ * Verifies upstream liveness by executing an InRelease conditional GET.
+ *
+ * @param {string} host
+ * @param {string} suite
+ * @param {number|null} lastModified
+ * @returns {Promise<Response|null>}
  */
 async function checkUpstream304(host, suite, lastModified) {
   const irHeaders = lastModified ? { "If-Modified-Since": new Date(lastModified).toUTCString() } : {};
@@ -92,7 +104,14 @@ async function checkUpstream304(host, suite, lastModified) {
 }
 
 /**
- * Fetches the upstream Packages block securely with size circuit breakers natively.
+ * Fetches the upstream Packages block with size circuit breakers.
+ *
+ * @param {string} host
+ * @param {string} pkgUrl
+ * @param {ProxyEnv} env
+ * @param {string} blockKey
+ * @param {ExecutionContext} ctx
+ * @returns {Promise<ArrayBuffer|null>}
  */
 async function fetchUpstreamPackages(host, pkgUrl, env, blockKey, ctx) {
   let pkgResp;
@@ -127,7 +146,18 @@ async function fetchUpstreamPackages(host, pkgUrl, env, blockKey, ctx) {
 }
 
 /**
- * Parses, reduces, and repackages an upstream buffer natively.
+ * Parses, reduces, and repackages an upstream buffer.
+ *
+ * @param {ArrayBuffer} pkgBuf
+ * @param {{subtle: string|null, expected: string}|null} hashEntry
+ * @param {boolean} isGz
+ * @param {string} pin
+ * @param {string} host
+ * @param {ProxyEnv} env
+ * @param {string} cacheKey
+ * @param {ExecutionContext} ctx
+ * @param {boolean} gz
+ * @returns {Promise<Response>}
  */
 async function processAndCachePackages(pkgBuf, hashEntry, isGz, pin, host, env, cacheKey, ctx, gz) {
   if (hashEntry && await verifyHash(pkgBuf, hashEntry) === false) {
@@ -146,7 +176,11 @@ async function processAndCachePackages(pkgBuf, hashEntry, isGz, pin, host, env, 
 
   const prefix = `pkg/${host}/`;
   for (const fields of filtered.values()) {
-    if (fields["filename"]) fields["filename"] = prefix + fields["filename"];
+    const fn = fields instanceof Map ? fields.get("filename") : fields["filename"];
+    if (fn) {
+      if (fields instanceof Map) fields.set("filename", prefix + fn);
+      else fields["filename"] = prefix + fn;
+    }
   }
 
   const cs = new CompressionStream("gzip");
@@ -172,7 +206,14 @@ async function processAndCachePackages(pkgBuf, hashEntry, isGz, pin, host, env, 
 // ────────────────────────────────────────────────────────────────────────────
 
 /**
- * Triggers full cryptographic verifications and payload deserialization parsing blocks natively.
+ * Handles the full Packages fetch, verify, filter, compress, cache pipeline.
+ *
+ * @param {Request} request
+ * @param {ProxyEnv} env
+ * @param {ExecutionContext} ctx
+ * @param {ParsedProxyRoute} parsed
+ * @param {string} blockKey
+ * @returns {Promise<Response>}
  */
 async function handleProxyPackages(request, env, ctx, parsed, blockKey) {
   const { host, suite, component, pin, arch, gz } = parsed;
@@ -234,7 +275,13 @@ async function handleProxyPackages(request, env, ctx, parsed, blockKey) {
 }
 
 /**
- * Global dynamic dispatcher allocating proxy paths strictly toward separated evaluation functions neutrally.
+ * Global dispatcher routing proxy paths to evaluation functions.
+ *
+ * @param {Request} request
+ * @param {ProxyEnv} env
+ * @param {ExecutionContext} ctx
+ * @param {ParsedProxyRoute} parsed
+ * @returns {Promise<Response>}
  */
 export async function handleProxyRepository(request, env, ctx, parsed) {
   const { host, suite, type } = parsed;

@@ -14,7 +14,7 @@ export const METADATA_SIZE_LIMIT = 102400;
  * Resolves frozen headers for a metadata file based on its extension.
  *
  * @param {string} filename - Basename of the file.
- * @returns {Object} Frozen header set with the appropriate Content-Type.
+ * @returns {Readonly<Record<string, string>>} Frozen header set with the appropriate Content-Type.
  */
 export function headersForMetadata(filename) {
     if (filename.endsWith('.json')) return H_OCI_INDEX_JSON;

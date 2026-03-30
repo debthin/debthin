@@ -11,8 +11,11 @@ const _textDecoder = new TextDecoder();
 const STATE_KEY = "registry-state.json";
 
 // Module-level state populated during hydration
+/** @type {Record<string, string>|null} */
 let _ociBlobsMap = null;
+/** @type {Record<string, string>|null} */
 let _ociManifestsMap = null;
+/** @type {Record<string, number>|null} */
 let _fileSizesMap = null;
 let _stateTimestamp = 0;
 
@@ -76,7 +79,7 @@ export async function hydrateRegistryState(bucket) {
  *
  * @param {R2Bucket} bucket - The Cloudflare R2 bucket binding.
  * @param {ExecutionContext} ctx - Worker execution context for background revalidation.
- * @returns {Promise<{blobs: Object, manifests: Object}>} OCI lookup maps.
+ * @returns {Promise<{blobs: Record<string, string>|null, manifests: Record<string, string>|null}>} OCI lookup maps.
  */
 export async function getOciState(bucket, ctx) {
     const now = Date.now();
@@ -94,7 +97,7 @@ export async function getOciState(bucket, ctx) {
  *
  * @param {R2Bucket} bucket - The Cloudflare R2 bucket binding.
  * @param {ExecutionContext} ctx - Worker execution context for background revalidation.
- * @returns {Promise<Object>} Map of R2 keys to file sizes in bytes.
+ * @returns {Promise<Record<string, number>|null>} Map of R2 keys to file sizes in bytes.
  */
 export async function getFileSizes(bucket, ctx) {
     const now = Date.now();

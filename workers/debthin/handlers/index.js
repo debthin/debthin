@@ -126,7 +126,7 @@ async function serveManifests(env, request, r2Key, p2, ctx) {
       ctx,
       ttl: 120000,
       maxAge: 120,
-      onDiskMiss: (buf, force) => warmRamCacheFromRelease(buf, suiteDir, force)
+      onDiskMiss: (/** @type {ArrayBuffer} */ buf, /** @type {boolean} */ force) => warmRamCacheFromRelease(buf, suiteDir, force)
     });
   }
   if (p2 === "Release") {
@@ -137,7 +137,7 @@ async function serveManifests(env, request, r2Key, p2, ctx) {
       ctx,
       ttl: 120000,
       maxAge: 120,
-      onDiskMiss: (buf, force) => warmRamCacheFromRelease(buf, suiteDir, force)
+      onDiskMiss: (/** @type {ArrayBuffer} */ buf, /** @type {boolean} */ force) => warmRamCacheFromRelease(buf, suiteDir, force)
     });
   }
   return null;

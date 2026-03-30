@@ -93,6 +93,21 @@ interface WrappedR2Object {
     text(): Promise<string>;
 }
 
+// ── Proxy Route Types ────────────────────────────────────────────────────────
+
+/**
+ * Parsed proxy route object returned by parseProxySuitePath() in proxy/utils.js.
+ */
+interface ParsedProxyRoute {
+    host: string;
+    suite: string;
+    component: string;
+    type: string;
+    pin?: string | null;
+    arch?: string;
+    gz?: boolean;
+}
+
 // ── JSON Module Declaration ──────────────────────────────────────────────────
 
 declare module "../../config.json" {

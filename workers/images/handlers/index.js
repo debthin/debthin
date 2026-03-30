@@ -50,18 +50,22 @@ export async function serveR2Static(request, bucket, ctx, key, baseHeaders) {
     );
 }
 
+/** @param {Request} request @param {R2Bucket} bucket @param {ExecutionContext} ctx */
 export async function handleLxcIndex(request, bucket, ctx) {
     return serveL1Target(request, bucket, ctx, "meta/1.0/index-system", H_LXC_CSV, hydrateRegistryState);
 }
 
+/** @param {Request} request @param {R2Bucket} bucket @param {ExecutionContext} ctx */
 export async function handleIncusIndex(request, bucket, ctx) {
     return serveL1Target(request, bucket, ctx, "streams/v1/images.json", H_INCUS_JSON, hydrateRegistryState);
 }
 
+/** @param {Request} request @param {R2Bucket} bucket @param {ExecutionContext} ctx */
 export async function handleIncusPointer(request, bucket, ctx) {
     return serveL1Target(request, bucket, ctx, "streams/v1/index.json", H_INCUS_JSON, hydrateRegistryState);
 }
 
+/** @param {Request} request @param {R2Bucket} bucket @param {ExecutionContext} ctx @param {string} rawPath @param {ImagesEnv} env */
 export async function handleOciRegistry(request, bucket, ctx, rawPath, env) {
     if (rawPath === "v2" || rawPath === "v2/") {
         return new Response("{}", { headers: H_V2_ROOT });
@@ -117,6 +121,7 @@ export async function handleOciRegistry(request, bucket, ctx, rawPath, env) {
         }
 
         const cType = isInner ? "application/vnd.oci.image.manifest.v1+json" : "application/vnd.oci.image.index.v1+json";
+        /** @type {Record<string, string>} */
         const extra = { "Content-Type": cType, "Docker-Distribution-Api-Version": "registry/2.0" };
         if (isInner) extra["Docker-Content-Digest"] = ref;
 
@@ -200,6 +205,16 @@ export function handleOciLayout(request) {
     );
 }
 
+/**
+ * Serves image metadata from the L1 cache with SWR background refresh.
+ *
+ * @param {Request} request
+ * @param {R2Bucket} bucket
+ * @param {ExecutionContext} ctx
+ * @param {string} r2Key
+ * @param {string} filename
+ * @returns {Promise<Response>}
+ */
 export async function handleImageMetadata(request, bucket, ctx, r2Key, filename) {
     let cached = indexCache.get(r2Key);
     if (cached) {

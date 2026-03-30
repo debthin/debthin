@@ -11,14 +11,14 @@ const _textDecoder = new TextDecoder();
 /**
  * Lazily populated index map caching upstream file architectures. 
  * Enables the worker to selectively bypass R2 lookups for by-hash target queries.
- * @type {Map<string, Object|Promise>}
+ * @type {Map<string, Record<string, string>|Promise<Record<string, string>>>}
  */
 export const _hashIndexes = new Map();
 
 /**
  * Retrieves the currently mapped index for a distribution, or undefined.
  * @param {string} distro - The distribution canonical name.
- * @returns {Object|Promise|undefined}
+ * @returns {Record<string, string>|Promise<Record<string, string>>|undefined}
  */
 export function getDistroIndex(distro) {
   return _hashIndexes.get(distro);
@@ -27,7 +27,7 @@ export function getDistroIndex(distro) {
 /**
  * Assigns or deletes a mapped index for a distribution.
  * @param {string} distro - Canonical distribution name.
- * @param {Object|Promise|null} index - The resolved lookup structure to map.
+ * @param {Record<string, string>|Promise<Record<string, string>>|null} index - The resolved lookup structure to map.
  */
 export function setDistroIndex(distro, index) {
   if (index === null) _hashIndexes.delete(distro);
@@ -78,14 +78,14 @@ export function warmRamCacheFromRelease(payload, suiteRoot, forceReindex = false
     const name = line.slice(s2 + 1);
 
     if (hash === EMPTY_GZ_HASH) {
-      if (!dataCache.has(`${suiteRoot}/${name}`)) dataCache.add(`${suiteRoot}/${name}`, EMPTY_GZ, { contentType: "application/x-gzip" }, Date.now(), true);
+      if (!dataCache.has(`${suiteRoot}/${name}`)) dataCache.add(`${suiteRoot}/${name}`, /** @type {*} */ (EMPTY_GZ), { contentType: "application/x-gzip" }, Date.now(), true);
     } else if (hash === EMPTY_HASH) {
       if (!dataCache.has(`${suiteRoot}/${name}`)) dataCache.add(`${suiteRoot}/${name}`, new ArrayBuffer(0), { contentType: "text/plain; charset=utf-8" }, Date.now(), true);
     }
 
     if (hash.length === 64 && name.endsWith("/Packages.gz")) {
       if (!(distroIndex instanceof Promise)) {
-        distroIndex[hash] = suiteRoot.slice(prefixLen) + "/" + name;
+      distroIndex[hash] = suiteRoot.slice(prefixLen) + "/" + name;
       }
     }
 

@@ -19,7 +19,7 @@ const _textDecoder = new TextDecoder();
  * @param {Record<string, any>} meta - Etag and content limit parameters.
  * @param {boolean} [isCached=false] - Injects X-Cache tracking flag.
  * @param {number} [hits=0] - Cache hit iteration number.
- * @returns {Object} Interface supporting text and arrayBuffer endpoints.
+ * @returns {WrappedR2Object} Interface supporting text and arrayBuffer endpoints.
  */
 export function wrapCachedObject(arrayBuffer, meta, isCached = false, hits = 0) {
   return {

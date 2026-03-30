@@ -7,13 +7,21 @@ import { isNotModified } from '../core/http.js';
 import { H_CACHED, H_IMMUTABLE } from '../core/constants.js';
 
 // ── Prebuilt Frozen Headers ──────────────────────────────────────────────────
+/** @type {Readonly<Record<string, string>>} */
 export const H_LXC_CSV = Object.freeze({ ...H_CACHED, "Content-Type": "text/plain; charset=utf-8" });
+/** @type {Readonly<Record<string, string>>} */
 export const H_INCUS_JSON = Object.freeze({ ...H_CACHED, "Content-Type": "application/json; charset=utf-8" });
+/** @type {Readonly<Record<string, string>>} */
 export const H_V2_ROOT = Object.freeze({ ...H_CACHED, "Content-Type": "application/json", "Docker-Distribution-Api-Version": "registry/2.0" });
+/** @type {Readonly<Record<string, string>>} */
 export const H_TAR_XZ = Object.freeze({ ...H_CACHED, "Content-Type": "application/x-xz" });
+/** @type {Readonly<Record<string, string>>} */
 export const H_OCI_INDEX_JSON = Object.freeze({ ...H_CACHED, "Content-Type": "application/vnd.oci.image.index.v1+json" });
+/** @type {Readonly<Record<string, string>>} */
 export const H_OCI_LAYOUT = Object.freeze({ ...H_IMMUTABLE, "Content-Type": "application/json" });
+/** @type {Readonly<Record<string, string>>} */
 export const H_HTML = Object.freeze({ ...H_CACHED, "Content-Type": "text/html; charset=utf-8" });
+/** @type {Readonly<Record<string, string>>} */
 export const H_ICON = Object.freeze({ ...H_CACHED, "Content-Type": "image/x-icon" });
 
 // Export the core header sets for handlers

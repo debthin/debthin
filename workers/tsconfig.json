@@ -6,6 +6,8 @@
     "checkJs": true,
     "noEmit": true,
     "strict": false,
+    "noImplicitAny": true,
+    "strictNullChecks": false,
     "allowJs": true,
     "skipLibCheck": true,
     "types": ["@cloudflare/workers-types"],

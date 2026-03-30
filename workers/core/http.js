@@ -72,6 +72,7 @@ export async function serveR2(env, request, key, cache, { transform, fetchKey, c
   if (!obj) return new Response("Not found\n", { status: 404, headers: { ...H_CACHED, "X-Cache": "MISS" } });
 
   const base = immutable ? H_IMMUTABLE : H_CACHED;
+  /** @type {Record<string, string>} */
   const h = {
     ...base,
     "X-Debthin": obj.isCached ? "hit-isolate-cache" : "hit",
