@@ -25,6 +25,8 @@ R2_BUCKET     ?= debthin
 
 export CONFIG_FILE := $(CONFIG)
 
+PYTHON_CMD := $(if $(wildcard $(ROOT_DIR)/.venv/bin/python3),$(ROOT_DIR)/.venv/bin/python3,python3)
+
 BUILT_AT := $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 
 # ── Dynamic target generation from config.json ───────────────────────────────
@@ -58,7 +60,7 @@ PARALLEL ?= 8
 
 fetch:
 	@echo "Phase 1: fetching upstream indexes (parallel=$(PARALLEL))..." >&2
-	@python3 $(SCRIPTS)/fetch.py $(CONFIG) --parallel $(PARALLEL)
+	@$(PYTHON_CMD) $(SCRIPTS)/fetch.py $(CONFIG) --parallel $(PARALLEL)
 
 # ── Phase 2: Filter ─────────────────────────────────────────────────────────
 # Apply allowlist filtering per distro/suite.
@@ -69,7 +71,7 @@ FILTER_TARGETS := $(addprefix filter-,$(DISTRO_SUITES))
 filter: $(FILTER_TARGETS)
 
 $(FILTER_TARGETS): filter-%: fetch
-	@python3 $(SCRIPTS)/filter.py $(subst /, ,$*)
+	@$(PYTHON_CMD) $(SCRIPTS)/filter.py $(subst /, ,$*)
 
 # ── Phase 2.5: Headless ─────────────────────────────────────────────────────
 # Merge components + updates into deduplicated headless suites.
@@ -86,11 +88,11 @@ $(HEADLESS_TARGETS): headless-%: filter-%
 
 sign: headless
 	@echo "Phase 3: signing..." >&2
-	@GPG_KEY_ID=$(GPG_KEY_ID) python3 $(SCRIPTS)/sign_all.py $(OUTPUT) $(CONFIG)
+	@GPG_KEY_ID=$(GPG_KEY_ID) $(PYTHON_CMD) $(SCRIPTS)/sign_all.py $(OUTPUT) $(CONFIG)
 
 # Per-release signing targets (parallel-safe, no file overlap)
 $(addprefix sign-,$(DISTRO_SUITES)): sign-%: headless
-	@GPG_KEY_ID=$(GPG_KEY_ID) python3 $(SCRIPTS)/sign_all.py $(OUTPUT) $(CONFIG)
+	@GPG_KEY_ID=$(GPG_KEY_ID) $(PYTHON_CMD) $(SCRIPTS)/sign_all.py $(OUTPUT) $(CONFIG)
 
 # ── Phase 4: Stage ───────────────────────────────────────────────────────────
 # Copy static assets into dist_output and clean up.
@@ -109,7 +111,7 @@ stage: sign
 
 validate: stage
 	@echo "Validating dist_output/..." >&2
-	@python3 $(SCRIPTS)/validate.py $(OUTPUT) \
+	@$(PYTHON_CMD) $(SCRIPTS)/validate.py $(OUTPUT) \
 		--json $(OUTPUT)/status.json \
 		--cache-dir $(CACHE) \
 		--built-at "$(BUILT_AT)" \
@@ -123,7 +125,7 @@ ifeq ($(NO_UPLOAD),1)
 	@echo "Skipping Cloudflare R2 upload (NO_UPLOAD=1)." >&2
 else
 	@echo "Uploading to Cloudflare R2..." >&2
-	@python3 $(SCRIPTS)/r2_upload.py \
+	@$(PYTHON_CMD) $(SCRIPTS)/r2_upload.py \
 		--dir $(OUTPUT) \
 		--account "$(R2_ACCOUNT_ID)" \
 		--access-key "$(R2_ACCESS_KEY)" \
