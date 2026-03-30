@@ -16,9 +16,10 @@
  *
  * @param {string} path - URL path segment.
  * @param {number} [maxParts=5] - Maximum number of components to extract.
- * @returns {Object} Keys p0-pN mapped to sequential path chunks.
+ * @returns {Record<string, string>} Keys p0-pN mapped to sequential path chunks.
  */
 export function tokenizePath(path, maxParts = 5) {
+  /** @type {Record<string, string>} */
   const parts = {};
   const s1 = path.indexOf("/");
   if (s1 === -1 || maxParts <= 0) return parts;

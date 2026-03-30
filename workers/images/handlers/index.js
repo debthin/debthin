@@ -21,10 +21,10 @@ import { serveL1Target, fetchAndCache, headersForMetadata, METADATA_SIZE_LIMIT }
  * on miss, and uses buildDerivedResponse for conditional 304 handling.
  *
  * @param {Request} request - The inbound HTTP request.
- * @param {Object} bucket - The Cloudflare R2 bucket binding.
- * @param {Object} ctx - Worker execution context.
+ * @param {R2Bucket} bucket - The Cloudflare R2 bucket binding.
+ * @param {ExecutionContext} ctx - Worker execution context.
  * @param {string} key - The R2 object key to fetch.
- * @param {Object} baseHeaders - Frozen header set (e.g. H_HTML, H_ICON).
+ * @param {Record<string, string>} baseHeaders - Frozen header set (e.g. H_HTML, H_ICON).
  * @returns {Promise<Response>} Cached or freshly-fetched response.
  */
 export async function serveR2Static(request, bucket, ctx, key, baseHeaders) {
@@ -50,18 +50,22 @@ export async function serveR2Static(request, bucket, ctx, key, baseHeaders) {
     );
 }
 
+/** @param {Request} request @param {R2Bucket} bucket @param {ExecutionContext} ctx */
 export async function handleLxcIndex(request, bucket, ctx) {
     return serveL1Target(request, bucket, ctx, "meta/1.0/index-system", H_LXC_CSV, hydrateRegistryState);
 }
 
+/** @param {Request} request @param {R2Bucket} bucket @param {ExecutionContext} ctx */
 export async function handleIncusIndex(request, bucket, ctx) {
     return serveL1Target(request, bucket, ctx, "streams/v1/images.json", H_INCUS_JSON, hydrateRegistryState);
 }
 
+/** @param {Request} request @param {R2Bucket} bucket @param {ExecutionContext} ctx */
 export async function handleIncusPointer(request, bucket, ctx) {
     return serveL1Target(request, bucket, ctx, "streams/v1/index.json", H_INCUS_JSON, hydrateRegistryState);
 }
 
+/** @param {Request} request @param {R2Bucket} bucket @param {ExecutionContext} ctx @param {string} rawPath @param {ImagesEnv} env */
 export async function handleOciRegistry(request, bucket, ctx, rawPath, env) {
     if (rawPath === "v2" || rawPath === "v2/") {
         return new Response("{}", { headers: H_V2_ROOT });
@@ -100,7 +104,7 @@ export async function handleOciRegistry(request, bucket, ctx, rawPath, env) {
             const now = Date.now();
             const meta = { etag: r2Res.etag, lastModified: now, lastModifiedStr: new Date(now).toUTCString() };
             indexCache.add(r2Key, buf, meta, now);
-            cachedManifest = { buf, meta, hits: 0 };
+            cachedManifest = { buf, meta, hits: 0, addedAt: now };
         } else if (Date.now() - cachedManifest.addedAt > indexCache.ttl && ctx && typeof ctx.waitUntil === 'function') {
             ctx.waitUntil((async () => {
                 const r2Res = await bucket.get(r2Key);
@@ -117,6 +121,7 @@ export async function handleOciRegistry(request, bucket, ctx, rawPath, env) {
         }
 
         const cType = isInner ? "application/vnd.oci.image.manifest.v1+json" : "application/vnd.oci.image.index.v1+json";
+        /** @type {Record<string, string>} */
         const extra = { "Content-Type": cType, "Docker-Distribution-Api-Version": "registry/2.0" };
         if (isInner) extra["Docker-Content-Digest"] = ref;
 
@@ -131,7 +136,7 @@ export async function handleOciRegistry(request, bucket, ctx, rawPath, env) {
  * Returns a 301 with 1-year immutable cache headers.
  *
  * @param {string} rawPath - The path to redirect (e.g. '/images/debian/...').
- * @param {Object} env - Cloudflare environment bindings containing PUBLIC_R2_URL.
+ * @param {ImagesEnv} env - Cloudflare environment bindings containing PUBLIC_R2_URL.
  * @returns {Response} A 301 redirect response.
  */
 export function handleImageRedirect(rawPath, env) {
@@ -152,7 +157,7 @@ export function handleImageRedirect(rawPath, env) {
  * to leverage Cloudflare's CDN edge caching.
  *
  * @param {Request} request - The inbound HTTP request.
- * @param {Object} bucket - The Cloudflare R2 bucket binding.
+ * @param {R2Bucket} bucket - The Cloudflare R2 bucket binding.
  * @param {string} r2Key - The R2 object key (no leading slash).
  * @returns {Promise<Response>} Streamed R2 response with cache headers.
  */
@@ -200,6 +205,16 @@ export function handleOciLayout(request) {
     );
 }
 
+/**
+ * Serves image metadata from the L1 cache with SWR background refresh.
+ *
+ * @param {Request} request
+ * @param {R2Bucket} bucket
+ * @param {ExecutionContext} ctx
+ * @param {string} r2Key
+ * @param {string} filename
+ * @returns {Promise<Response>}
+ */
 export async function handleImageMetadata(request, bucket, ctx, r2Key, filename) {
     let cached = indexCache.get(r2Key);
     if (cached) {
@@ -229,10 +244,10 @@ export async function handleImageMetadata(request, bucket, ctx, r2Key, filename)
  * Files under 100KB are served from cache; everything else is redirected.
  *
  * @param {Request} request - The inbound HTTP request.
- * @param {Object} env - Cloudflare environment bindings.
- * @param {Object} ctx - Worker execution context.
+ * @param {ImagesEnv} env - Cloudflare environment bindings.
+ * @param {ExecutionContext} ctx - Worker execution context.
  * @param {string} rawPath - URL path without leading slash.
- * @returns {Promise<Response>|Response} The response.
+ * @returns {Promise<Response>} The response.
  */
 export async function routeImagePath(request, env, ctx, rawPath) {
     const lastSlash = rawPath.lastIndexOf('/');

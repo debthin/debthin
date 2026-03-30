@@ -7,13 +7,21 @@ import { isNotModified } from '../core/http.js';
 import { H_CACHED, H_IMMUTABLE } from '../core/constants.js';
 
 // ── Prebuilt Frozen Headers ──────────────────────────────────────────────────
+/** @type {Readonly<Record<string, string>>} */
 export const H_LXC_CSV = Object.freeze({ ...H_CACHED, "Content-Type": "text/plain; charset=utf-8" });
+/** @type {Readonly<Record<string, string>>} */
 export const H_INCUS_JSON = Object.freeze({ ...H_CACHED, "Content-Type": "application/json; charset=utf-8" });
+/** @type {Readonly<Record<string, string>>} */
 export const H_V2_ROOT = Object.freeze({ ...H_CACHED, "Content-Type": "application/json", "Docker-Distribution-Api-Version": "registry/2.0" });
+/** @type {Readonly<Record<string, string>>} */
 export const H_TAR_XZ = Object.freeze({ ...H_CACHED, "Content-Type": "application/x-xz" });
+/** @type {Readonly<Record<string, string>>} */
 export const H_OCI_INDEX_JSON = Object.freeze({ ...H_CACHED, "Content-Type": "application/vnd.oci.image.index.v1+json" });
+/** @type {Readonly<Record<string, string>>} */
 export const H_OCI_LAYOUT = Object.freeze({ ...H_IMMUTABLE, "Content-Type": "application/json" });
+/** @type {Readonly<Record<string, string>>} */
 export const H_HTML = Object.freeze({ ...H_CACHED, "Content-Type": "text/html; charset=utf-8" });
+/** @type {Readonly<Record<string, string>>} */
 export const H_ICON = Object.freeze({ ...H_CACHED, "Content-Type": "image/x-icon" });
 
 // Export the core header sets for handlers
@@ -51,12 +59,12 @@ export { OCI_LAYOUT_META };
  * Evaluates If-None-Match/If-Modified-Since against the provided metadata.
  *
  * @param {Request} request - The inbound HTTP request.
- * @param {Object} meta - Cache metadata containing etag and lastModifiedStr.
+ * @param {Record<string, any>} meta - Cache metadata containing etag and lastModifiedStr.
  * @param {ArrayBuffer|null} buf - Response body buffer (null for HEAD requests).
  * @param {boolean} isCached - Whether this response was served from cache.
  * @param {number} hits - Cache hit count for this entry.
- * @param {Object} baseHeaders - Frozen base header set to include.
- * @param {Object} [extraHeaders={}] - Additional headers to merge.
+ * @param {Record<string, string>} baseHeaders - Frozen base header set to include.
+ * @param {Record<string, string>} [extraHeaders] - Additional headers to merge.
  * @returns {Response} The constructed HTTP response.
  */
 export function buildDerivedResponse(request, meta, buf, isCached, hits, baseHeaders, extraHeaders) {

@@ -72,7 +72,7 @@ function handleRobots() {
  * Validates the admin secret from a path segment against the ADMIN_SECRET
  * env var. Returns true only when the env var is set and matches.
  *
- * @param {Object} env - Cloudflare environment bindings.
+ * @param {Env} env - Cloudflare environment bindings.
  * @param {string} provided - The secret extracted from the URL.
  * @returns {boolean} Whether the secret is valid.
  */
@@ -86,7 +86,7 @@ function isValidSecret(env, provided) {
  * Returns a health check response with R2 connectivity status,
  * aggregated cache statistics, and isolate uptime telemetry.
  *
- * @param {Object} bucket - R2 bucket binding to probe.
+ * @param {R2Bucket} bucket - R2 bucket binding to probe.
  * @param {string} serviceName - Identifies the worker in the response.
  * @param {Function} getStats - Returns aggregated cache stats object.
  * @returns {Promise<Response>} JSON health response (200 OK or 503 DEGRADED).
@@ -168,12 +168,8 @@ function handleFlush(flushFn) {
  *   _cache_flush.{secret}    → flush all L1 caches
  *
  * @param {string} rawPath - URL path without leading slash.
- * @param {Object} env - Cloudflare environment bindings (needs ADMIN_SECRET).
- * @param {Object} opts - Handler configuration.
- * @param {Object} opts.bucket - R2 bucket binding for health probe.
- * @param {string} opts.serviceName - Worker name for health response.
- * @param {Function} opts.getStats - Returns aggregated cache stats.
- * @param {Function} opts.flush - No-arg function that purges all L1 caches.
+ * @param {Env} env - Cloudflare environment bindings (needs ADMIN_SECRET).
+ * @param {{bucket: R2Bucket, serviceName: string, getStats: Function, flush: Function}} opts - Handler configuration.
  * @returns {Promise<Response>|Response|null} Admin response or null if not matched.
  */
 export function routeAdminPath(rawPath, env, { bucket, serviceName, getStats, flush }) {
@@ -206,12 +202,14 @@ export function routeAdminPath(rawPath, env, { bucket, serviceName, getStats, fl
  *  - catches unhandled errors and returns 500
  *  - appends X-Timer (start + duration) and X-Served-By (colo + service name)
  *
- * @param {Function} handler - async (request, env, ctx) => Response
+ * @template E
+ * @param {(request: Request, env: E, ctx: ExecutionContext) => Promise<Response>} handler - The request handler.
  * @param {string} serviceName - Suffix for the X-Served-By header.
- * @returns {Object} Cloudflare Worker module export with a fetch method.
+ * @returns {{fetch: (request: Request, env: E, ctx: ExecutionContext) => Promise<Response>}} Cloudflare Worker module export.
  */
 export function wrapHandler(handler, serviceName) {
     return {
+        /** @param {Request} request @param {E} env @param {ExecutionContext} ctx */
         async fetch(request, env, ctx) {
             const t0 = Date.now();
             if (!ISOLATE_START_TIME) ISOLATE_START_TIME = t0;

@@ -11,8 +11,11 @@ const _textDecoder = new TextDecoder();
 const STATE_KEY = "registry-state.json";
 
 // Module-level state populated during hydration
+/** @type {Record<string, string>|null} */
 let _ociBlobsMap = null;
+/** @type {Record<string, string>|null} */
 let _ociManifestsMap = null;
+/** @type {Record<string, number>|null} */
 let _fileSizesMap = null;
 let _stateTimestamp = 0;
 
@@ -21,7 +24,7 @@ let _stateTimestamp = 0;
  * with binary-encoded LXC CSV and Incus JSON index payloads.
  * Also stores OCI blob/manifest dictionaries in module-level state.
  *
- * @param {Object} bucket - The Cloudflare R2 bucket binding.
+ * @param {R2Bucket} bucket - The Cloudflare R2 bucket binding.
  * @returns {Promise<void>}
  */
 export async function hydrateRegistryState(bucket) {
@@ -74,9 +77,9 @@ export async function hydrateRegistryState(bucket) {
  * Returns OCI blob and manifest dictionaries, hydrating from R2 if needed.
  * Uses stale-while-revalidate: serves existing data while refreshing in background.
  *
- * @param {Object} bucket - The Cloudflare R2 bucket binding.
- * @param {Object} ctx - Worker execution context for background revalidation.
- * @returns {Promise<{blobs: Object, manifests: Object}>} OCI lookup maps.
+ * @param {R2Bucket} bucket - The Cloudflare R2 bucket binding.
+ * @param {ExecutionContext} ctx - Worker execution context for background revalidation.
+ * @returns {Promise<{blobs: Record<string, string>|null, manifests: Record<string, string>|null}>} OCI lookup maps.
  */
 export async function getOciState(bucket, ctx) {
     const now = Date.now();
@@ -92,9 +95,9 @@ export async function getOciState(bucket, ctx) {
  * Returns the file size lookup map, hydrating from R2 if needed.
  * Maps R2 keys (e.g. 'images/debian/.../incus.tar.xz') to byte sizes.
  *
- * @param {Object} bucket - The Cloudflare R2 bucket binding.
- * @param {Object} ctx - Worker execution context for background revalidation.
- * @returns {Promise<Object>} Map of R2 keys to file sizes in bytes.
+ * @param {R2Bucket} bucket - The Cloudflare R2 bucket binding.
+ * @param {ExecutionContext} ctx - Worker execution context for background revalidation.
+ * @returns {Promise<Record<string, number>|null>} Map of R2 keys to file sizes in bytes.
  */
 export async function getFileSizes(bucket, ctx) {
     const now = Date.now();

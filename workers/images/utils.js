@@ -14,7 +14,7 @@ export const METADATA_SIZE_LIMIT = 102400;
  * Resolves frozen headers for a metadata file based on its extension.
  *
  * @param {string} filename - Basename of the file.
- * @returns {Object} Frozen header set with the appropriate Content-Type.
+ * @returns {Readonly<Record<string, string>>} Frozen header set with the appropriate Content-Type.
  */
 export function headersForMetadata(filename) {
     if (filename.endsWith('.json')) return H_OCI_INDEX_JSON;
@@ -28,10 +28,10 @@ export function headersForMetadata(filename) {
  * a background refresh via ctx.waitUntil.
  *
  * @param {Request} request - The inbound HTTP request.
- * @param {Object} bucket - The Cloudflare R2 bucket binding.
- * @param {Object} ctx - Worker execution context.
+ * @param {R2Bucket} bucket - The Cloudflare R2 bucket binding.
+ * @param {ExecutionContext} ctx - Worker execution context.
  * @param {string} cacheKey - The LRU cache key to look up.
- * @param {Object} baseHeaders - Frozen header set for the response.
+ * @param {Record<string, string>} baseHeaders - Frozen header set for the response.
  * @param {Function} hydrateFn - Async function to hydrate state from R2.
  * @returns {Promise<Response>} Cached or freshly-hydrated response.
  */
@@ -52,7 +52,7 @@ export async function serveL1Target(request, bucket, ctx, cacheKey, baseHeaders,
  * entry (buf + meta). Used by both serveR2Static and handleImageMetadata
  * to avoid duplicating the fetch-and-cache pattern.
  *
- * @param {Object} bucket - The Cloudflare R2 bucket binding.
+ * @param {R2Bucket} bucket - The Cloudflare R2 bucket binding.
  * @param {string} key - The R2 object key.
  * @returns {Promise<{buf: ArrayBuffer, meta: Object}|null>} Cache entry or null if not found.
  */

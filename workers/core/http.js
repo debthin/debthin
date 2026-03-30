@@ -19,7 +19,7 @@ const _textDecoder = new TextDecoder();
  * Permits the worker API to yield 304 results for existing client caches immediately.
  *
  * @param {Headers} requestHeaders - Inbound HTTP request headers containing If-None-Match or If-Modified-Since.
- * @param {Object} obj - The hydrated metadata representation pulled from the bucket or local memory.
+ * @param {{etag?: string, lastModified?: number|null}} obj - The hydrated metadata representation pulled from the bucket or local memory.
  * @returns {boolean} Returns true if the client cache dictates skipping a full payload transfer.
  */
 export function isNotModified(requestHeaders, obj) {
@@ -41,21 +41,28 @@ export function isNotModified(requestHeaders, obj) {
 
 
 /**
+ * @typedef {Object} ServeR2Options
+ * @property {string} [transform] - e.g., 'decompress' or 'strip-pgp'.
+ * @property {string} [fetchKey] - Allows falling back to a different bucket key if `key` is not correct.
+ * @property {ExecutionContext} [ctx] - Execution context for background tasks.
+ * @property {boolean} [immutable] - Flags caching headers as immutable.
+ * @property {Function} [onDiskMiss] - Callback (buffer, forceReindex) triggered on network fetch.
+ * @property {number} [ttl] - Override TTL in milliseconds.
+ * @property {number} [maxAge] - Override Cache-Control max-age in seconds.
+ */
+
+/**
  * Generates an HTTP response representing an R2 payload or local cache hit.
  * Manages 304 conditionals, transformations, and caching headers cleanly.
  *
- * @param {Object} env - The Cloudflare worker bindings.
+ * @param {HasDebthinBucket} env - The Cloudflare worker bindings.
  * @param {Request} request - The original inbound HTTP request object.
  * @param {string} key - The bucket path to fetch.
- * @param {Object} [options] - Optional configurations.
- * @param {string} [options.transform] - e.g., 'decompress' or 'strip-pgp'.
- * @param {string} [options.fetchKey] - Allows falling back to a different bucket key if `key` is not correct.
- * @param {Object} [options.ctx] - Execution context for background tasks.
- * @param {boolean} [options.immutable=false] - Flags caching headers as immutable.
- * @param {Function} [options.onDiskMiss] - Callback (buffer, forceReindex) triggered strictly on network fetch.
+ * @param {LocalCache} cache - The LRU cache instance to use.
+ * @param {ServeR2Options} [options] - Optional configurations.
  * @returns {Promise<Response>} A fully formed HTTP Response ready for the client socket.
  */
-export async function serveR2(env, request, key, cache, { transform, fetchKey, ctx, immutable, onDiskMiss, ttl, maxAge } = {}) {
+export async function serveR2(env, request, key, cache, { transform, fetchKey, ctx, immutable, onDiskMiss, ttl, maxAge } = /** @type {ServeR2Options} */ ({})) {
   const isHead = request.method === "HEAD";
   
   const obj = isHead && !transform 
@@ -65,6 +72,7 @@ export async function serveR2(env, request, key, cache, { transform, fetchKey, c
   if (!obj) return new Response("Not found\n", { status: 404, headers: { ...H_CACHED, "X-Cache": "MISS" } });
 
   const base = immutable ? H_IMMUTABLE : H_CACHED;
+  /** @type {Record<string, string>} */
   const h = {
     ...base,
     "X-Debthin": obj.isCached ? "hit-isolate-cache" : "hit",

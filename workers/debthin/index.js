@@ -13,8 +13,8 @@ import { getCacheStats, purgeAllCaches } from './cache.js';
  * or upstream redirects based on path structure.
  * 
  * @param {Request} request - The inbound HTTP request.
- * @param {Object} env - Cloudflare environment bindings.
- * @param {Object} ctx - Worker execution context for waitUntil jobs.
+ * @param {DebthinEnv} env - Cloudflare environment bindings.
+ * @param {ExecutionContext} ctx - Worker execution context for waitUntil jobs.
  * @returns {Promise<Response>} The evaluated HTTP Response or proxy instruction.
  */
 async function handleRequest(request, env, ctx) {

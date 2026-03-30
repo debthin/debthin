@@ -7,17 +7,18 @@
  * - CONFIG_JSON_STRING: The raw original configuration string.
  */
 
+
+// @ts-expect-error — import attributes (`with { type: 'json' }`) not yet supported by tsc
 import configData from '../../config.json' with { type: 'json' };
 
 /**
  * Parses the layout dictionary locally caching configuration settings.
- * @type {Object}
- * @property {Object} DERIVED_CONFIG - The parsed and structurally verified layout dictionary.
- * @property {string} CONFIG_JSON_STRING - The literal canonical string version of the config data block.
+ * @type {{DERIVED_CONFIG: Record<string, any>, CONFIG_JSON_STRING: string}}
  */
 export const { DERIVED_CONFIG, CONFIG_JSON_STRING } = (() => {
-  const config = configData.default || configData;
+  const config = /** @type {Record<string, any>} */ (/** @type {any} */ (configData).default || configData);
   const configString = JSON.stringify(config);
+  /** @type {Record<string, any>} */
   const derived = {};
   for (const [distro, c] of Object.entries(config)) {
     const upstreamRaw = c.upstream ?? c.upstream_archive ?? c.upstream_ports;
@@ -35,7 +36,7 @@ export const { DERIVED_CONFIG, CONFIG_JSON_STRING } = (() => {
     // Build per-architecture upstream mapping for distros with split mirrors
     // (e.g. Ubuntu: archive.ubuntu.com for amd64/i386, ports.ubuntu.com for arm64/riscv64)
     const archUpstreams = new Map();
-    const stripProto = (url) => url.slice(url.indexOf("//") + 2);
+    const stripProto = (/** @type {string} */ url) => url.slice(url.indexOf("//") + 2);
     if (c.upstream) {
       const host = stripProto(c.upstream);
       for (const a of arches) archUpstreams.set(a, host);

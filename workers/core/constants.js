@@ -20,7 +20,7 @@ export const CACHE_TTL_MS = 3600000;
 
 /**
  * Standard HTTP security headers.
- * @type {Object}
+ * @type {Readonly<Record<string, string>>}
  */
 export const H_BASE = Object.freeze({
   "X-Content-Type-Options": "nosniff",
@@ -33,13 +33,13 @@ export const H_BASE = Object.freeze({
 
 /**
  * Security headers with a standard 1-hour public Cache-Control directive.
- * @type {Object}
+ * @type {Readonly<Record<string, string>>}
  */
 export const H_CACHED = Object.freeze({ ...H_BASE, "Cache-Control": "public, max-age=3600, no-transform" });
 
 /**
  * Security headers with a 1-year immutable Cache-Control directive.
- * @type {Object}
+ * @type {Readonly<Record<string, string>>}
  */
 export const H_IMMUTABLE = Object.freeze({ ...H_BASE, "Cache-Control": "public, max-age=31536000, immutable, no-transform" });
 

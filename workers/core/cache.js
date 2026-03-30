@@ -16,6 +16,12 @@
  * fits entirely inside the CPU L1 cache. It provides exponentially faster real-world
  * performance by completely bypassing memory indirection and object instantiation, 
  * despite being O(N) theoretically rather than O(1).
+ * Constructs a slot-based LRU cache backed by TypedArrays.
+ *
+ * @param {number} maxSlots - Maximum number of cache entries.
+ * @param {number} maxSize - Maximum total byte capacity.
+ * @param {number} [ttlMs=3600000] - Time-to-live per entry in milliseconds.
+ * @returns {LocalCache} The cache instance.
  */
 export function LRUCache(maxSlots, maxSize, ttlMs = 3600000) {
   const index = new Map();
@@ -36,8 +42,8 @@ export function LRUCache(maxSlots, maxSize, ttlMs = 3600000) {
     let lru = -1, lruTime = Infinity;
     for (let i = 0; i < maxSlots; i++) {
       if (keyArray[i] !== null && pinnedArray[i] === 0) {
-        if (usedArray[i] < lruTime) { 
-          lruTime = usedArray[i]; lru = i; 
+        if (usedArray[i] < lruTime) {
+          lruTime = usedArray[i]; lru = i;
         } else if (usedArray[i] === lruTime && lru !== -1 && hitsArray[i] < hitsArray[lru]) {
           lru = i;
         }

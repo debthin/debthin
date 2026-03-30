@@ -11,7 +11,7 @@ import { compareDebianVersions, parseVersion } from './version.js';
  * Stanzas from parsePackages/reduceToLatest use plain objects; stanzas from
  * reduceStreamToLatest use Maps. This accessor unifies both code paths.
  *
- * @param {Object|Map} fields - The stanza field container.
+ * @param {Record<string, string>|Map<string, string>} fields - The stanza field container.
  * @param {string} key - The lowercase field name.
  * @returns {string|undefined} The field value, or undefined if not present.
  */
@@ -22,7 +22,7 @@ function fieldGet(fields, key) {
 /**
  * Iterates over all key-value pairs in a stanza regardless of storage type.
  *
- * @param {Object|Map} fields - The stanza field container.
+ * @param {Record<string, string>|Map<string, string>} fields - The stanza field container.
  * @returns {Iterable<[string, string]>} Key-value pairs.
  */
 function fieldEntries(fields) {
@@ -33,12 +33,13 @@ function fieldEntries(fields) {
  * Deserializes an APT formatted Packages payload into primitive JavaScript objects.
  * 
  * @param {string} text - Raw Packages file payload.
- * @returns {Array<Object>} An array of dictionaries representing package stanzas.
+ * @returns {Array<Record<string, string>>} An array of dictionaries representing package stanzas.
  */
 export function parsePackages(text) {
   const pkgs = [];
   for (const stanza of text.split(/\n\n+/)) {
     if (!stanza.trim()) continue;
+    /** @type {Record<string, string>} */
     const fields = {};
     let currentKey = null;
     for (const line of stanza.split("\n")) {
@@ -76,9 +77,9 @@ export function parseDeps(depStr) {
  * Filters a package list to keep only the highest stable versions.
  * Discards components that do not match the target pin version string, if provided.
  * 
- * @param {Array<Object>} stanzas - Raw deserialized Packages payload.
+ * @param {Array<Record<string, string>>} stanzas - Raw deserialized Packages payload.
  * @param {string|null} pin - Target version pin constraint.
- * @returns {Map<string, Object>} An isolated map keeping only the newest acceptable versions.
+ * @returns {Map<string, Record<string, string>>} An isolated map keeping only the newest acceptable versions.
  */
 export function reduceToLatest(stanzas, pin) {
   const best = new Map();
@@ -115,7 +116,7 @@ export async function reduceStreamToLatest(readableStream, pin) {
   let slab = new Uint8Array(1024 * 1024);
   let slabOffset = 0;
 
-  const processStanza = (stanzaBytes) => {
+  const processStanza = (/** @type {Uint8Array} */ stanzaBytes) => {
     const text = decoder.decode(stanzaBytes);
     if (!text.trim()) return;
 
@@ -205,8 +206,8 @@ function parseStanzaFieldsMap(stanzaText) {
  * Automatically removes isolated packages that lack the required dependency layers internally.
  * Supports both plain-object stanzas (from parsePackages) and Map stanzas (from reduceStreamToLatest).
  * 
- * @param {Map<string, Object|Map>} pkgMap - Resolved map of targeted latest versions.
- * @returns {Map<string, Object|Map>} The final filtered graph containing only viable packages.
+ * @param {Map<string, Record<string, string>|Map<string, string>>} pkgMap - Resolved map of targeted latest versions.
+ * @returns {Map<string, Record<string, string>|Map<string, string>>} The final filtered graph containing only viable packages.
  */
 export function filterPackages(pkgMap) {
   const provides = new Map();
@@ -218,7 +219,7 @@ export function filterPackages(pkgMap) {
       }
     }
   }
-  const canSatisfy = dep => pkgMap.has(dep) || provides.has(dep);
+  const canSatisfy = (/** @type {string} */ dep) => pkgMap.has(dep) || provides.has(dep);
   const filtered   = new Map();
   for (const [name, fields] of pkgMap) {
     let ok = true;
@@ -237,11 +238,11 @@ export function filterPackages(pkgMap) {
  * Serializes the final mapped structure back into APT-compatible textual formatting.
  * Supports both plain-object stanzas and Map stanzas.
  * 
- * @param {Map<string, Object|Map>} pkgMap - The final post-filtered mapping structure.
+ * @param {Map<string, Record<string, string>|Map<string, string>>} pkgMap - The final post-filtered mapping structure.
  * @returns {string} The fully serialized string ready for compression.
  */
 export function serializePackages(pkgMap) {
-  const capitalise = k => k.replace(/(^|-)([a-z])/g, (_, p, c) => p + c.toUpperCase());
+  const capitalise = (/** @type {string} */ k) => k.replace(/(^|-)([a-z])/g, (/** @type {string} */ _, /** @type {string} */ p, /** @type {string} */ c) => p + c.toUpperCase());
   const stanzas = [];
   for (const fields of pkgMap.values()) {
     const lines = [`Package: ${fieldGet(fields, "package")}`];
