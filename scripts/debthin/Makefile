@@ -29,10 +29,6 @@ BUILT_AT := $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 
 # ── Dynamic target generation from config.json ───────────────────────────────
 #
-# Fetch jobs use multi-word tuples (distro upstream suite component arch)
-# which cannot survive Make's whitespace-splitting $(foreach). These are
-# inlined as jq | while-read shell loops in the recipe instead.
-#
 # Distro/suite pairs use slash-delimited single tokens (debian/bookworm)
 # which work correctly with $(foreach).
 
@@ -45,31 +41,6 @@ DISTRO_SUITES := $(shell jq -r ' \
   end \
 ' $(CONFIG))
 
-# jq query for fetch jobs (packages): emits "distro upstream suite component arch" lines
-define JQ_FETCH_PKGS
-to_entries[] | .key as $$d | .value as $$c | \
-if (.value.upstream // .value.upstream_archive // .value.upstream_ports // null) == null then empty else \
-  $$c.suites | to_entries[] | .key as $$s | .value as $$sm | \
-  ( $$sm.components // $$c.components // [] ) as $$comps | \
-  ( \
-    (( $$sm.arches // $$c.arches // [] ) | map({ up: ($$sm.upstream // $$c.upstream), arch: . })) + \
-    (( $$c.archive_arches // [] ) | map({ up: ($$c.upstream_archive // $$c.upstream), arch: . })) + \
-    (( $$c.ports_arches // [] ) | map({ up: ($$c.upstream_ports // $$c.upstream), arch: . })) \
-  ) as $$pairs | \
-  $$comps[] as $$comp | $$pairs[] | \
-  "\($$d) \(.up) \($$s) \($$comp) \(.arch)" \
-end
-endef
-
-# jq query for fetch jobs (inrelease): emits "distro upstream suite" lines
-define JQ_FETCH_IR
-to_entries[] | .key as $$d | .value as $$c | \
-(.value.upstream // .value.upstream_archive // .value.upstream_ports // null) as $$up | \
-if $$up == null then empty else \
-  $$c.suites | keys[] | "\($$d) \($$up) \(.)" \
-end
-endef
-
 # ── Phony targets ────────────────────────────────────────────────────────────
 
 .PHONY: all fetch filter headless sign validate upload stage clean
@@ -81,15 +52,13 @@ endef
 all: upload
 
 # ── Phase 1: Fetch ───────────────────────────────────────────────────────────
-# Fetch all upstream Packages.gz and InRelease files.
-# Uses xargs -P for parallel downloads (the biggest single speedup).
+# Fetch all upstream Packages.gz and InRelease files natively across multithreads.
 
 PARALLEL ?= 8
 
 fetch:
 	@echo "Phase 1: fetching upstream indexes (parallel=$(PARALLEL))..." >&2
-	@jq -r '$(JQ_FETCH_PKGS)' $(CONFIG) | xargs -P $(PARALLEL) -L1 python3 $(SCRIPTS)/fetch.py packages
-	@jq -r '$(JQ_FETCH_IR)' $(CONFIG) | xargs -P $(PARALLEL) -L1 python3 $(SCRIPTS)/fetch.py inrelease
+	@python3 $(SCRIPTS)/fetch.py $(CONFIG) --parallel $(PARALLEL)
 
 # ── Phase 2: Filter ─────────────────────────────────────────────────────────
 # Apply allowlist filtering per distro/suite.

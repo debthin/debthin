@@ -1,24 +1,33 @@
 #!/usr/bin/env python3
 """
-fetch.py - Fetch a single Packages.gz or InRelease from upstream natively.
+fetch.py - Concurrently fetch Packages.gz and InRelease files from upstream mirrors.
 
-Replaces fetch.sh. Automatically supports If-Modified-Since caching, automatic
-retries, and transparent fallbacks from .gz to .xz compression formats natively
-without pulling system binaries.
-
-Usage:
-  python3 fetch.py packages <distro> <upstream> <suite> <component> <arch>
-  python3 fetch.py inrelease <distro> <upstream> <suite>
+Reads config.json dynamically, computes target architectures and components,
+and natively orchestrates high-throughput parallel downloads replacing bash/xargs.
 """
 
+import argparse
+import concurrent.futures
 import gzip
+import json
 import lzma
 import os
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
 from email.utils import formatdate
+from typing import List, Tuple
+
+print_lock = threading.Lock()
+
+def log(level: str, msg: str):
+    with print_lock:
+        if level == "ERROR":
+            print(f"ERROR: {msg}", file=sys.stderr, flush=True)
+        else:
+            print(f"  {msg}", file=sys.stderr, flush=True)
 
 def fetch_url(url: str, output_path: str, use_ims: bool = True, retries: int = 3) -> bool:
     """Fetch URL with Optional If-Modified-Since caching and retries."""
@@ -34,7 +43,6 @@ def fetch_url(url: str, output_path: str, use_ims: bool = True, retries: int = 3
             req = urllib.request.Request(url, headers=headers)
             with urllib.request.urlopen(req, timeout=15) as response:
                 with open(output_path, "wb") as f:
-                    # Write the chunk directly to disk
                     while chunk := response.read(65536):
                         f.write(chunk)
                 return True
@@ -58,7 +66,7 @@ def fetch_url(url: str, output_path: str, use_ims: bool = True, retries: int = 3
     return False
 
 def handle_packages(distro: str, upstream: str, suite: str, comp: str, arch: str):
-    print(f"  Fetch: {distro}/{suite}/{comp}/binary-{arch}", file=sys.stderr)
+    log("INFO", f"Fetch: {distro}/{suite}/{comp}/binary-{arch}")
     
     cache_dir = f".tmp_cache/{distro}/{suite}/{comp}/binary-{arch}"
     os.makedirs(cache_dir, exist_ok=True)
@@ -70,29 +78,27 @@ def handle_packages(distro: str, upstream: str, suite: str, comp: str, arch: str
     if success:
         return
         
-    print(f"WARNING: {url_gz} not available, falling back to xz...", file=sys.stderr)
+    log("WARN", f"WARNING: {url_gz} not available, falling back to xz...")
     
-    # Fallback to xz
     url_xz = f"{upstream}/dists/{suite}/{comp}/binary-{arch}/Packages.xz"
     cache_xz = f"{cache_file}.xz"
     
     success_xz = fetch_url(url_xz, cache_xz, use_ims=False)
     if success_xz and os.path.exists(cache_xz):
         try:
-            # Recompress from xz to gz
             with lzma.open(cache_xz, "rb") as xz_f:
                 with gzip.open(cache_file, "wb", compresslevel=1) as gz_f:
                     while chunk := xz_f.read(65536):
                         gz_f.write(chunk)
             os.remove(cache_xz)
         except Exception as e:
-            print(f"ERROR: Failed recompressing {cache_xz}: {e}", file=sys.stderr)
+            log("ERROR", f"Failed recompressing {cache_xz}: {e}")
             sys.exit(1)
     else:
-        print(f"WARNING: {distro}/{suite}/{comp}/{arch} purely unavailable", file=sys.stderr)
+        log("WARN", f"WARNING: {distro}/{suite}/{comp}/{arch} purely unavailable")
 
 def handle_inrelease(distro: str, upstream: str, suite: str):
-    print(f"  Fetch: {distro}/{suite}/InRelease", file=sys.stderr)
+    log("INFO", f"Fetch: {distro}/{suite}/InRelease")
     
     cache_dir = f".tmp_cache/{distro}/{suite}"
     os.makedirs(cache_dir, exist_ok=True)
@@ -101,31 +107,89 @@ def handle_inrelease(distro: str, upstream: str, suite: str):
     url = f"{upstream}/dists/{suite}/InRelease"
     fetch_url(url, cache_file)
 
-def main():
-    if len(sys.argv) < 2:
-        print("Usage: fetch.py {packages|inrelease} ...", file=sys.stderr)
-        sys.exit(1)
-        
-    mode = sys.argv[1]
+def parse_config(config_path: str) -> Tuple[List[dict], List[dict]]:
+    with open(config_path, "r", encoding="utf-8") as f:
+        config = json.load(f)
+
+    pkg_jobs = []
+    inr_jobs = []
     
-    # Resolve CWD to repo root
+    for distro, c in config.items():
+        if not isinstance(c, dict):
+            continue
+            
+        up = c.get("upstream") or c.get("upstream_archive") or c.get("upstream_ports")
+        if not up:
+            continue
+            
+        suites = c.get("suites", {})
+        for suite, smeta in suites.items():
+            suite_up = smeta.get("upstream") or up
+            inr_jobs.append({"distro": distro, "upstream": suite_up, "suite": suite})
+            
+            comps = smeta.get("components") or c.get("components") or []
+            
+            arches_map = []
+            
+            # Map upstreams against specific architectural sets
+            suite_arches = smeta.get("arches") or c.get("arches") or []
+            for a in suite_arches:
+                arches_map.append({"arch": a, "up": suite_up})
+                
+            archive_arches = c.get("archive_arches") or []
+            for a in archive_arches:
+                arches_map.append({"arch": a, "up": c.get("upstream_archive") or up})
+                
+            ports_arches = c.get("ports_arches") or []
+            for a in ports_arches:
+                arches_map.append({"arch": a, "up": c.get("upstream_ports") or up})
+                
+            for comp in comps:
+                for am in arches_map:
+                    pkg_jobs.append({
+                        "distro": distro,
+                        "upstream": am["up"],
+                        "suite": suite,
+                        "comp": comp,
+                        "arch": am["arch"]
+                    })
+                    
+    return pkg_jobs, inr_jobs
+
+def main():
+    parser = argparse.ArgumentParser("Concurrently fetch packages natively.")
+    parser.add_argument("config_file", nargs="?", default="config.json")
+    parser.add_argument("--parallel", type=int, default=8, help="Number of concurrent download threads")
+    
+    args = parser.parse_args()
+    
     script_dir = os.path.dirname(os.path.abspath(__file__))
     repo_root = os.path.abspath(os.path.join(script_dir, "..", ".."))
     os.chdir(repo_root)
     
-    if mode == "packages":
-        if len(sys.argv) < 7:
-            print("Usage: fetch.py packages <distro> <upstream> <suite> <component> <arch>", file=sys.stderr)
-            sys.exit(1)
-        handle_packages(sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5], sys.argv[6])
-    elif mode == "inrelease":
-        if len(sys.argv) < 5:
-            print("Usage: fetch.py inrelease <distro> <upstream> <suite>", file=sys.stderr)
-            sys.exit(1)
-        handle_inrelease(sys.argv[2], sys.argv[3], sys.argv[4])
-    else:
-        print(f"Unknown mode: {mode}", file=sys.stderr)
+    if not os.path.exists(args.config_file):
+        log("ERROR", f"config.json not found: {args.config_file}")
         sys.exit(1)
+        
+    pkg_jobs, inr_jobs = parse_config(args.config_file)
+    
+    print(f"Phase 1: fetching upstream indexes (parallel={args.parallel})...", file=sys.stderr)
+    
+    with concurrent.futures.ThreadPoolExecutor(max_workers=args.parallel) as executor:
+        futures = []
+        for j in pkg_jobs:
+            f = executor.submit(handle_packages, j["distro"], j["upstream"], j["suite"], j["comp"], j["arch"])
+            futures.append(f)
+            
+        for j in inr_jobs:
+            f = executor.submit(handle_inrelease, j["distro"], j["upstream"], j["suite"])
+            futures.append(f)
+            
+        for future in concurrent.futures.as_completed(futures):
+            try:
+                future.result()
+            except Exception as e:
+                log("ERROR", f"Fetch exception: {e}")
 
 if __name__ == "__main__":
     main()
