@@ -25,13 +25,11 @@ R2_BUCKET     ?= debthin
 
 export CONFIG_FILE := $(CONFIG)
 
+PYTHON_CMD := $(ROOT_DIR)/.venv/bin/python3
+
 BUILT_AT := $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 
 # ── Dynamic target generation from config.json ───────────────────────────────
-#
-# Fetch jobs use multi-word tuples (distro upstream suite component arch)
-# which cannot survive Make's whitespace-splitting $(foreach). These are
-# inlined as jq | while-read shell loops in the recipe instead.
 #
 # Distro/suite pairs use slash-delimited single tokens (debian/bookworm)
 # which work correctly with $(foreach).
@@ -45,31 +43,6 @@ DISTRO_SUITES := $(shell jq -r ' \
   end \
 ' $(CONFIG))
 
-# jq query for fetch jobs (packages): emits "distro upstream suite component arch" lines
-define JQ_FETCH_PKGS
-to_entries[] | .key as $$d | .value as $$c | \
-if (.value.upstream // .value.upstream_archive // .value.upstream_ports // null) == null then empty else \
-  $$c.suites | to_entries[] | .key as $$s | .value as $$sm | \
-  ( $$sm.components // $$c.components // [] ) as $$comps | \
-  ( \
-    (( $$sm.arches // $$c.arches // [] ) | map({ up: ($$sm.upstream // $$c.upstream), arch: . })) + \
-    (( $$c.archive_arches // [] ) | map({ up: ($$c.upstream_archive // $$c.upstream), arch: . })) + \
-    (( $$c.ports_arches // [] ) | map({ up: ($$c.upstream_ports // $$c.upstream), arch: . })) \
-  ) as $$pairs | \
-  $$comps[] as $$comp | $$pairs[] | \
-  "\($$d) \(.up) \($$s) \($$comp) \(.arch)" \
-end
-endef
-
-# jq query for fetch jobs (inrelease): emits "distro upstream suite" lines
-define JQ_FETCH_IR
-to_entries[] | .key as $$d | .value as $$c | \
-(.value.upstream // .value.upstream_archive // .value.upstream_ports // null) as $$up | \
-if $$up == null then empty else \
-  $$c.suites | keys[] | "\($$d) \($$up) \(.)" \
-end
-endef
-
 # ── Phony targets ────────────────────────────────────────────────────────────
 
 .PHONY: all fetch filter headless sign validate upload stage clean
@@ -80,16 +53,24 @@ endef
 # Default target: full pipeline
 all: upload
 
+# ── Virtual Environment ──────────────────────────────────────────────────────
+
+VENV_MARKER := $(ROOT_DIR)/.venv/.installed
+
+$(VENV_MARKER): $(ROOT_DIR)/requirements.txt
+	@echo "Establishing isolated virtual environment..." >&2
+	@python3 -m venv $(ROOT_DIR)/.venv
+	@$(ROOT_DIR)/.venv/bin/pip install -r $(ROOT_DIR)/requirements.txt >/dev/null 2>&1
+	@touch $(VENV_MARKER)
+
 # ── Phase 1: Fetch ───────────────────────────────────────────────────────────
-# Fetch all upstream Packages.gz and InRelease files.
-# Uses xargs -P for parallel downloads (the biggest single speedup).
+# Fetch all upstream Packages.gz and InRelease files across threads/streams.
 
 PARALLEL ?= 8
 
-fetch:
+fetch: $(VENV_MARKER)
 	@echo "Phase 1: fetching upstream indexes (parallel=$(PARALLEL))..." >&2
-	@jq -r '$(JQ_FETCH_PKGS)' $(CONFIG) | xargs -P $(PARALLEL) -L1 bash $(SCRIPTS)/fetch.sh packages
-	@jq -r '$(JQ_FETCH_IR)' $(CONFIG) | xargs -P $(PARALLEL) -L1 bash $(SCRIPTS)/fetch.sh inrelease
+	@$(PYTHON_CMD) $(SCRIPTS)/fetch.py $(CONFIG) --parallel $(PARALLEL)
 
 # ── Phase 2: Filter ─────────────────────────────────────────────────────────
 # Apply allowlist filtering per distro/suite.
@@ -100,7 +81,7 @@ FILTER_TARGETS := $(addprefix filter-,$(DISTRO_SUITES))
 filter: $(FILTER_TARGETS)
 
 $(FILTER_TARGETS): filter-%: fetch
-	@bash $(SCRIPTS)/filter.sh $(subst /, ,$*)
+	@$(PYTHON_CMD) $(SCRIPTS)/filter.py $(subst /, ,$*)
 
 # ── Phase 2.5: Headless ─────────────────────────────────────────────────────
 # Merge components + updates into deduplicated headless suites.
@@ -117,11 +98,11 @@ $(HEADLESS_TARGETS): headless-%: filter-%
 
 sign: headless
 	@echo "Phase 3: signing..." >&2
-	@GPG_KEY_ID=$(GPG_KEY_ID) bash $(SCRIPTS)/sign_all.sh $(OUTPUT) $(CONFIG)
+	@GPG_KEY_ID=$(GPG_KEY_ID) $(PYTHON_CMD) $(SCRIPTS)/sign_all.py $(OUTPUT) $(CONFIG)
 
 # Per-release signing targets (parallel-safe, no file overlap)
 $(addprefix sign-,$(DISTRO_SUITES)): sign-%: headless
-	@GPG_KEY_ID=$(GPG_KEY_ID) bash $(SCRIPTS)/sign_all.sh $(OUTPUT) $(CONFIG)
+	@GPG_KEY_ID=$(GPG_KEY_ID) $(PYTHON_CMD) $(SCRIPTS)/sign_all.py $(OUTPUT) $(CONFIG)
 
 # ── Phase 4: Stage ───────────────────────────────────────────────────────────
 # Copy static assets into dist_output and clean up.
@@ -140,7 +121,7 @@ stage: sign
 
 validate: stage
 	@echo "Validating dist_output/..." >&2
-	@bash $(SCRIPTS)/validate.sh $(OUTPUT) \
+	@$(PYTHON_CMD) $(SCRIPTS)/validate.py $(OUTPUT) \
 		--json $(OUTPUT)/status.json \
 		--cache-dir $(CACHE) \
 		--built-at "$(BUILT_AT)" \
@@ -154,7 +135,7 @@ ifeq ($(NO_UPLOAD),1)
 	@echo "Skipping Cloudflare R2 upload (NO_UPLOAD=1)." >&2
 else
 	@echo "Uploading to Cloudflare R2..." >&2
-	@python3 $(SCRIPTS)/r2_upload.py \
+	@$(PYTHON_CMD) $(SCRIPTS)/r2_upload.py \
 		--dir $(OUTPUT) \
 		--account "$(R2_ACCOUNT_ID)" \
 		--access-key "$(R2_ACCESS_KEY)" \

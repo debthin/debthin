@@ -227,3 +227,4 @@ test_cache/
 .DS_Store
 .wrangler/
 .claude/
+.venv/

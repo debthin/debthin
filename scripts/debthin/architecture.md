@@ -23,7 +23,7 @@ config.json
 
 ## Phases
 
-### 1. Fetch (`fetch.sh`)
+### 1. Fetch (`fetch.py`)
 
 Downloads `Packages.gz` and `InRelease` files from upstream mirrors into
 `.tmp_cache/<distro>/<suite>/`. Uses IMS headers (`curl -z`) to skip
@@ -32,15 +32,16 @@ re-downloads when the local copy is current. Parallelised via `xargs -P`.
 Inputs: upstream mirror URLs from `config.json`
 Outputs: `.tmp_cache/<distro>/<suite>/<component>/binary-<arch>/Packages.gz`
 
-### 2. Filter (`filter.sh` + `filter.py`)
+### 2. Filter (`filter.py`)
 
-Applies allowlist filtering per distro/suite. The shell script resolves the
+Applies allowlist filtering per distro/suite. The python script resolves the
 correct curated list (with `required_packages/` merge), identifies stale
-outputs, and calls `filter.py` in batch mode. Each distro/suite is an
+`Packages.gz` objects inside `.tmp_cache` mapped against
+outputs executing the internal filter logic. Each distro/suite is an
 independent Make target (`filter-debian/bookworm`), parallelised by `make -j`.
 
 `filter.py` also writes a `.count` sidecar file next to each cached
-`Packages.gz`, recording the upstream package count. This allows `validate.sh`
+`Packages.gz`, recording the upstream package count. This allows `validate.py`
 to report upstream counts without re-decompressing.
 
 Allowlist resolution order:
@@ -69,7 +70,7 @@ its own `filter-debian/bookworm`, so suites pipeline independently.
 Inputs: filtered Packages.gz from `dist_output/`
 Outputs: `dist_output/dists/<distro>/<suite>/headless/binary-<arch>/Packages.gz`
 
-### 3. Sign (`sign_all.sh`)
+### 3. Sign (`sign_all.py`)
 
 Generates `Release` files with SHA256 hashes for every Packages.gz in each
 suite, then GPG-signs them to produce `InRelease`. Runs after all headless
@@ -83,7 +84,7 @@ Outputs: `dist_output/dists/<distro>/<suite>/InRelease`
 Copies static assets (`index.html`, `favicon.ico`, `config.json`, GPG keyrings)
 into `dist_output/` and cleans up uncompressed Packages files.
 
-### 5. Validate (`validate.sh`)
+### 5. Validate (`validate.py`)
 
 Sanity-checks the entire `dist_output/` tree before upload. Runs per-distro in
 parallel background jobs, buffering output and aggregating error counts. Checks

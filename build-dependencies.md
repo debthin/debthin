@@ -12,29 +12,29 @@ for each phase. `build.sh` is a thin wrapper that invokes `make`.
 | Script | External Deps | Purpose |
 |---|---|---|
 | `curate.py` | — | Popcon-based package curation |
-| `filter.py` | — | Packages.gz allowlist filtering, writes `.count` sidecars |
+| `fetch.py` | `httpx[http2]` | Asynchronously fetches Packages.gz over HTTP/2 |
+| `filter.py` | — | Resolves allowlists iteratively and writes `.count` sidecars |
 | `merge_packages.py` | — | Headless meta-suite merging |
+| `sign_all.py` | — | Generates Release files and GPG-signs all suites |
+| `validate.py` | — | Sanity-checks `dist_output/` before upload |
 | `r2_upload.py` | `boto3` | S3-compatible upload to Cloudflare R2 |
 
-All scripts except `r2_upload.py` use Python stdlib only.
+Scripts internally route through a local virtual environment mapping `.venv`:
 
-```
-pip install boto3
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
 ```
 
 ### Shell
 
 | Tool | Used By | Notes |
 |---|---|---|
-| `bash` 4+ | all `.sh` scripts | Requires associative arrays, process substitution |
+| `bash` 4+ | `build.sh` | Process orchestration wrappers |
 | `make` | `Makefile`, `build.sh` | Orchestrates the pipeline; `build.sh` calls `make -j` |
-| `jq` | `Makefile`, `sign_all.sh`, `validate.sh` | Parses `config.json` for dynamic target generation |
-| `curl` | `fetch.sh`, `sign_all.sh` | Fetches upstream Packages.gz and InRelease |
-| `gpg` | `sign_all.sh` | Signs Release files |
-| `xz` / `xzcat` | `fetch.sh` | Fallback decompress when `.gz` unavailable |
-| `gzip` | `filter.sh`, `validate.sh` | Compress/validate Packages files |
-| `sha256sum` | `sign_all.sh`, `validate.sh` | Hash verification (falls back to `shasum -a 256` on macOS) |
-| `xargs` | `Makefile` | Parallel fetch via `-P` flag |
+| `gpg` | `sign_all.py` | Signs Release files |
+| `sha256sum` | — | Hash verification (falls back to `shasum -a 256` on macOS) |
 | `find`, `sort`, `sed`, `awk`, `wc` | various | Standard coreutils |
 
 ### Scripts
@@ -42,11 +42,11 @@ pip install boto3
 | Script | Phase | Purpose |
 |---|---|---|
 | `build.sh` | — | Thin wrapper: validates R2 credentials, calls `make -j` |
-| `fetch.sh` | fetch | Downloads one Packages.gz or InRelease from upstream |
-| `filter.sh` | filter | Resolves allowlist and runs `filter.py` for one distro/suite |
-| `headless.sh` | headless | Generates deduplicated headless meta-suite for one distro/suite |
-| `sign_all.sh` | sign | Generates Release files and GPG-signs all suites |
-| `validate.sh` | validate | Sanity-checks `dist_output/` before upload (parallel per distro) |
+| `fetch.py` | fetch | Asynchronously fetches all targets over HTTP/2 |
+| `filter.py` | filter | Resolves allowlists and aggregates architectures natively |
+| `merge_packages.py` | headless | Generates deduplicated headless meta-suites |
+| `sign_all.py` | sign | Generates Release files and GPG-signs all suites |
+| `validate.py` | validate | Sanity-checks `dist_output/` before upload (parallel per distro) |
 
 ---
 
