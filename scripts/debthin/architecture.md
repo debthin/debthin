@@ -40,7 +40,7 @@ outputs, and calls `filter.py` in batch mode. Each distro/suite is an
 independent Make target (`filter-debian/bookworm`), parallelised by `make -j`.
 
 `filter.py` also writes a `.count` sidecar file next to each cached
-`Packages.gz`, recording the upstream package count. This allows `validate.sh`
+`Packages.gz`, recording the upstream package count. This allows `validate.py`
 to report upstream counts without re-decompressing.
 
 Allowlist resolution order:
@@ -83,7 +83,7 @@ Outputs: `dist_output/dists/<distro>/<suite>/InRelease`
 Copies static assets (`index.html`, `favicon.ico`, `config.json`, GPG keyrings)
 into `dist_output/` and cleans up uncompressed Packages files.
 
-### 5. Validate (`validate.sh`)
+### 5. Validate (`validate.py`)
 
 Sanity-checks the entire `dist_output/` tree before upload. Runs per-distro in
 parallel background jobs, buffering output and aggregating error counts. Checks

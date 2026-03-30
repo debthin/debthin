@@ -140,7 +140,7 @@ stage: sign
 
 validate: stage
 	@echo "Validating dist_output/..." >&2
-	@bash $(SCRIPTS)/validate.sh $(OUTPUT) \
+	@python3 $(SCRIPTS)/validate.py $(OUTPUT) \
 		--json $(OUTPUT)/status.json \
 		--cache-dir $(CACHE) \
 		--built-at "$(BUILT_AT)" \

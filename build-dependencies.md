@@ -15,6 +15,7 @@ for each phase. `build.sh` is a thin wrapper that invokes `make`.
 | `filter.py` | — | Packages.gz allowlist filtering, writes `.count` sidecars |
 | `merge_packages.py` | — | Headless meta-suite merging |
 | `r2_upload.py` | `boto3` | S3-compatible upload to Cloudflare R2 |
+| `validate.py` | — | Sanity-checks `dist_output/` before upload |
 
 All scripts except `r2_upload.py` use Python stdlib only.
 
@@ -28,12 +29,12 @@ pip install boto3
 |---|---|---|
 | `bash` 4+ | all `.sh` scripts | Requires associative arrays, process substitution |
 | `make` | `Makefile`, `build.sh` | Orchestrates the pipeline; `build.sh` calls `make -j` |
-| `jq` | `Makefile`, `sign_all.sh`, `validate.sh` | Parses `config.json` for dynamic target generation |
+| `jq` | `Makefile`, `sign_all.sh` | Parses `config.json` for dynamic target generation |
 | `curl` | `fetch.sh`, `sign_all.sh` | Fetches upstream Packages.gz and InRelease |
 | `gpg` | `sign_all.sh` | Signs Release files |
 | `xz` / `xzcat` | `fetch.sh` | Fallback decompress when `.gz` unavailable |
-| `gzip` | `filter.sh`, `validate.sh` | Compress/validate Packages files |
-| `sha256sum` | `sign_all.sh`, `validate.sh` | Hash verification (falls back to `shasum -a 256` on macOS) |
+| `gzip` | `filter.sh` | Compress/validate Packages files |
+| `sha256sum` | `sign_all.sh` | Hash verification (falls back to `shasum -a 256` on macOS) |
 | `xargs` | `Makefile` | Parallel fetch via `-P` flag |
 | `find`, `sort`, `sed`, `awk`, `wc` | various | Standard coreutils |
 
@@ -46,7 +47,7 @@ pip install boto3
 | `filter.sh` | filter | Resolves allowlist and runs `filter.py` for one distro/suite |
 | `headless.sh` | headless | Generates deduplicated headless meta-suite for one distro/suite |
 | `sign_all.sh` | sign | Generates Release files and GPG-signs all suites |
-| `validate.sh` | validate | Sanity-checks `dist_output/` before upload (parallel per distro) |
+| `validate.py` | validate | Sanity-checks `dist_output/` before upload (parallel per distro) |
 
 ---
 
