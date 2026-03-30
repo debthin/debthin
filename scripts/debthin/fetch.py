@@ -20,14 +20,11 @@ import urllib.request
 from email.utils import formatdate
 from typing import List, Tuple
 
-print_lock = threading.Lock()
-
 def log(level: str, msg: str):
-    with print_lock:
-        if level == "ERROR":
-            print(f"ERROR: {msg}", file=sys.stderr, flush=True)
-        else:
-            print(f"  {msg}", file=sys.stderr, flush=True)
+    if level == "ERROR":
+        print(f"ERROR: {msg}", file=sys.stderr, flush=True)
+    else:
+        print(f"  {msg}", file=sys.stderr, flush=True)
 
 def fetch_url(url: str, output_path: str, use_ims: bool = True, retries: int = 3) -> bool:
     """Fetch URL with Optional If-Modified-Since caching and retries."""
@@ -175,7 +172,7 @@ def main():
     
     print(f"Phase 1: fetching upstream indexes (parallel={args.parallel})...", file=sys.stderr)
     
-    with concurrent.futures.ThreadPoolExecutor(max_workers=args.parallel) as executor:
+    with concurrent.futures.ProcessPoolExecutor(max_workers=args.parallel) as executor:
         futures = []
         for j in pkg_jobs:
             f = executor.submit(handle_packages, j["distro"], j["upstream"], j["suite"], j["comp"], j["arch"])
