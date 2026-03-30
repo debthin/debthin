@@ -23,7 +23,7 @@ config.json
 
 ## Phases
 
-### 1. Fetch (`fetch.sh`)
+### 1. Fetch (`fetch.py`)
 
 Downloads `Packages.gz` and `InRelease` files from upstream mirrors into
 `.tmp_cache/<distro>/<suite>/`. Uses IMS headers (`curl -z`) to skip
@@ -32,11 +32,12 @@ re-downloads when the local copy is current. Parallelised via `xargs -P`.
 Inputs: upstream mirror URLs from `config.json`
 Outputs: `.tmp_cache/<distro>/<suite>/<component>/binary-<arch>/Packages.gz`
 
-### 2. Filter (`filter.sh` + `filter.py`)
+### 2. Filter (`filter.py`)
 
-Applies allowlist filtering per distro/suite. The shell script resolves the
+Applies allowlist filtering per distro/suite. The python script natively resolves the
 correct curated list (with `required_packages/` merge), identifies stale
-outputs, and calls `filter.py` in batch mode. Each distro/suite is an
+`Packages.gz` objects natively inside `.tmp_cache` mapped dynamically against
+outputs executing the internal filter logic natively. Each distro/suite is an
 independent Make target (`filter-debian/bookworm`), parallelised by `make -j`.
 
 `filter.py` also writes a `.count` sidecar file next to each cached

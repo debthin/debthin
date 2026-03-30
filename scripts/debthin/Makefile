@@ -88,8 +88,8 @@ PARALLEL ?= 8
 
 fetch:
 	@echo "Phase 1: fetching upstream indexes (parallel=$(PARALLEL))..." >&2
-	@jq -r '$(JQ_FETCH_PKGS)' $(CONFIG) | xargs -P $(PARALLEL) -L1 bash $(SCRIPTS)/fetch.sh packages
-	@jq -r '$(JQ_FETCH_IR)' $(CONFIG) | xargs -P $(PARALLEL) -L1 bash $(SCRIPTS)/fetch.sh inrelease
+	@jq -r '$(JQ_FETCH_PKGS)' $(CONFIG) | xargs -P $(PARALLEL) -L1 python3 $(SCRIPTS)/fetch.py packages
+	@jq -r '$(JQ_FETCH_IR)' $(CONFIG) | xargs -P $(PARALLEL) -L1 python3 $(SCRIPTS)/fetch.py inrelease
 
 # ── Phase 2: Filter ─────────────────────────────────────────────────────────
 # Apply allowlist filtering per distro/suite.
@@ -100,7 +100,7 @@ FILTER_TARGETS := $(addprefix filter-,$(DISTRO_SUITES))
 filter: $(FILTER_TARGETS)
 
 $(FILTER_TARGETS): filter-%: fetch
-	@bash $(SCRIPTS)/filter.sh $(subst /, ,$*)
+	@python3 $(SCRIPTS)/filter.py $(subst /, ,$*)
 
 # ── Phase 2.5: Headless ─────────────────────────────────────────────────────
 # Merge components + updates into deduplicated headless suites.
