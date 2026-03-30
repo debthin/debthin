@@ -3,7 +3,10 @@
 fetch.py - Concurrently fetch Packages.gz and InRelease files from upstream mirrors.
 
 Reads config.json dynamically, computes target architectures and components,
-and natively orchestrates high-throughput parallel downloads replacing bash/xargs.
+and natively orchestrates high-throughput parallel downloads.
+
+Optimized: Implements native TLS/TCP `Keep-Alive` Connection Pooling across threads
+to entirely bypass repeated expensive SSL handshakes over hundreds of small packets.
 """
 
 import argparse
@@ -15,10 +18,12 @@ import os
 import sys
 import threading
 import time
-import urllib.error
-import urllib.request
+import http.client
+import urllib.parse
 from email.utils import formatdate
 from typing import List, Tuple
+
+tls_local = threading.local()
 
 def log(level: str, msg: str):
     if level == "ERROR":
@@ -26,9 +31,17 @@ def log(level: str, msg: str):
     else:
         print(f"  {msg}", file=sys.stderr, flush=True)
 
+def get_connection(netloc: str) -> http.client.HTTPSConnection:
+    if not hasattr(tls_local, "conns"):
+        tls_local.conns = {}
+    if netloc not in tls_local.conns:
+        tls_local.conns[netloc] = http.client.HTTPSConnection(netloc, timeout=15)
+    return tls_local.conns[netloc]
+
 def fetch_url(url: str, output_path: str, use_ims: bool = True, retries: int = 3) -> bool:
-    """Fetch URL with Optional If-Modified-Since caching and retries."""
-    headers = {"User-Agent": "debthin-build/1.0"}
+    """Fetch URL with HTTP Keep-Alive connection pooling, IMS cache comparison, and retries."""
+    parsed = urllib.parse.urlparse(url)
+    headers = {"User-Agent": "debthin-build/1.0", "Connection": "keep-alive"}
     
     if use_ims and os.path.exists(output_path):
         mtime = os.path.getmtime(output_path)
@@ -37,26 +50,43 @@ def fetch_url(url: str, output_path: str, use_ims: bool = True, retries: int = 3
 
     for attempt in range(retries):
         try:
-            req = urllib.request.Request(url, headers=headers)
-            with urllib.request.urlopen(req, timeout=15) as response:
+            conn = get_connection(parsed.netloc)
+            conn.request("GET", parsed.path, headers=headers)
+            response = conn.getresponse()
+            
+            status = response.status
+            
+            if status == 304:
+                response.read() # Drain precisely to preserve socket buffer
+                return True
+            if status == 404:
+                response.read()
+                return False
+                
+            if status == 200:
                 with open(output_path, "wb") as f:
                     while chunk := response.read(65536):
                         f.write(chunk)
                 return True
                 
-        except urllib.error.HTTPError as e:
-            if e.code == 304:
-                return True # Cache hit (Not Modified)
-            if e.code == 404:
-                return False # Not found
+            # If server dropped random error, drain body fully
+            response.read()
             if attempt < retries - 1:
-                time.sleep(5)
+                time.sleep(1)
             else:
                 return False
                 
         except Exception:
+            # Ensure corrupted/dead TLS sockets are fully expunged prior to retry sequence
+            if hasattr(tls_local, "conns") and parsed.netloc in tls_local.conns:
+                try:
+                    tls_local.conns[parsed.netloc].close()
+                except Exception:
+                    pass
+                del tls_local.conns[parsed.netloc]
+                
             if attempt < retries - 1:
-                time.sleep(5)
+                time.sleep(1)
             else:
                 return False
                 
@@ -128,7 +158,6 @@ def parse_config(config_path: str) -> Tuple[List[dict], List[dict]]:
             
             arches_map = []
             
-            # Map upstreams against specific architectural sets
             suite_arches = smeta.get("arches") or c.get("arches") or []
             for a in suite_arches:
                 arches_map.append({"arch": a, "up": suite_up})
@@ -170,9 +199,9 @@ def main():
         
     pkg_jobs, inr_jobs = parse_config(args.config_file)
     
-    print(f"Phase 1: fetching upstream indexes (parallel={args.parallel})...", file=sys.stderr)
+    print(f"Phase 1: fetching upstream indexes natively (parallel={args.parallel})...", file=sys.stderr)
     
-    with concurrent.futures.ProcessPoolExecutor(max_workers=args.parallel) as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=args.parallel) as executor:
         futures = []
         for j in pkg_jobs:
             f = executor.submit(handle_packages, j["distro"], j["upstream"], j["suite"], j["comp"], j["arch"])
