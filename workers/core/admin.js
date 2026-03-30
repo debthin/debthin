@@ -202,13 +202,14 @@ export function routeAdminPath(rawPath, env, { bucket, serviceName, getStats, fl
  *  - catches unhandled errors and returns 500
  *  - appends X-Timer (start + duration) and X-Served-By (colo + service name)
  *
- * @param {(request: Request, env: any, ctx: ExecutionContext) => Promise<Response>} handler - The request handler.
+ * @template E
+ * @param {(request: Request, env: E, ctx: ExecutionContext) => Promise<Response>} handler - The request handler.
  * @param {string} serviceName - Suffix for the X-Served-By header.
- * @returns {{fetch: (request: Request, env: any, ctx: ExecutionContext) => Promise<Response>}} Cloudflare Worker module export.
+ * @returns {{fetch: (request: Request, env: E, ctx: ExecutionContext) => Promise<Response>}} Cloudflare Worker module export.
  */
 export function wrapHandler(handler, serviceName) {
     return {
-        /** @param {Request} request @param {any} env @param {ExecutionContext} ctx */
+        /** @param {Request} request @param {E} env @param {ExecutionContext} ctx */
         async fetch(request, env, ctx) {
             const t0 = Date.now();
             if (!ISOLATE_START_TIME) ISOLATE_START_TIME = t0;
