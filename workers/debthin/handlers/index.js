@@ -71,7 +71,7 @@ export async function handleByHash(request, env, ctx, distro, sha256) {
     const heg = new Headers(H_IMMUTABLE);
     heg.set("Content-Type", "application/x-gzip");
     heg.set("X-Debthin", "hit-synthetic");
-    return new Response(request.method === "HEAD" ? null : EMPTY_GZ, { headers: heg });
+    return new Response(request.method === "HEAD" ? null : /** @type {*} */ (EMPTY_GZ), { headers: heg });
   }
   if (sha256 === EMPTY_HASH) {
     const hep = new Headers(H_IMMUTABLE);

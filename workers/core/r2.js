@@ -39,9 +39,10 @@ export function wrapCachedObject(arrayBuffer, meta, isCached = false, hits = 0) 
  * Executes an HTTP HEAD request against the upstream bucket to validate metadata constraints.
  * Falls back to local memory validation first to prevent unnecessary network latency if the configured TTL bounds hold valid.
  *
- * @param {Object} env - Cloudflare worker binding object.
+ * @param {HasDebthinBucket} env - Cloudflare worker binding object.
  * @param {string} key - R2 destination file path limit.
- * @returns {Promise<Object|null>} Wrapper exposing ETag and lastModified data values.
+ * @param {LocalCache} cache - The LRU cache instance.
+ * @returns {Promise<WrappedR2Object|null>} Wrapper exposing ETag and lastModified data values.
  */
 export async function r2Head(env, key, cache) {
   const now = Date.now();
@@ -53,6 +54,7 @@ export async function r2Head(env, key, cache) {
       cache.updateTTL(key, now);
       return wrapCachedObject(new ArrayBuffer(0), cached.meta, true, cached.hits);
     }
+    /** @type {Record<string, any>} */
     const meta = obj.httpMetadata || {};
     meta.etag = obj.etag;
     meta.lastModified = obj.uploaded ? Math.floor(obj.uploaded.getTime() / 1000) * 1000 : null;
@@ -63,6 +65,7 @@ export async function r2Head(env, key, cache) {
 
   const obj = await env.DEBTHIN_BUCKET.head(key);
   if (!obj) return null;
+  /** @type {Record<string, any>} */
   const meta = obj.httpMetadata || {};
   meta.etag = obj.etag;
   meta.lastModified = obj.uploaded ? Math.floor(obj.uploaded.getTime() / 1000) * 1000 : null;
@@ -70,17 +73,23 @@ export async function r2Head(env, key, cache) {
 }
 
 /**
+ * @typedef {Object} R2GetOptions
+ * @property {Function} [onDiskMiss] - Hook to notify the orchestrator of cache updates.
+ * @property {number} [ttl] - Override TTL in milliseconds.
+ */
+
+/**
  * Pulls objects from the R2 bucket.
  * Coalesces concurrent requests using _pendingGets.
  *
- * @param {Object} env - The Cloudflare worker bindings granting access to DEBTHIN_BUCKET.
+ * @param {HasDebthinBucket} env - The Cloudflare worker bindings granting access to DEBTHIN_BUCKET.
  * @param {string} key - The exact file path being requested from the upstream repository.
- * @param {Object} [ctx] - The worker execution context used to push cache hydration into the background.
- * @param {Object} [options] - Injectable callbacks.
- * @param {Function} [options.onDiskMiss] - Hook to notify the orchestrator of cache updates.
- * @returns {Promise<Object|null>} An object matching the physical interface of an edge response payload.
+ * @param {LocalCache} cache - The LRU cache instance.
+ * @param {ExecutionContext} [ctx] - The worker execution context used to push cache hydration into the background.
+ * @param {R2GetOptions} [options] - Injectable callbacks.
+ * @returns {Promise<WrappedR2Object|null>} An object matching the physical interface of an edge response payload.
  */
-export async function r2Get(env, key, cache, ctx, { onDiskMiss, ttl } = {}) {
+export async function r2Get(env, key, cache, ctx, { onDiskMiss, ttl } = /** @type {R2GetOptions} */ ({})) {
   const now = Date.now();
   const effectiveTtl = ttl ?? cache.ttl;
   let cached = cache.get(key);
@@ -102,7 +111,8 @@ export async function r2Get(env, key, cache, ctx, { onDiskMiss, ttl } = {}) {
   // 2. L2 Warm Path (Colo Solid-State Cache)
   // Synthesize a fast string URL to avoid 'new Request(url)' GC overhead
   const l2Key = `https://l2-internal.debthin.org/${key}`;
-  const l2Cache = caches.default;
+  // @ts-expect-error — caches.default is a CF Workers runtime global not in all type defs
+  const l2Cache = /** @type {Cache} */ (caches.default);
 
   const l2Response = await l2Cache.match(l2Key);
   if (l2Response) {
@@ -129,6 +139,7 @@ export async function r2Get(env, key, cache, ctx, { onDiskMiss, ttl } = {}) {
       return wrapCachedObject(cached.buf, cached.meta, true, cached.hits);
     }
 
+    /** @type {Record<string, any>} */
     const meta = obj.httpMetadata || {};
     meta.etag = obj.etag;
     meta.lastModified = obj.uploaded ? Math.floor(obj.uploaded.getTime() / 1000) * 1000 : null;

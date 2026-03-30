@@ -7,6 +7,7 @@
  * - CONFIG_JSON_STRING: The raw original configuration string.
  */
 
+// @ts-expect-error — import attributes (`with { type: 'json' }`) not yet supported by tsc
 import configData from '../../config.json' with { type: 'json' };
 
 /**

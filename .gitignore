@@ -228,3 +228,5 @@ test_cache/
 .wrangler/
 .claude/
 .venv/
+node_modules/
+.npm-cache/

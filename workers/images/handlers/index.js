@@ -100,7 +100,7 @@ export async function handleOciRegistry(request, bucket, ctx, rawPath, env) {
             const now = Date.now();
             const meta = { etag: r2Res.etag, lastModified: now, lastModifiedStr: new Date(now).toUTCString() };
             indexCache.add(r2Key, buf, meta, now);
-            cachedManifest = { buf, meta, hits: 0 };
+            cachedManifest = { buf, meta, hits: 0, addedAt: now };
         } else if (Date.now() - cachedManifest.addedAt > indexCache.ttl && ctx && typeof ctx.waitUntil === 'function') {
             ctx.waitUntil((async () => {
                 const r2Res = await bucket.get(r2Key);
@@ -232,7 +232,7 @@ export async function handleImageMetadata(request, bucket, ctx, r2Key, filename)
  * @param {Object} env - Cloudflare environment bindings.
  * @param {Object} ctx - Worker execution context.
  * @param {string} rawPath - URL path without leading slash.
- * @returns {Promise<Response>|Response} The response.
+ * @returns {Promise<Response>} The response.
  */
 export async function routeImagePath(request, env, ctx, rawPath) {
     const lastSlash = rawPath.lastIndexOf('/');
