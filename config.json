@@ -119,85 +119,118 @@
     "suites": {
       "jammy": {
         "aliases": [
-          "22.04",
-          "previous-lts"
+          "22.04"
         ],
         "curated_base": "debian/bullseye"
       },
       "jammy-updates": {
         "aliases": [
-          "22.04-updates",
-          "previous-lts-updates"
+          "22.04-updates"
         ],
         "curated_base": "debian/bullseye"
       },
       "jammy-backports": {
         "aliases": [
-          "22.04-backports",
-          "previous-lts-backports"
+          "22.04-backports"
         ],
         "curated_base": "debian/bullseye"
       },
       "noble": {
         "aliases": [
           "24.04",
-          "lts"
+          "previous-lts"
         ],
         "curated_base": "debian/bookworm"
       },
       "noble-updates": {
         "aliases": [
           "24.04-updates",
-          "lts-updates"
+          "previous-lts-updates"
         ],
         "curated_base": "debian/bookworm"
       },
       "noble-backports": {
         "aliases": [
           "24.04-backports",
-          "lts-backports"
+          "previous-lts-backports"
         ],
         "curated_base": "debian/bookworm"
       },
+      "oracular": {
+        "aliases": [
+          "24.10"
+        ],
+        "curated_base": "debian/trixie"
+      },
+      "oracular-updates": {
+        "aliases": [
+          "24.10-updates"
+        ],
+        "curated_base": "debian/trixie"
+      },
+      "oracular-backports": {
+        "aliases": [
+          "24.10-backports"
+        ],
+        "curated_base": "debian/trixie"
+      },
       "plucky": {
         "aliases": [
-          "25.04",
-          "current"
+          "25.04"
         ],
         "curated_base": "debian/trixie"
       },
       "plucky-updates": {
         "aliases": [
-          "25.04-updates",
-          "current-updates"
+          "25.04-updates"
         ],
         "curated_base": "debian/trixie"
       },
       "plucky-backports": {
         "aliases": [
-          "25.04-backports",
-          "current-backports"
+          "25.04-backports"
         ],
         "curated_base": "debian/trixie"
       },
       "questing": {
         "aliases": [
-          "25.10",
-          "testing"
+          "25.10"
         ],
         "curated_base": "debian/forky"
       },
       "questing-updates": {
         "aliases": [
-          "25.10-updates",
-          "testing-updates"
+          "25.10-updates"
         ],
         "curated_base": "debian/forky"
       },
       "questing-backports": {
         "aliases": [
-          "25.10-backports",
-          "testing-backports"
+          "25.10-backports"
+        ],
+        "curated_base": "debian/forky"
+      },
+      "resolute": {
+        "aliases": [
+          "26.04",
+          "lts",
+          "current"
+        ],
+        "curated_base": "debian/forky"
+      },
+      "resolute-updates": {
+        "aliases": [
+          "26.04-updates",
+          "lts-updates",
+          "current-updates"
+        ],
+        "curated_base": "debian/forky"
+      },
+      "resolute-backports": {
+        "aliases": [
+          "26.04-backports",
+          "lts-backports",
+          "current-backports"
         ],
         "curated_base": "debian/forky"
       }

@@ -97,6 +97,8 @@ ca-certificates
 openssl
 openssh-client
 openssh-server
+bgpq3
+bgpq4
 
 # Essential tools
 apt

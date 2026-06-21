@@ -19,8 +19,10 @@ Images are built for every distro/suite/arch combination defined in `config.json
 
 | Suite    | Architectures              |
 |----------|----------------------------|
+| resolute | amd64 i386 arm64 riscv64   |
 | questing | amd64 i386 arm64 riscv64   |
 | plucky   | amd64 i386 arm64 riscv64   |
+| oracular | amd64 i386 arm64 riscv64   |
 | noble    | amd64 i386 arm64 riscv64   |
 | jammy    | amd64 i386 arm64 riscv64   |
 

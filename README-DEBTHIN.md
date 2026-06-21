@@ -35,7 +35,7 @@ Components: `main contrib non-free non-free-firmware` (bullseye: no `non-free-fi
 
 | Suite                          | Architectures         |
 |--------------------------------|-----------------------|
-| jammy (22.04 LTS), noble (24.04 LTS), plucky (25.04), questing (25.10) | amd64 i386 arm64 riscv64 |
+| jammy (22.04 LTS), noble (24.04 LTS), oracular (24.10), plucky (25.04), questing (25.10), resolute (26.04 LTS) | amd64 i386 arm64 riscv64 |
 | \*-updates, \*-backports       | same as base suite    |
 
 Components: `main restricted universe multiverse`
