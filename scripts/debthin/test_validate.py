@@ -1,3 +1,4 @@
+import json
 import os
 import tempfile
 import unittest
@@ -57,6 +58,53 @@ SHA256:
         self.assertEqual(len(hashes), 3)
         self.assertEqual(hashes[0], ("073a9eb6cfec157a8a184e917d0bb2be7839db080b0edfac7e6e2f139fb2bca2", 2147, "main/binary-amd64/Packages.gz"))
         self.assertEqual(hashes[2], ("7f83b1657ff1fc53b92dc18148a1d65dfc2d4b1fa3d677284addd200126d9069", 50, "main/i18n/Translation-en"))
+
+    def _write_config(self, suites):
+        path = os.path.join(self.temp_dir.name, "config.json")
+        with open(path, "w") as f:
+            json.dump({"ubuntu": {"suites": {s: {} for s in suites}}}, f)
+        return path
+
+    def _make_suite(self, distros_dir, suite, with_packages=True):
+        d = os.path.join(distros_dir, "ubuntu", suite, "main", "binary-amd64")
+        os.makedirs(d, exist_ok=True)
+        if with_packages:
+            open(os.path.join(d, "Packages.gz"), "wb").close()
+
+    def test_suite_coverage_flags_missing_suite(self):
+        """A suite in config.json that produced no output must fail the build.
+
+        This is the oracular (24.10) case: the suite went EOL and moved off
+        archive.ubuntu.com, fetch.py logged a soft WARN, and the suite silently
+        vanished from the build while validation still reported PASSED.
+        """
+        config = self._write_config(["noble", "oracular"])
+        distros_dir = os.path.join(self.temp_dir.name, "dists")
+        self._make_suite(distros_dir, "noble")
+
+        before = validate.global_errors
+        validate.check_suite_coverage(config, distros_dir)
+        self.assertEqual(validate.global_errors - before, 1)
+
+    def test_suite_coverage_flags_suite_without_packages(self):
+        config = self._write_config(["noble"])
+        distros_dir = os.path.join(self.temp_dir.name, "dists")
+        self._make_suite(distros_dir, "noble", with_packages=False)
+
+        before = validate.global_errors
+        validate.check_suite_coverage(config, distros_dir)
+        self.assertEqual(validate.global_errors - before, 1)
+
+    def test_suite_coverage_passes_when_complete(self):
+        config = self._write_config(["noble", "resolute"])
+        distros_dir = os.path.join(self.temp_dir.name, "dists")
+        self._make_suite(distros_dir, "noble")
+        self._make_suite(distros_dir, "resolute")
+
+        before = validate.global_errors
+        validate.check_suite_coverage(config, distros_dir)
+        self.assertEqual(validate.global_errors - before, 0)
+
 
 if __name__ == "__main__":
     unittest.main()

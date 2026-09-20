@@ -406,6 +406,38 @@ def validate_distro(distro_dir: str, cache_dir: str = None) -> DistroResult:
 
     return result
 
+def check_suite_coverage(config_path: str, distros_dir: str):
+    """Fail if a suite declared in config.json produced no output.
+
+    fetch.py treats an upstream 404 as a soft WARN, so a suite that has gone
+    EOL (and moved off the mirror) is silently dropped from the build instead
+    of failing it. Everything downstream only ever walks dist_output/, so the
+    gap is invisible. Cross-check the config against what was actually built.
+    """
+    try:
+        with open(config_path, "r", encoding="utf-8") as f:
+            config = json.load(f)
+    except Exception as e:
+        fail_msg(f"cannot read config for suite coverage check: {e}")
+        return
+
+    for distro, meta in config.items():
+        if not isinstance(meta, dict):
+            continue
+        for suite in sorted((meta.get("suites") or {}).keys()):
+            suite_dir = os.path.join(distros_dir, distro, suite)
+            if not os.path.isdir(suite_dir):
+                fail_msg(f"configured suite missing from build: {distro}/{suite}")
+                continue
+            has_packages = any(
+                "Packages.gz" in files for _, _, files in os.walk(suite_dir)
+            )
+            if not has_packages:
+                fail_msg(f"configured suite built with no Packages.gz: {distro}/{suite}")
+            else:
+                pass_msg(f"suite present: {distro}/{suite}")
+
+
 def main():
     global global_errors, global_warnings
     
@@ -429,6 +461,10 @@ def main():
     check_config_json(os.path.join(args.dist_output, "config.json"))
     
     distros_dir = os.path.join(args.dist_output, "dists")
+
+    print("=== Suite coverage ===")
+    check_suite_coverage(os.path.join(args.dist_output, "config.json"), distros_dir)
+
     distro_dirs = []
     if os.path.exists(distros_dir) and os.path.isdir(distros_dir):
         for entry in os.listdir(distros_dir):

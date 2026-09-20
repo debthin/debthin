@@ -156,24 +156,6 @@
         ],
         "curated_base": "debian/bookworm"
       },
-      "oracular": {
-        "aliases": [
-          "24.10"
-        ],
-        "curated_base": "debian/trixie"
-      },
-      "oracular-updates": {
-        "aliases": [
-          "24.10-updates"
-        ],
-        "curated_base": "debian/trixie"
-      },
-      "oracular-backports": {
-        "aliases": [
-          "24.10-backports"
-        ],
-        "curated_base": "debian/trixie"
-      },
       "plucky": {
         "aliases": [
           "25.04"
