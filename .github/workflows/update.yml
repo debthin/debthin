@@ -81,3 +81,35 @@ jobs:
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
         run: |
           bash scripts/debthin/build.sh
+
+      # Confirms the build users actually receive, not just the one we produced.
+      # A successful upload step is not proof: the 2026-05/09 outage served a
+      # May index for months while every check upstream of the edge looked fine.
+      - name: Verify live service is serving this build
+        run: |
+          for attempt in 1 2 3; do
+            if python3 scripts/debthin/check_freshness.py --max-age-hours 6; then
+              exit 0
+            fi
+            echo "attempt $attempt failed; retrying in 20s (edge propagation)" >&2
+            sleep 20
+          done
+          echo "::error::live service is not serving a current build" >&2
+          exit 1
+
+      # Dead-man's switch. Everything above only runs when the workflow runs -
+      # and the root cause of the 2026-05 outage was GitHub silently disabling
+      # this workflow for inactivity, so nothing ran and nothing alerted for
+      # ~3.5 months. An external monitor expecting a periodic ping is the only
+      # thing that catches that. Optional: skipped when HEARTBEAT_URL is unset.
+      - name: Ping heartbeat monitor
+        if: success()
+        env:
+          HEARTBEAT_URL: ${{ secrets.HEARTBEAT_URL }}
+        run: |
+          if [[ -z "${HEARTBEAT_URL:-}" ]]; then
+            echo "HEARTBEAT_URL not set - skipping (see README-DEBTHIN.md)"
+            exit 0
+          fi
+          curl -fsS --max-time 20 --retry 3 "$HEARTBEAT_URL" > /dev/null
+          echo "heartbeat pinged"
