@@ -32,6 +32,10 @@ async function handleRequest(request, env, ctx) {
         serviceName: "debthin",
         getStats: getCacheStats,
         flush: purgeAllCaches,
+        // Makes /health 503 when the indexes we serve have gone stale, so an
+        // ordinary HTTP uptime check catches a pipeline that stopped running.
+        // Only debthin publishes status.json; images and proxy opt out.
+        freshnessKey: "status.json",
     });
     if (adminResponse) return adminResponse;
 

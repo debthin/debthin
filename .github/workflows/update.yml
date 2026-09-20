@@ -96,20 +96,3 @@ jobs:
           done
           echo "::error::live service is not serving a current build" >&2
           exit 1
-
-      # Dead-man's switch. Everything above only runs when the workflow runs -
-      # and the root cause of the 2026-05 outage was GitHub silently disabling
-      # this workflow for inactivity, so nothing ran and nothing alerted for
-      # ~3.5 months. An external monitor expecting a periodic ping is the only
-      # thing that catches that. Optional: skipped when HEARTBEAT_URL is unset.
-      - name: Ping heartbeat monitor
-        if: success()
-        env:
-          HEARTBEAT_URL: ${{ secrets.HEARTBEAT_URL }}
-        run: |
-          if [[ -z "${HEARTBEAT_URL:-}" ]]; then
-            echo "HEARTBEAT_URL not set - skipping (see README-DEBTHIN.md)"
-            exit 0
-          fi
-          curl -fsS --max-time 20 --retry 3 "$HEARTBEAT_URL" > /dev/null
-          echo "heartbeat pinged"

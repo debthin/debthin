@@ -115,6 +115,77 @@ test('routeAdminPath returns health with R2 ERROR', async () => {
   assert.equal(typeof data.isolate.uptimeSeconds, 'number');
 });
 
+// ── /health freshness ────────────────────────────────────────────────────────
+// R2 being reachable says nothing about whether its contents are current.
+// /health returned 200 OK for the whole of the 2026-05/09 outage because the
+// only probe was a bucket.head(). These cover the freshness signal.
+
+const statusBucket = (builtAt, { missing = false, body = null } = {}) => ({
+  head: async () => ({}),
+  get: async () => {
+    if (missing) return null;
+    return { text: async () => body ?? JSON.stringify({ built_at: builtAt }) };
+  }
+});
+
+const isoHoursAgo = (h) => new Date(Date.now() - h * 3600 * 1000).toISOString().replace(/\.\d{3}Z$/, 'Z');
+
+test('health reports OK when the published build is recent', async () => {
+  const opts = { ...adminOpts, bucket: statusBucket(isoHoursAgo(2)), freshnessKey: 'status.json' };
+  const res = await routeAdminPath('health', {}, opts);
+  assert.equal(res.status, 200);
+  const body = JSON.parse(await res.text());
+  assert.equal(body.status, 'OK');
+  assert.equal(body.freshness.state, 'OK');
+  assert.ok(body.freshness.ageSeconds >= 7000);
+});
+
+test('health reports 503 STALE when the build is older than maxAge', async () => {
+  const opts = { ...adminOpts, bucket: statusBucket(isoHoursAgo(50)), freshnessKey: 'status.json' };
+  const res = await routeAdminPath('health', {}, opts);
+  assert.equal(res.status, 503);
+  const body = JSON.parse(await res.text());
+  assert.equal(body.status, 'DEGRADED');
+  assert.equal(body.freshness.state, 'STALE');
+});
+
+test('health honours an explicit maxAgeMs', async () => {
+  const opts = { ...adminOpts, bucket: statusBucket(isoHoursAgo(5)), freshnessKey: 'status.json', maxAgeMs: 3600 * 1000 };
+  const res = await routeAdminPath('health', {}, opts);
+  assert.equal(res.status, 503);
+  assert.equal(JSON.parse(await res.text()).freshness.state, 'STALE');
+});
+
+test('health reports 503 when status.json is missing', async () => {
+  const opts = { ...adminOpts, bucket: statusBucket(null, { missing: true }), freshnessKey: 'status.json' };
+  const res = await routeAdminPath('health', {}, opts);
+  assert.equal(res.status, 503);
+  assert.equal(JSON.parse(await res.text()).freshness.state, 'ERROR');
+});
+
+test('health reports 503 on malformed status.json rather than throwing', async () => {
+  const opts = { ...adminOpts, bucket: statusBucket(null, { body: 'not json' }), freshnessKey: 'status.json' };
+  const res = await routeAdminPath('health', {}, opts);
+  assert.equal(res.status, 503);
+  assert.equal(JSON.parse(await res.text()).freshness.state, 'ERROR');
+});
+
+test('health reports 503 when built_at is unparseable', async () => {
+  const opts = { ...adminOpts, bucket: statusBucket('not-a-date'), freshnessKey: 'status.json' };
+  const res = await routeAdminPath('health', {}, opts);
+  assert.equal(res.status, 503);
+  assert.equal(JSON.parse(await res.text()).freshness.state, 'ERROR');
+});
+
+test('health omits freshness entirely when no freshnessKey is given', async () => {
+  // images and proxy publish no status.json - their behaviour must not change.
+  const res = await routeAdminPath('health', {}, adminOpts);
+  assert.equal(res.status, 200);
+  const body = JSON.parse(await res.text());
+  assert.equal(body.freshness, undefined);
+  assert.equal(body.status, 'OK');
+});
+
 test('routeAdminPath returns cache status with valid secret', async () => {
   const env = { ADMIN_SECRET: 'abc123' };
   const res = routeAdminPath('_cache_status.abc123', env, adminOpts);
