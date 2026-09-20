@@ -230,3 +230,4 @@ test_cache/
 .venv/
 node_modules/
 .npm-cache/
+.cf_deploy_token
