@@ -29,6 +29,18 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: "22"
+      - name: Install worker dependencies
+        working-directory: workers
+        run: npm ci
+
+      # `npm run typecheck` has existed since the noImplicitAny work but no
+      # workflow ran it, so main drifted into failing it unnoticed. Same shape
+      # as the manual worker deploys this file replaced: tooling that exists
+      # but is not enforced stops being true.
+      - name: Typecheck workers
+        working-directory: workers
+        run: npm run typecheck
+
       - name: Run worker unit tests
         run: node --test "workers/tests/unit/*.test.js"
 
