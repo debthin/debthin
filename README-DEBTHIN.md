@@ -181,6 +181,38 @@ GitHub secrets required:
 | `R2_ACCESS_KEY` | R2 access key ID |
 | `R2_SECRET_KEY` | R2 secret access key |
 | `R2_BUCKET` | R2 bucket name |
+| `HEARTBEAT_URL` | Optional. Dead-man's-switch ping URL (see Monitoring) |
+
+Set secrets with `printf %s`, not `echo` - a trailing newline in any R2 value
+breaks the upload recipe's shell quoting:
+
+```bash
+printf %s 'VALUE' | gh secret set R2_SECRET_KEY
+```
+
+`build.sh` rejects whitespace in these values up front and names the offending
+variable, rather than letting it reach `/bin/sh`.
+
+## Monitoring
+
+After upload, the pipeline fetches the published `status.json` and fails if the
+`built_at` it finds is not recent - verifying what users are actually served,
+not just what the build produced.
+
+Use `status.json`, not the `Date` field in `InRelease`, for freshness. debthin
+copies `Date` from upstream, so a base suite such as `ubuntu/noble` reports its
+2024 release date indefinitely and is not a staleness signal.
+
+```bash
+python3 scripts/debthin/check_freshness.py --max-age-hours 48
+```
+
+That check only runs when the workflow runs. GitHub disables `schedule:`
+workflows after 60 days of repo inactivity, which in 2026 froze the indexes for
+~3.5 months with no alert. To catch that, set `HEARTBEAT_URL` to a dead-man's
+-switch endpoint (healthchecks.io, Better Stack, or similar) configured to
+alert when a daily ping stops arriving. The workflow pings it on success and
+skips silently when the secret is unset.
 
 ## Trademark notice
 
