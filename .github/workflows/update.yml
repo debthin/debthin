@@ -1,9 +1,22 @@
 name: Update debthin indexes
 
+# NOTE: GitHub disables `schedule:` workflows after 60 days with no repo
+# activity (this happened on ~2026-05-30 and froze the indexes for months,
+# with no notification beyond an email to the repo owner). The `push:` trigger
+# below both republishes on config changes and resets that inactivity clock
+# whenever anyone commits. If the repo goes quiet for 60 days it can still be
+# disabled - check `gh workflow list --all` for `disabled_inactivity`.
 on:
   schedule:
     - cron: "0 4 * * *"   # daily index update
     - cron: "0 3 * * 0"   # weekly re-curation on Sundays
+  push:
+    branches: [main]
+    paths:
+      - config.json
+      - required_packages/**
+      - scripts/debthin/**
+      - .github/workflows/update.yml
   workflow_dispatch:
     inputs:
       force_recurate:
