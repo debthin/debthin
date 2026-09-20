@@ -15,6 +15,9 @@ const H_JSON = Object.freeze({
 });
 
 const ROBOTS_BODY = "User-agent: *\nAllow: /$\nDisallow: /\n";
+// Daily pipeline plus slack for GitHub's scheduled-run drift, which has been
+// observed at 2-4h behind the 04:00 UTC cron.
+const DEFAULT_MAX_AGE_MS = 36 * 60 * 60 * 1000;
 const DEFAULT_METHODS = ["GET", "HEAD"];
 const ISOLATE_ID = Math.random().toString(16).slice(2, 10);
 // Cloudflare Workers return 0 from Date.now() at module scope.
@@ -83,25 +86,75 @@ function isValidSecret(env, provided) {
 }
 
 /**
- * Returns a health check response with R2 connectivity status,
- * aggregated cache statistics, and isolate uptime telemetry.
+ * Reads a published status document and reports whether its build is recent.
+ * Never throws: an unreadable or malformed document is reported as ERROR so
+ * the health endpoint degrades rather than 500s.
+ *
+ * @param {R2Bucket} bucket - R2 bucket binding holding the status document.
+ * @param {string} key - Object key, e.g. "status.json".
+ * @param {number} maxAgeMs - Age beyond which the build counts as stale.
+ * @param {number} now - Current epoch ms.
+ * @returns {Promise<{state: string, reason?: string, builtAt?: string, ageSeconds?: number, maxAgeSeconds?: number}>} Freshness verdict.
+ */
+async function checkFreshness(bucket, key, maxAgeMs, now) {
+    let builtAt;
+    try {
+        const obj = await bucket.get(key);
+        if (!obj) return { state: "ERROR", reason: `${key} not found` };
+        builtAt = JSON.parse(await obj.text()).built_at;
+    } catch (e) {
+        return { state: "ERROR", reason: `cannot read ${key}: ${e.message}` };
+    }
+
+    if (!builtAt) return { state: "ERROR", reason: `no built_at in ${key}` };
+
+    const built = Date.parse(builtAt);
+    if (Number.isNaN(built)) {
+        return { state: "ERROR", reason: `unparseable built_at: ${builtAt}` };
+    }
+
+    const ageMs = now - built;
+    return {
+        state: ageMs > maxAgeMs ? "STALE" : "OK",
+        builtAt,
+        ageSeconds: Math.floor(ageMs / 1000),
+        maxAgeSeconds: Math.floor(maxAgeMs / 1000)
+    };
+}
+
+/**
+ * Returns a health check response with R2 connectivity status, optional data
+ * freshness, aggregated cache statistics, and isolate uptime telemetry.
  *
  * @param {R2Bucket} bucket - R2 bucket binding to probe.
  * @param {string} serviceName - Identifies the worker in the response.
  * @param {Function} getStats - Returns aggregated cache stats object.
+ * @param {string} [freshnessKey] - Status document key; omit to skip the check.
+ * @param {number} [maxAgeMs] - Staleness threshold (default 36h).
  * @returns {Promise<Response>} JSON health response (200 OK or 503 DEGRADED).
  */
-async function handleHealth(bucket, serviceName, getStats) {
+async function handleHealth(bucket, serviceName, getStats, freshnessKey, maxAgeMs) {
     let r2 = "OK";
     try { await bucket.head("healthcheck-ping"); } catch { r2 = "ERROR"; }
 
     const now = Date.now();
     const uptimeSeconds = Math.floor((now - ISOLATE_START_TIME) / 1000);
 
+    // Opt-in: only workers that publish a status.json pass a freshnessKey.
+    // R2 being reachable says nothing about whether what it holds is current -
+    // this endpoint returned 200 OK for the whole of the 2026-05/09 outage.
+    let freshness = null;
+    if (freshnessKey) {
+        freshness = await checkFreshness(bucket, freshnessKey, maxAgeMs ?? DEFAULT_MAX_AGE_MS, now);
+    }
+
+    const healthy = r2 === "OK" && (!freshness || freshness.state === "OK");
+
     const body = {
-        status: r2 === "OK" ? "OK" : "DEGRADED",
+        status: healthy ? "OK" : "DEGRADED",
         service: serviceName,
         r2,
+        ...(freshness ? { freshness } : {}),
         isolate: {
             id: ISOLATE_ID,
             uptimeSeconds,
@@ -111,7 +164,7 @@ async function handleHealth(bucket, serviceName, getStats) {
         time: now
     };
     return new Response(JSON.stringify(body, null, 2) + "\n", {
-        status: r2 === "OK" ? 200 : 503,
+        status: healthy ? 200 : 503,
         headers: H_JSON
     });
 }
@@ -163,22 +216,24 @@ function handleFlush(flushFn) {
  *
  * Expected paths (none contain a slash):
  *   robots.txt               → synthetic robots.txt
- *   health                   → R2 probe + cache stats
+ *   health                   → R2 probe + data freshness + cache stats
  *   _cache_status.{secret}   → L1 cache stats (JSON)
  *   _cache_flush.{secret}    → flush all L1 caches
  *
  * @param {string} rawPath - URL path without leading slash.
  * @param {Env} env - Cloudflare environment bindings (needs ADMIN_SECRET).
- * @param {{bucket: R2Bucket, serviceName: string, getStats: Function, flush: Function}} opts - Handler configuration.
+ * @param {{bucket: R2Bucket, serviceName: string, getStats: Function, flush: Function, freshnessKey?: string, maxAgeMs?: number}} opts - Handler configuration.
+ *   freshnessKey: JSON object in the bucket carrying a `built_at` timestamp.
+ *   When set, /health reports 503 if that build is older than maxAgeMs.
  * @returns {Promise<Response>|Response|null} Admin response or null if not matched.
  */
-export function routeAdminPath(rawPath, env, { bucket, serviceName, getStats, flush }) {
+export function routeAdminPath(rawPath, env, { bucket, serviceName, getStats, flush, freshnessKey, maxAgeMs }) {
     if (rawPath === "robots.txt") {
         return handleRobots();
     }
 
     if (rawPath === "health") {
-        return handleHealth(bucket, serviceName, getStats);
+        return handleHealth(bucket, serviceName, getStats, freshnessKey, maxAgeMs);
     }
 
     if (rawPath.startsWith("_cache_status.")) {

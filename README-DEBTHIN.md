@@ -181,7 +181,6 @@ GitHub secrets required:
 | `R2_ACCESS_KEY` | R2 access key ID |
 | `R2_SECRET_KEY` | R2 secret access key |
 | `R2_BUCKET` | R2 bucket name |
-| `HEARTBEAT_URL` | Optional. Dead-man's-switch ping URL (see Monitoring) |
 
 Set secrets with `printf %s`, not `echo` - a trailing newline in any R2 value
 breaks the upload recipe's shell quoting:
@@ -207,12 +206,28 @@ copies `Date` from upstream, so a base suite such as `ubuntu/noble` reports its
 python3 scripts/debthin/check_freshness.py --max-age-hours 48
 ```
 
-That check only runs when the workflow runs. GitHub disables `schedule:`
-workflows after 60 days of repo inactivity, which in 2026 froze the indexes for
-~3.5 months with no alert. To catch that, set `HEARTBEAT_URL` to a dead-man's
--switch endpoint (healthchecks.io, Better Stack, or similar) configured to
-alert when a daily ping stops arriving. The workflow pings it on success and
-skips silently when the secret is unset.
+That check only runs when the workflow runs, so it cannot detect the workflow
+not running - which is how the 2026 outage began, when GitHub disabled the
+schedule for repo inactivity and nothing reported anything for ~3.5 months.
+
+The edge covers that case instead. `GET /health` on the debthin worker reads
+`status.json` from R2 and returns **503** when `built_at` is older than 36h
+(a daily pipeline plus slack for GitHub's scheduled-run drift):
+
+```json
+{
+  "status": "DEGRADED",
+  "freshness": { "state": "STALE", "builtAt": "...", "ageSeconds": 9069360 }
+}
+```
+
+Point an ordinary HTTP uptime check at `http://debthin.org/health`. Because the
+worker computes freshness per request, this works regardless of whether the
+pipeline is running - a pipeline that has stopped cannot mask its own absence.
+Do not monitor `InRelease` or any index path for this: those return 200 for
+stale content, which is exactly why the outage went unnoticed.
+
+`images` and `proxy` publish no `status.json` and omit the freshness block.
 
 ## Trademark notice
 
